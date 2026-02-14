@@ -12,12 +12,51 @@ from . import agents
 ##
 
 
-gym.register(
-    id="Template-Go2-Rl-Lab-v0",
-    entry_point="isaaclab.envs:ManagerBasedRLEnv",
-    disable_env_checker=True,
+# velocity envs
+
+gym.register(                                                                                                       
+    id="Go2-Velocity-v0",                                                                                
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",                                                                  
+    disable_env_checker=True,                                                                                       
     kwargs={
-        "env_cfg_entry_point": f"{__name__}.go2_rl_lab_env_cfg:Go2RlLabEnvCfg",
+        "env_cfg_entry_point": f"{__name__}.go2_velocity_env_cfg:UnitreeGo2EnvCfg",
         "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:PPORunnerCfg",
     },
 )
+
+
+gym.register(                                                                                                       
+    id="Go2-Velocity-Play-v0",                                                                                
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",                                                                  
+    disable_env_checker=True,                                                                                       
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_velocity_env_cfg:UnitreeGo2EnvCfg_PLAY",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:PPORunnerCfg",
+    },
+)
+
+
+# force envs
+
+gym.register(                                                                                                       
+    id="Go2-Force-v0",                                                                                
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",                                                                  
+    disable_env_checker=True,                                                                                       
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_force_env_cfg:UnitreeGo2EnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:PPORunnerCfg",
+    },
+)
+
+
+
+gym.register(                                                                                                       
+    id="Go2-Force-Play-v0",                                                                                
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",                                                                  
+    disable_env_checker=True,                                                                                       
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_force_env_cfg:UnitreeGo2EnvCfg_PLAY",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ppo_cfg:PPORunnerCfg",
+    },
+)
+
