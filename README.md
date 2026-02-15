@@ -38,36 +38,6 @@
   - **Self-Contained Environment Configs** — Single-file environment configurations with all rewards, observations,
   events, and scene definitions in one place.
 
-  ## Repository Structure
-
-  go2_rl_lab/
-  ├── assets/
-  │   └── unitree/                    # Robot URDF/USD and actuator configs (PACE-optimized)
-  ├── tasks/
-  │   └── manager_based/
-  │       └── go2_rl_lab/
-  │           ├── go2_velocity_env_cfg.py   # Self-contained env config
-  │           ├── mdp/
-  │           │   ├── init.py           # Re-exports IsaacLab + custom mdp functions
-  │           │   └── rewards.py            # Custom reward functions (compliance, gait, etc.)
-  │           └── agents/
-  │               └── rsl_rl_ppo_cfg.py     # PPO training configuration
-  ├── sim2sim/
-  │   ├── sim2sim_deploy.py           # MuJoCo sim2sim with FSM + keyboard/joystick
-  │   └── logs/                       # Deployment logs (.npz)
-  ├── deploy_real/
-  │   ├── deploy_isaac_config_propioceptive.py  # Real robot deployment script
-  │   ├── configs/
-  │   │   └── go2_isaaclab.yaml       # Deployment config (obs order, gains, joint mapping)
-  │   └── common/
-  │       ├── remote_controller.py    # Joystick button/stick parsing
-  │       ├── rotation_helper.py      # Gravity projection, IMU transforms
-  │       └── command_helper.py       # Motor command utilities
-  ├── pre_train/
-  │   └── policy_isaaclab_propioceptive.pt  # Trained policy (TorchScript)
-  └── pace/
-      └── ...                         # System identification data and scripts
-
   ## Getting Started
 
   ### Prerequisites
