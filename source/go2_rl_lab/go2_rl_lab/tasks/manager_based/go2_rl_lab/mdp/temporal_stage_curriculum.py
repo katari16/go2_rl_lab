@@ -63,7 +63,7 @@ class TemporalStageCurriculum(ManagerTermBase):
         self._push_vel = torch.zeros(env.num_envs, 2, dtype=torch.float32, device=env.device)
 
         # Cache original reward weights
-        self._track_lin_cfg = env.reward_manager.get_term_cfg("track_lin_vel_xy")
+        self._track_lin_cfg = env.reward_manager.get_term_cfg("track_lin_vel_xy_exp")
         self._original_lin_weight = self._track_lin_cfg.weight
 
         # Cache robot asset for visualization
@@ -108,7 +108,7 @@ class TemporalStageCurriculum(ManagerTermBase):
 
         if len(walking_envs) > 0:
             # Same pattern as curriculums.py: episode_sum / max_episode_length_s
-            episode_sum = env.reward_manager._episode_sums["track_lin_vel_xy"][walking_envs]
+            episode_sum = env.reward_manager._episode_sums["track_lin_vel_xy_exp"][walking_envs]
             reward_rate = episode_sum / env.max_episode_length_s
 
             # Store debug values

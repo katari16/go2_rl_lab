@@ -95,11 +95,9 @@ class CommandsCfg:
         heading_control_stiffness=0.5,
         debug_vis=True,
         ranges=mdp.UniformVelocityCommandCfg.Ranges(
-            lin_vel_x=(-1.0, 1.0), lin_vel_y=(-1.0, 1.0), ang_vel_z=(-1.0, 1.0), heading=(-math.pi, math.pi)
+            lin_vel_x=(-2.0, 2.0), lin_vel_y=(-2.0, 2.0), ang_vel_z=(-1.0, 1.0), heading=(-math.pi, math.pi)
         ),
-        limit_ranges=mdp.UniformLevelVelocityCommandCfg.Ranges(
-            lin_vel_x=(-1.0, 1.0), lin_vel_y=(-0.4, 0.4), ang_vel_z=(-1.0, 1.0)
-        ),
+
     )
 
 
@@ -292,8 +290,8 @@ class CurriculumCfg:
 
     # terrain_levels = CurrTerm(func=mdp.terrain_levels_vel)
     terrain_levels = None
-    lin_vel_cmd_levels = CurrTerm(func=mdp.lin_vel_cmd_levels)
-    ang_vel_cmd_levels = CurrTerm(func=mdp.ang_vel_cmd_levels)
+    # lin_vel_cmd_levels = CurrTerm(func=mdp.lin_vel_cmd_levels)
+    # ang_vel_cmd_levels = CurrTerm(func=mdp.ang_vel_cmd_levels)
 
     # Temporal stage curriculum for compliance training
     # Divides episode into: WALKING -> RECOVERY (push + frozen rewards) -> POST_RECOVERY
