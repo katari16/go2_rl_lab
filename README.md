@@ -1,188 +1,59 @@
-  **Force-Compliant Quadruped Locomotion with Sim2Real Transfer**                                                     
-                                         
-  A reinforcement learning framework for training and deploying locomotion policies on the Unitree Go2, built on      
-  NVIDIA Isaac Lab. This project addresses two critical challenges in legged robotics: bridging the sim-to-real gap   
-  through system identification, and achieving compliant robot behavior for safe human-robot interaction.
+# Go2 RL Lab
 
-  Submitted to the **NVIDIA GTC Hackathon 2026**.
+**Force-Compliant Quadruped Locomotion with Sim2Real Transfer**
 
-  ---
+A reinforcement learning framework for training and deploying locomotion policies on the Unitree Go2, built on NVIDIA Isaac Lab. This project addresses two critical challenges in legged robotics: bridging the sim-to-real gap through system identification, and achieving compliant robot behavior for safe human-robot interaction.
 
-  ## Overview
+---
 
-  Training RL policies for quadruped locomotion in simulation has become remarkably accessible with frameworks like
-  Isaac Lab. But deploying these policies on real hardware reveals two fundamental problems:
+## Force-Compliant Locomotion
 
-  1. **The Sim-to-Real Gap** — Policies trained in simulation often fail to transfer reliably. Most existing
-  approaches neglect actuator-specific energy losses or depend on complex, hand-tuned reward formulations.
+Control policies trained with deep RL learn to *reject* external forces to maintain stability. This makes them stiff, aggressive, and unsafe around humans. We train end-to-end policies that instead learn to *yield* to external forces — enabling safe, intuitive human-robot interaction without any force sensors.
 
-  2. **Stiff, Unsafe Behavior** — Control policies trained using deep RL often generate stiff, high-frequency motions
-  in response to unexpected disturbances. Policies learn to *reject* external forces to maintain stability, creating
-  potentially dangerous behavior for human-robot interaction.
+<p align="center">
+  <img src="docs/compliance_demo.gif" alt="Force-compliant locomotion demo" width="600"/>
+</p>
 
-  This repository provides an end-to-end solution: from system identification and policy training to sim2sim
-  validation and real-world deployment.
+When pushed, the robot moves compliantly in the force direction instead of fighting back. The response is smooth and controlled — no high-frequency torques, no aggressive rejection. This enables pulling the robot like a dog on a leash, using it as a barrow to carry payload, or simply moving it out of the way safely.
 
-  ## Key Features
+| | Stiff Policy | Compliant Policy |
+|---|---|---|
+| **Push response** | Aggressive force rejection | Smooth yielding in force direction |
+| **Human interaction** | Unsafe, high-frequency torques | Safe, controlled response |
+| **Energy efficiency** | High (fighting disturbances) | Lower (working with disturbances) |
+| **Recovery** | Abrupt | Gradual, smooth |
 
-  - **PACE-based System Identification** — Adapted the [PACE framework](https://arxiv.org/abs/2410.09714) (Precise
-  Adaptation through Continuous Evolution) for the Unitree Go2. Augments the IsaacLab `DCMotorCfg` with parameters
-  optimized from real-world data: armature, viscous friction, friction, and encoder bias.
-  - **Force-Compliant Policies** — End-to-end policy architecture where compliance is learned implicitly through a
-  multi-stage reward structure. During normal walking, the robot receives full tracking rewards. After a disturbance,
-  a recovery stage allows the robot to smoothly yield before resuming precise tracking.
-  - **Sim2Sim Validation** — MuJoCo-based deployment pipeline using `unitree_mujoco` for validating policies before
-  real hardware deployment, with full FSM and keyboard/joystick control.
-  - **Zero-Shot Sim2Real Deployment** — Direct deployment on the Unitree Go2 via DDS communication with the
-  unitree_sdk2, no fine-tuning required on hardware.
-  - **Self-Contained Environment Configs** — Single-file environment configurations with all rewards, observations,
-  events, and scene definitions in one place.
+---
 
-  ## Getting Started
+## Bridging the Sim-to-Real Gap with PACE
 
-  ### Prerequisites
+Policies trained in simulation often fail on real hardware. Most approaches neglect actuator-specific energy losses or rely on hand-tuned reward formulations. We adapted the [PACE framework](https://arxiv.org/pdf/2509.06342) for the Unitree Go2 — a large-scale parallelized system identification approach that finds optimal actuator parameters (armature, viscous friction, friction, encoder bias) from real-world data.
 
-  - **NVIDIA Isaac Sim 4.5+** and **Isaac Lab** (latest version required for actuator model support)
-  - **Python 3.10+**
-  - **PyTorch 2.x**
-  - Unitree Go2 with SDK2 (for real deployment)
-  - `unitree_mujoco` (for sim2sim validation)
+<p align="center">
+  <img src="docs/data_collection_real_robot.gif" alt="Real robot data collection" width="45%"/>
+  &nbsp;&nbsp;
+  <img src="docs/system_identification_isaac.gif" alt="System identification in Isaac Lab" width="45%"/>
+</p>
 
-  ### Installation
+**Left:** Real-world data collection — exciting the robot's joints with chirp signals to capture true actuator dynamics.
+**Right:** Large-scale parallelized optimization in Isaac Lab — finding the parameters that best match real-world behavior.
 
-  ```bash
-  # Clone the repository
-  git clone https://github.com/<your-username>/go2_rl_lab.git
-  cd go2_rl_lab
+The identified parameters augment the IsaacLab `DCMotorCfg`, producing a simulator that accurately captures the real actuator dynamics and enables zero-shot deployment.
 
-  # Install as Isaac Lab extension
-  pip install -e .
+| | Without PACE | With PACE |
+|---|---|---|
+| **Sim-to-real transfer** | Sluggish, inconsistent motor response | Smooth, reliable zero-shot deployment |
+| **Tracking accuracy** | Poor, especially rear legs | Consistent across all joints |
+| **Gait quality** | Unstable, jerky | Natural, controlled |
 
-  Training
+---
 
-  # Train on rough terrain
-  python train.py --task Go2-Velocity-Rough-v0 --num_envs 4096
+## Acknowledgments
 
-  # Train on flat terrain (change terrain_type to "plane" in env config)
-  python train.py --task Go2-Velocity-Flat-v0 --num_envs 4096
+- **NVIDIA** — Isaac Sim, Isaac Lab
+- **Unitree Robotics** — Go2 platform and SDK
+- **PACE Authors** — [Original system identification framework](https://arxiv.org/pdf/2509.06342)
 
-  Sim2Sim Validation (MuJoCo)
+## License
 
-  # Terminal 1: Start MuJoCo simulator
-  cd ~/unitree_mujoco/simulate_python && python3 unitree_mujoco.py
-
-  # Terminal 2: Run sim2sim deployment
-  cd sim2sim && python3 sim2sim_deploy.py
-
-  Keyboard controls:
-
-  ┌───────┬─────────────────────┐
-  │  Key  │       Action        │
-  ├───────┼─────────────────────┤
-  │ Enter │ Stand up            │
-  ├───────┼─────────────────────┤
-  │ Space │ Start policy        │
-  ├───────┼─────────────────────┤
-  │ W / S │ Forward / Backward  │
-  ├───────┼─────────────────────┤
-  │ A / D │ Strafe left / right │
-  ├───────┼─────────────────────┤
-  │ Q / E │ Turn left / right   │
-  ├───────┼─────────────────────┤
-  │ Esc   │ Stop and lie down   │
-  └───────┴─────────────────────┘
-
-  Real Robot Deployment
-
-  cd deploy_real
-  python3 deploy_isaac_config_propioceptive.py <network_interface> go2_isaaclab.yaml
-
-  Use the Unitree joystick: START to stand, A to start the policy, SELECT to stop. Left stick controls velocity, right
-   stick controls yaw rate.
-
-  Approach
-
-  1. System Identification with PACE
-
-  Actuator drive dynamics are largely linear, enabling fast optimization. The process:
-
-  1. Data Collection — Excite the robot's joints using chirp signals while recording joint positions, velocities, and
-  torques.
-  2. Large-Scale Optimization — Run parallelized simulations in Isaac Lab to find actuator parameters that best match
-  real-world behavior.
-  3. Retrain — Use the identified parameters to retrain policies with a more accurate simulator.
-
-  The result: policies that capture the true actuator dynamics, enabling reliable zero-shot deployment.
-
-  2. Force-Compliant Policy Training
-
-  Standard RL policies are trained for robustness through domain randomization and push recovery. This teaches the
-  robot to fight against external forces — which makes it stiff and unsafe.
-
-  Our approach uses a multi-stage reward structure:
-
-  - Normal walking — Full velocity tracking rewards drive precise locomotion.
-  - Post-disturbance recovery — After an external force is detected, tracking rewards are given regardless of
-  deviation from the command. This allows the robot to yield to forces and recover smoothly, rather than aggressively
-  rejecting them.
-
-  The result: policies that are both robust (they don't fall over) and compliant (they yield to significant forces),
-  enabling safe human-robot interaction without any force sensors.
-
-  3. Observation Space (45-dim Proprioceptive)
-
-  obs[0:3]   — Base angular velocity (IMU gyroscope)
-  obs[3:6]   — Projected gravity (from IMU quaternion)
-  obs[6:9]   — Velocity commands (vx, vy, wz)
-  obs[9:21]  — Joint positions relative to default (Isaac convention)
-  obs[21:33] — Joint velocities (Isaac convention)
-  obs[33:45] — Last action
-
-  No exteroceptive sensors required. Force estimation is learned implicitly from proprioceptive history.
-
-  Results
-
-  ┌──────────────────────┬───────────────────────────────────────┬───────────────────────────────────────┐
-  │                      │             Without PACE              │               With PACE               │
-  ├──────────────────────┼───────────────────────────────────────┼───────────────────────────────────────┤
-  │ Sim-to-real transfer │ Sluggish, inconsistent motor response │ Smooth, reliable zero-shot deployment │
-  ├──────────────────────┼───────────────────────────────────────┼───────────────────────────────────────┤
-  │ Tracking accuracy    │ Poor, especially rear legs            │ Consistent across all joints          │
-  ├──────────────────────┼───────────────────────────────────────┼───────────────────────────────────────┤
-  │ Gait quality         │ Unstable, jerky                       │ Natural, controlled                   │
-  └──────────────────────┴───────────────────────────────────────┴───────────────────────────────────────┘
-
-  ┌───────────────────┬────────────────────────────────┬────────────────────────────────────┐
-  │                   │          Stiff Policy          │          Compliant Policy          │
-  ├───────────────────┼────────────────────────────────┼────────────────────────────────────┤
-  │ Push response     │ Aggressive force rejection     │ Smooth yielding in force direction │
-  ├───────────────────┼────────────────────────────────┼────────────────────────────────────┤
-  │ Human interaction │ Unsafe, high-frequency torques │ Safe, controlled response          │
-  ├───────────────────┼────────────────────────────────┼────────────────────────────────────┤
-  │ Energy efficiency │ High (fighting disturbances)   │ Lower (working with disturbances)  │
-  ├───────────────────┼────────────────────────────────┼────────────────────────────────────┤
-  │ Recovery          │ Abrupt                         │ Gradual, smooth                    │
-  └───────────────────┴────────────────────────────────┴────────────────────────────────────┘
-
-  Applications
-
-  - Guided locomotion — Pull the robot like guiding a dog on a leash
-  - Payload carrying — Use the robot as a barrow that follows your lead
-  - Collaborative robotics — Move the robot out of the way safely, without a joystick
-  - Construction & warehousing — Robots that navigate safely around people
-
-  Future Work
-
-  - Separate force estimator network — A dedicated network that maps proprioceptive measurements to external force
-  estimates, enabling explicit force-based velocity command generation for improved interpretability and energy
-  efficiency.
-  - Payload-aware locomotion — Real-time analysis of payload dynamics to adjust gait and velocity commands.
-  - Multi-robot collaboration — Compliant policies for robot-robot physical interaction.
-
-  Acknowledgments
-
-  - NVIDIA — Isaac Sim, Isaac Lab, and the GTC Hackathon
-  - Unitree Robotics — Go2 platform and SDK
-  - PACE Authors — Original system identification framework
-
-  License
+BSD-3-Clause
