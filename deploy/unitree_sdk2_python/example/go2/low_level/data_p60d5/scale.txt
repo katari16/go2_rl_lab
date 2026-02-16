@@ -1,0 +1,2 @@
+        scale = torch.tensor([0.3, 0.3, 0.3] * 4)
+since with higer gains the robot does not oscillate uncontrolled scale magnitude has been increased slightly

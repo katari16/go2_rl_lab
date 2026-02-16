@@ -1,0 +1,2 @@
+        scale = torch.tensor([0.2, 0.2, 0.25] * 4)
+the above scale was used. bcs after 3.5 the motors start diverging

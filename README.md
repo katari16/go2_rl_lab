@@ -2,6 +2,12 @@
 
 **Force-Compliant Quadruped Locomotion with Sim2Real Transfer**
 
+<p align="center">
+  <a href="https://youtu.be/JrpNsgq1lOk">
+    <img src="docs/thumbnail.jpeg" alt="Watch the video" width="600"/>
+  </a>
+</p>
+
 A reinforcement learning framework for training and deploying locomotion policies on the Unitree Go2, built on NVIDIA Isaac Lab. This project addresses two critical challenges in legged robotics: bridging the sim-to-real gap through system identification, and achieving compliant robot behavior for safe human-robot interaction.
 
 ---
@@ -27,7 +33,7 @@ When pushed, the robot moves compliantly in the force direction instead of fight
 
 ## Bridging the Sim-to-Real Gap with PACE
 
-Policies trained in simulation often fail on real hardware. Most approaches neglect actuator-specific energy losses or rely on hand-tuned reward formulations. We adapted the [PACE framework](https://arxiv.org/pdf/2509.06342) for the Unitree Go2 — a large-scale parallelized system identification approach that finds optimal actuator parameters (armature, viscous friction, friction, encoder bias) from real-world data.
+Policies trained in simulation often fail on real hardware. Most approaches neglect actuator-specific energy losses or rely on hand-tuned reward formulations. We adapted the [PACE framework](https://arxiv.org/pdf/2509.06342) ([our Go2 adaptation](https://github.com/katari16/pace-sim2real/tree/hans-dev1)) for the Unitree Go2 — a large-scale parallelized system identification approach that finds optimal actuator parameters (armature, viscous friction, friction, encoder bias) from real-world data.
 
 <p align="center">
   <img src="docs/data_collection_real_robot.gif" alt="Real robot data collection" width="45%"/>
@@ -45,6 +51,18 @@ The identified parameters augment the IsaacLab `DCMotorCfg`, producing a simulat
 | **Sim-to-real transfer** | Sluggish, inconsistent motor response | Smooth, reliable zero-shot deployment |
 | **Tracking accuracy** | Poor, especially rear legs | Consistent across all joints |
 | **Gait quality** | Unstable, jerky | Natural, controlled |
+
+---
+
+## Deployment
+
+The repo includes a Python-first deployment script that supports both **sim2real** (real Unitree Go2 hardware) and **sim2sim** (MuJoCo simulator via [unitree_mujoco](https://github.com/unitreerobotics/unitree_mujoco)) deployment. Control the robot with a joystick or keyboard (WASD + QE for movement, Enter/Space/Esc for FSM transitions). All deployment code lives in `deploy/`.
+
+The data collection script for running PACE system identification can be found at [`deploy/unitree_sdk2_python/example/go2/low_level/go2_pace_data_collection.py`](deploy/unitree_sdk2_python/example/go2/low_level/go2_pace_data_collection.py), alongside the data collected during our experiments.
+
+**Dependencies for deployment:**
+- [unitree_mujoco](https://github.com/unitreerobotics/unitree_mujoco) — for sim2sim validation
+- [go2_odometry](https://github.com/inria-paris-robotics-lab/go2_odometry) — Kalman filter for state estimation on real hardware
 
 ---
 
