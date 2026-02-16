@@ -1,10 +1,10 @@
-# Go2 RL Lab
+# Learning Compliance: Bridging the Sim2Real Gap Towards Compliant Legged Locomotion
 
 **Force-Compliant Quadruped Locomotion with Sim2Real Transfer**
 
 <p align="center">
   <a href="https://youtu.be/JrpNsgq1lOk">
-    <img src="docs/thumbnail.jpeg" alt="Watch the video" width="600"/>
+    <img src="docs/thumbnail_final.jpeg" alt="Watch the video" width="600"/>
   </a>
   <br/>
   <b>&#9650;&#65039; &#9654; Click the image above to watch the full video explanation &#9650;&#65039;</b>
