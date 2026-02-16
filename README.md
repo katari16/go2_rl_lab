@@ -6,6 +6,8 @@
   <a href="https://youtu.be/JrpNsgq1lOk">
     <img src="docs/thumbnail.jpeg" alt="Watch the video" width="600"/>
   </a>
+  <br/>
+  <b>&#9650;&#65039; &#9654; Click the image above to watch the full video explanation &#9650;&#65039;</b>
 </p>
 
 A reinforcement learning framework for training and deploying locomotion policies on the Unitree Go2, built on NVIDIA Isaac Lab. This project addresses two critical challenges in legged robotics: bridging the sim-to-real gap through system identification, and achieving compliant robot behavior for safe human-robot interaction.
