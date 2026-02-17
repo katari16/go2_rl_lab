@@ -24,7 +24,7 @@ from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR, ISAACLAB_NUCLEUS_DIR
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
 from . import mdp
-from go2_rl_lab.assets.unitree import UNITREE_GO2_CFG as ROBOT_CFG
+from go2_rl_lab.assets.unitree import UNITREE_GO2_PACE_CFG as ROBOT_CFG
 from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG
 
 

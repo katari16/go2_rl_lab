@@ -447,6 +447,27 @@ if __name__ == "__main__":
     debug_log = []
     should_stop = False
 
+    # ── DEBUG: Print joint mapping on first step ─────────────────────────
+    ISAAC_JOINT_NAMES = [
+        "FL_hip", "FR_hip", "RL_hip", "RR_hip",
+        "FL_thigh", "FR_thigh", "RL_thigh", "RR_thigh",
+        "FL_calf", "FR_calf", "RL_calf", "RR_calf",
+    ]
+    SDK_JOINT_NAMES = [
+        "FR_hip", "FR_thigh", "FR_calf",  # 0,1,2
+        "FL_hip", "FL_thigh", "FL_calf",  # 3,4,5
+        "RR_hip", "RR_thigh", "RR_calf",  # 6,7,8
+        "RL_hip", "RL_thigh", "RL_calf",  # 9,10,11
+    ]
+    print("\n=== JOINT MAPPING DEBUG (standing pose, before policy) ===")
+    print(f"{'Isaac idx':<10} {'Isaac name':<12} {'motor_idx':<10} {'SDK name':<12} {'raw_q':>8} {'default':>8} {'q-def':>8}")
+    for i in range(num_actions):
+        mi = leg_joint2motor_idx[i]
+        raw_q = low_state.motor_state[mi].q
+        def_q = DEFAULT_ANGLES_ISAAC[i]
+        print(f"{i:<10} {ISAAC_JOINT_NAMES[i]:<12} {mi:<10} {SDK_JOINT_NAMES[mi]:<12} {raw_q:>8.3f} {def_q:>8.3f} {raw_q - def_q:>8.3f}")
+    print("=" * 78 + "\n")
+
     try:
         while not should_stop:
             step_start = time.perf_counter()
