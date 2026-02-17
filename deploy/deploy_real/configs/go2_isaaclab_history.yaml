@@ -1,0 +1,34 @@
+msg_type: "go"     # "hg" or "go" for unitree robots
+imu_type: "pelvis" # "torso" or "pelvis"
+
+lowcmd_topic: "rt/lowcmd"     # topic to publish command for the go2 robot
+lowstate_topic: "rt/lowstate" # topic to collect the data from the robot
+
+policy_path: "policy_isaaclab_propioceptive_history.pt"
+
+leg_joint2motor_idx: [3,0,9,6,4,1,10,7,5,2,11,8]                                # Isaac-to-SDK motor index mapping
+default_angles: [-0.1,  0.8, -1.5, 0.1, 0.8, -1.5, -0.1, 1, -1.5, 0.1, 1, -1.5] # SDK ordering: FR(hip,thigh,calf), FL, RR, RL
+
+kps: [ 25.0, 25.0,  25.0,  25.0,  25.0,  25.0,  25.0,  25.0, 25.0,  25.0,  25.0,  25.0]
+kds: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
+
+weak_motor: []
+arm_waist_joint2motor_idx: []
+arm_waist_kps: []
+arm_waist_kds: []
+arm_waist_target: [ ]
+
+# MUST MATCH TRAINING ENVIRONMENT (from env.yaml: decimation=4, sim.dt=0.005)
+# Single frame (45 dims): base_ang_vel(3)*0.25, projected_gravity(3), velocity_commands(3), joint_pos_rel(12), joint_vel_rel(12)*0.05, last_action(12)
+# Policy input: 5 stacked frames = 225 dims [oldest_frame(45) ... newest_frame(45)]
+control_dt: 0.02
+ang_vel_scale: 0.25
+dof_pos_scale: 1.0
+dof_vel_scale: 0.05
+action_scale: 0.25
+cmd_scale: [1.0, 1.0, 1.0]
+num_actions: 12
+num_obs: 225
+obs_size_single: 45
+history_length: 5
+max_cmd: [1.0, 1.0, 1.0]

@@ -326,6 +326,27 @@ def follow_force_direction(env: ManagerBasedRLEnv,std: float,
     env.extras["force_reward_mean"] = reward.mean()
     return reward
 
+def action_smoothness_2(env: ManagerBasedRLEnv) -> torch.Tensor:
+    """Penalize the second-order finite difference of actions: |a_t - 2*a_{t-1} + a_{t-2}|.
+
+    This penalizes jerkiness (sudden changes in acceleration) and produces much smoother
+    gaits than first-order action rate alone. From Walk These Ways (Margolis & Agrawal, 2022).
+    """
+    am = env.action_manager
+    # We need a_{t-2}. Store it on the env since the action manager only keeps one prev.
+    if not hasattr(env, "_action_t_minus_2"):
+        env._action_t_minus_2 = torch.zeros_like(am.action)
+        env._action_t_minus_1 = torch.zeros_like(am.action)
+
+    second_diff = am.action - 2 * env._action_t_minus_1 + env._action_t_minus_2
+
+    # Shift: t-1 becomes t-2, current becomes t-1
+    env._action_t_minus_2 = env._action_t_minus_1.clone()
+    env._action_t_minus_1 = am.action.clone()
+
+    return torch.sum(torch.square(second_diff), dim=1)
+
+
 def track_lin_vel_xy_exp_staged(
     env: ManagerBasedRLEnv,
     std: float,

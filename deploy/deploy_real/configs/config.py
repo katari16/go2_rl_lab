@@ -40,3 +40,6 @@ class Config:
 
             self.num_actions = config["num_actions"]
             self.num_obs = config["num_obs"]
+
+            self.obs_size_single = config.get("obs_size_single", self.num_obs)
+            self.history_length = config.get("history_length", 1)
