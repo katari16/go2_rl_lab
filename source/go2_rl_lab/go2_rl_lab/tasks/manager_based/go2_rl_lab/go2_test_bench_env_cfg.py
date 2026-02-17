@@ -24,7 +24,7 @@ from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR, ISAACLAB_NUCLEUS_DIR
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
 from . import mdp
-from go2_rl_lab.assets.unitree import UNITREE_GO2_PACE_CFG as ROBOT_CFG
+from go2_rl_lab.assets.unitree import UNITREE_GO2_CFG as ROBOT_CFG
 from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG
 
 
@@ -56,8 +56,7 @@ class RobotSceneCfg(InteractiveSceneCfg):
             texture_scale=(0.25, 0.25),
         ),
         debug_vis=False,
-    )
-    # robot
+    )    # robot
     robot: ArticulationCfg = ROBOT_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
     # sensors
     # height_scanner = RayCasterCfg(
@@ -108,8 +107,10 @@ class CommandsCfg:
 class ActionsCfg:
     """Action specifications for the MDP."""
 
-    joint_pos = mdp.JointPositionActionCfg(asset_name="robot", joint_names=[".*"], scale=0.25,
-use_default_offset=True)
+    joint_pos = mdp.mdp.JointPositionActionCfg(
+        asset_name="robot", joint_names=[".*"], scale=0.25, use_default_offset=True, clip={".*": (-100.0, 100.0)}
+    )
+
 
 
 @configclass
@@ -120,11 +121,11 @@ class ObservationsCfg:
     class PolicyCfg(ObsGroup):
         """Observations for policy group — proprioceptive only."""
 
-        base_ang_vel = ObsTerm(func=mdp.base_ang_vel, scale=0.25, clip=(-100, 100), noise=Unoise(n_min=-0.2, n_max=0.2))
+        base_ang_vel = ObsTerm(func=mdp.base_ang_vel,  clip=(-100, 100), noise=Unoise(n_min=-0.2, n_max=0.2))
         projected_gravity = ObsTerm(func=mdp.projected_gravity, clip=(-100, 100), noise=Unoise(n_min=-0.05, n_max=0.05))
         velocity_commands = ObsTerm(func=mdp.generated_commands, clip=(-100, 100), params={"command_name": "base_velocity"})
         joint_pos = ObsTerm(func=mdp.joint_pos_rel, clip=(-100, 100), noise=Unoise(n_min=-0.01, n_max=0.01))
-        joint_vel = ObsTerm(func=mdp.joint_vel_rel, scale=0.05, clip=(-100, 100), noise=Unoise(n_min=-1.5, n_max=1.5))
+        joint_vel = ObsTerm(func=mdp.joint_vel_rel,  clip=(-100, 100), noise=Unoise(n_min=-1.5, n_max=1.5))
         actions = ObsTerm(func=mdp.last_action, clip=(-100, 100))
         # height_scan = ObsTerm(
         #     func=mdp.height_scan,
@@ -142,11 +143,11 @@ class ObservationsCfg:
         """Privileged critic observations."""
 
         base_lin_vel = ObsTerm(func=mdp.base_lin_vel, clip=(-100, 100))
-        base_ang_vel = ObsTerm(func=mdp.base_ang_vel, scale=0.2, clip=(-100, 100))
+        base_ang_vel = ObsTerm(func=mdp.base_ang_vel, clip=(-100, 100))
         projected_gravity = ObsTerm(func=mdp.projected_gravity, clip=(-100, 100))
         velocity_commands = ObsTerm(func=mdp.generated_commands, clip=(-100, 100), params={"command_name": "base_velocity"})
         joint_pos = ObsTerm(func=mdp.joint_pos_rel, clip=(-100, 100))
-        joint_vel = ObsTerm(func=mdp.joint_vel_rel, scale=0.05, clip=(-100, 100))
+        joint_vel = ObsTerm(func=mdp.joint_vel_rel,  clip=(-100, 100))
         actions = ObsTerm(func=mdp.last_action, clip=(-100, 100))
         # height_scan = ObsTerm(
         #     func=mdp.height_scan,
@@ -223,6 +224,14 @@ class EventCfg:
             "position_range": (1.0, 1.0),
             "velocity_range": (0.0, 0.0),
         },
+    )
+
+    # interval
+    push_robot = EventTerm(
+        func=mdp.push_by_setting_velocity,
+        mode="interval",
+        interval_range_s=(10.0, 15.0),
+        params={"velocity_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5)}},
     )
 
 
@@ -305,6 +314,7 @@ class TerminationsCfg:
         func=mdp.illegal_contact,
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="base"), "threshold": 1.0},
     )
+    bad_orientation = DoneTerm(func=mdp.bad_orientation, params={"limit_angle": 0.8})
 
 
 @configclass
