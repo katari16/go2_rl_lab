@@ -245,15 +245,55 @@ class RewardsCfg:
     action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
     feet_air_time = RewTerm(
         func=mdp.feet_air_time,
-        weight=0.01,
+        weight=0.25,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
             "command_name": "base_velocity",
             "threshold": 0.5,
         },
     )
-    flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=0.0)
-    dof_pos_limits = RewTerm(func=mdp.joint_pos_limits, weight=0.0)
+    flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=-2.5)
+    dof_pos_limits = RewTerm(func=mdp.joint_pos_limits, weight=-10.0)
+    energy = RewTerm(func=mdp.energy, weight=-2e-5)
+    undesired_contacts = RewTerm(
+        func=mdp.undesired_contacts,
+        weight=-1.0,
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=[".*_hip", ".*_thigh", ".*_calf"]),
+            "threshold": 1.0,
+        },
+    )
+    feet_slide = RewTerm(
+        func=mdp.feet_slide,
+        weight=-0.1,
+        params={
+            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
+            "asset_cfg": SceneEntityCfg("robot", body_names=".*_foot"),
+        },
+    )
+    action_smoothness_2 = RewTerm(func=mdp.action_smoothness_2, weight=-0.01)
+    joint_symmetry = RewTerm(
+        func=mdp.joint_mirror,
+        weight=-0.5,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "mirror_joints": [
+                ["FL_thigh_joint", "FR_thigh_joint"],
+                ["RL_thigh_joint", "RR_thigh_joint"],
+                ["FL_calf_joint", "FR_calf_joint"],
+                ["RL_calf_joint", "RR_calf_joint"],
+            ],
+        },
+    )
+    feet_clearance = RewTerm(
+        func=mdp.feet_clearence_dense,
+        weight=-0.5,
+        params={
+            "command_name": "base_velocity",
+            "asset_cfg": SceneEntityCfg("robot", body_names=".*_foot"),
+            "target_height": 0.075,
+        },
+    )
 
 
 @configclass
