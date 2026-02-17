@@ -59,7 +59,15 @@ class RobotSceneCfg(InteractiveSceneCfg):
     )
     # robot
     robot: ArticulationCfg = ROBOT_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
-
+    # sensors
+    # height_scanner = RayCasterCfg(
+    #     prim_path="{ENV_REGEX_NS}/Robot/base",
+    #     offset=RayCasterCfg.OffsetCfg(pos=(0.0, 0.0, 20.0)),
+    #     ray_alignment="yaw",
+    #     pattern_cfg=patterns.GridPatternCfg(resolution=0.1, size=[1.6, 1.0]),
+    #     debug_vis=False,
+    #     mesh_prim_paths=["/World/ground"],
+    # )
     height_scanner = None
     contact_forces = ContactSensorCfg(prim_path="{ENV_REGEX_NS}/Robot/.*", history_length=3, track_air_time=True)
     # lights
@@ -100,9 +108,8 @@ class CommandsCfg:
 class ActionsCfg:
     """Action specifications for the MDP."""
 
-    joint_pos = mdp.mdp.JointPositionActionCfg(
-        asset_name="robot", joint_names=[".*"], scale=0.25, use_default_offset=True, clip={".*": (-100.0, 100.0)}
-    )
+    joint_pos = mdp.JointPositionActionCfg(asset_name="robot", joint_names=[".*"], scale=0.25,
+use_default_offset=True)
 
 
 @configclass
@@ -119,12 +126,16 @@ class ObservationsCfg:
         joint_pos = ObsTerm(func=mdp.joint_pos_rel, clip=(-100, 100), noise=Unoise(n_min=-0.01, n_max=0.01))
         joint_vel = ObsTerm(func=mdp.joint_vel_rel, scale=0.05, clip=(-100, 100), noise=Unoise(n_min=-1.5, n_max=1.5))
         actions = ObsTerm(func=mdp.last_action, clip=(-100, 100))
+        # height_scan = ObsTerm(
+        #     func=mdp.height_scan,
+        #     params={"sensor_cfg": SceneEntityCfg("height_scanner")},
+        #     noise=Unoise(n_min=-0.1, n_max=0.1),
+        #     clip=(-1.0, 1.0),
+        # )
 
         def __post_init__(self):
-            self.history_length = 5
             self.enable_corruption = True
             self.concatenate_terms = True
-    policy: PolicyCfg = PolicyCfg()
 
     @configclass
     class CriticCfg(ObsGroup):
@@ -137,13 +148,19 @@ class ObservationsCfg:
         joint_pos = ObsTerm(func=mdp.joint_pos_rel, clip=(-100, 100))
         joint_vel = ObsTerm(func=mdp.joint_vel_rel, scale=0.05, clip=(-100, 100))
         actions = ObsTerm(func=mdp.last_action, clip=(-100, 100))
+        # height_scan = ObsTerm(
+        #     func=mdp.height_scan,
+        #     params={"sensor_cfg": SceneEntityCfg("height_scanner")},
+        #     clip=(-1.0, 1.0),
+        # )
 
         def __post_init__(self):
-            self.history_length = 5
             self.enable_corruption = False
             self.concatenate_terms = True
 
+    policy: PolicyCfg = PolicyCfg()
     critic: CriticCfg = CriticCfg()
+
 
 @configclass
 class EventCfg:
@@ -208,14 +225,6 @@ class EventCfg:
         },
     )
 
-    # interval
-    push_robot = EventTerm(
-        func=mdp.push_by_setting_velocity,
-        mode="interval",
-        interval_range_s=(10.0, 15.0),
-        params={"velocity_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5)}},
-    )
-
 
 @configclass
 class RewardsCfg:
@@ -236,55 +245,15 @@ class RewardsCfg:
     action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
     feet_air_time = RewTerm(
         func=mdp.feet_air_time,
-        weight=0.25,
+        weight=0.01,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
             "command_name": "base_velocity",
             "threshold": 0.5,
         },
     )
-    flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=-2.5)
-    dof_pos_limits = RewTerm(func=mdp.joint_pos_limits, weight=-10.0)
-    energy = RewTerm(func=mdp.energy, weight=-2e-5)
-    undesired_contacts = RewTerm(
-        func=mdp.undesired_contacts,
-        weight=-1.0,
-        params={
-            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=[".*_hip", ".*_thigh", ".*_calf"]),
-            "threshold": 1.0,
-        },
-    )
-    feet_slide = RewTerm(
-        func=mdp.feet_slide,
-        weight=-0.1,
-        params={
-            "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
-            "asset_cfg": SceneEntityCfg("robot", body_names=".*_foot"),
-        },
-    )
-    action_smoothness_2 = RewTerm(func=mdp.action_smoothness_2, weight=-0.01)
-    joint_symmetry = RewTerm(
-        func=mdp.joint_mirror,
-        weight=-0.5,
-        params={
-            "asset_cfg": SceneEntityCfg("robot"),
-            "mirror_joints": [
-                ["FL_thigh_joint", "FR_thigh_joint"],
-                ["RL_thigh_joint", "RR_thigh_joint"],
-                ["FL_calf_joint", "FR_calf_joint"],
-                ["RL_calf_joint", "RR_calf_joint"],
-            ],
-        },
-    )
-    feet_clearance = RewTerm(
-        func=mdp.feet_clearence_dense,
-        weight=-0.5,
-        params={
-            "command_name": "base_velocity",
-            "asset_cfg": SceneEntityCfg("robot", body_names=".*_foot"),
-            "target_height": 0.075,
-        },
-    )
+    flat_orientation_l2 = RewTerm(func=mdp.flat_orientation_l2, weight=0.0)
+    dof_pos_limits = RewTerm(func=mdp.joint_pos_limits, weight=0.0)
 
 
 @configclass
@@ -296,7 +265,6 @@ class TerminationsCfg:
         func=mdp.illegal_contact,
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names="base"), "threshold": 1.0},
     )
-    bad_orientation = DoneTerm(func=mdp.bad_orientation, params={"limit_angle": 0.8})
 
 
 @configclass
@@ -361,7 +329,7 @@ class UnitreeGo2EnvCfg_PLAY(UnitreeGo2EnvCfg):
     def __post_init__(self):
         super().__post_init__()
         # smaller scene for play
-        self.scene.num_envs = 12
+        self.scene.num_envs = 50
         self.scene.env_spacing = 2.5
         self.scene.terrain.max_init_terrain_level = None
         if self.scene.terrain.terrain_generator is not None:

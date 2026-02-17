@@ -1,13 +1,12 @@
 """
 Sim2Sim deployment: Run trained IsaacLab proprioceptive policy (with observation
-history) in unitree_mujoco with full FSM and keyboard + joystick control.
+scaling, no history) in unitree_mujoco with full FSM and keyboard + joystick control.
 
-The policy expects 5 stacked observation frames (225 dims = 5 x 45).
 Observation scales (ang_vel * 0.25, dof_vel * 0.05) are applied to match training.
 
 Usage:
   1. Start unitree_mujoco:  cd ~/unitree_mujoco/simulate_python && python3 unitree_mujoco.py
-  2. Run this script:       cd ~/go2_rl_lab/deploy/sim2sim && python3 sim2sim_deploy_history.py
+  2. Run this script:       cd ~/go2_rl_lab/deploy/sim2sim && python3 sim2sim_deploy_scaled.py
 
 Controls (keyboard):
   Enter  = START (begin stand-up)
@@ -223,12 +222,10 @@ def sport_state_handler(msg):
 
 if __name__ == "__main__":
     project_root = Path(__file__).resolve().parents[1]
-    cfg = load_config(project_root / "deploy_real" / "configs" / "go2_isaaclab_history.yaml")
+    cfg = load_config(project_root / "deploy_real" / "configs" / "go2_isaaclab_scaled.yaml")
 
     num_actions = cfg["num_actions"]
     num_obs = cfg["num_obs"]
-    obs_size_single = cfg.get("obs_size_single", num_obs)
-    history_length = cfg.get("history_length", 1)
     action_scale = cfg["action_scale"]
     ang_vel_scale = cfg.get("ang_vel_scale", 1.0)
     dof_pos_scale = cfg.get("dof_pos_scale", 1.0)
@@ -442,14 +439,13 @@ if __name__ == "__main__":
     # FSM STATE 4: RUN — policy loop at 50 Hz
     # ══════════════════════════════════════════════════════════════════════
     print("\n" + "=" * 60)
-    print(f"  POLICY RUNNING (50 Hz) — {history_length}x{obs_size_single} = {num_obs} obs dims")
+    print("  POLICY RUNNING (50 Hz)")
     print("  Movement: W/S (fwd/back), A/D (strafe), Q/E (turn)")
     print("  Stop: SELECT (joystick) or Esc (keyboard)")
     print("=" * 60 + "\n")
 
     action = np.zeros(num_actions, dtype=np.float32)
-    obs = np.zeros(obs_size_single, dtype=np.float32)
-    obs_history = np.zeros((history_length, obs_size_single), dtype=np.float32)
+    obs = np.zeros(num_obs, dtype=np.float32)
     velocity_cmd = np.array([0.0, 0.0, 0.0], dtype=np.float32)
     policy_dt = control_dt  # 0.02 = 50 Hz
     step_count = 0
@@ -481,11 +477,11 @@ if __name__ == "__main__":
                 velocity_cmd[1] = joy_vy
                 velocity_cmd[2] = joy_wz
 
-            # ── Build observation (45-dim single frame, with scaling) ──
+            # ── Build observation (45-dim proprioceptive, with scaling) ─
             # obs[0:3] = base_ang_vel * ang_vel_scale
-            obs[0] = low_state.imu_state.gyroscope[0] 
-            obs[1] = low_state.imu_state.gyroscope[1] 
-            obs[2] = low_state.imu_state.gyroscope[2]
+            obs[0] = low_state.imu_state.gyroscope[0] * ang_vel_scale
+            obs[1] = low_state.imu_state.gyroscope[1] * ang_vel_scale
+            obs[2] = low_state.imu_state.gyroscope[2] * ang_vel_scale
 
             # obs[3:6] = projected_gravity
             obs[3:6] = get_gravity_orientation(low_state.imu_state.quaternion)
@@ -496,22 +492,18 @@ if __name__ == "__main__":
             # obs[9:21] = (joint_pos - default_joint) * dof_pos_scale (Isaac convention)
             for i in range(num_actions):
                 motor_idx = leg_joint2motor_idx[i]
-                obs[9 + i] = (low_state.motor_state[motor_idx].q - DEFAULT_ANGLES_ISAAC[i]) 
+                obs[9 + i] = (low_state.motor_state[motor_idx].q - DEFAULT_ANGLES_ISAAC[i]) * dof_pos_scale
 
             # obs[21:33] = joint_vel * dof_vel_scale (Isaac convention)
             for i in range(num_actions):
                 motor_idx = leg_joint2motor_idx[i]
-                obs[21 + i] = low_state.motor_state[motor_idx].dq 
+                obs[21 + i] = low_state.motor_state[motor_idx].dq * dof_vel_scale
 
             # obs[33:45] = last_action
             obs[33:45] = action
 
-            # ── Policy inference (stacked history) ─────────────────────
-            # Shift history: drop oldest, append current frame
-            obs_history = np.roll(obs_history, -1, axis=0)
-            obs_history[-1] = obs
-            # Flatten to (1, 225) for the policy — oldest first, newest last
-            obs_tensor = torch.from_numpy(obs_history.flatten()).unsqueeze(0)
+            # ── Policy inference ──────────────────────────────────────
+            obs_tensor = torch.from_numpy(obs).unsqueeze(0)
             action = policy(obs_tensor).detach().numpy().squeeze()
 
             # NaN safety
