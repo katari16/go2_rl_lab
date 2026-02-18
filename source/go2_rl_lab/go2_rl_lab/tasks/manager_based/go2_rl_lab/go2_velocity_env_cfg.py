@@ -261,18 +261,10 @@ class RewardsCfg:
         },
     )
     action_smoothness_2 = RewTerm(func=mdp.action_smoothness_2, weight=-0.01)
-    joint_symmetry = RewTerm(
-        func=mdp.joint_mirror,
-        weight=-0.5,
-        params={
-            "asset_cfg": SceneEntityCfg("robot"),
-            "mirror_joints": [
-                ["FL_thigh_joint", "FR_thigh_joint"],
-                ["RL_thigh_joint", "RR_thigh_joint"],
-                ["FL_calf_joint", "FR_calf_joint"],
-                ["RL_calf_joint", "RR_calf_joint"],
-            ],
-        },
+    pose_similarity = RewTerm(
+        func=mdp.pose_similarity,
+        weight=-0.1,
+        params={"asset_cfg": SceneEntityCfg("robot")},
     )
     feet_clearance = RewTerm(
         func=mdp.feet_clearence_dense,
