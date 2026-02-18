@@ -4,7 +4,7 @@ imu_type: "pelvis" # "torso" or "pelvis"
 lowcmd_topic: "rt/lowcmd"     # topic to publish command for the go2 robot
 lowstate_topic: "rt/lowstate" # topic to collect the data from the robot
 
-policy_path: "policy_pace_cfg_comparasion.pt"
+policy_path: "policy_dc_cfg_comparasion.pt"
 
 leg_joint2motor_idx: [3,0,9,6,4,1,10,7,5,2,11,8]                                # Isaac-to-SDK motor index mapping
 default_angles: [-0.1,  0.8, -1.5, 0.1, 0.8, -1.5, -0.1, 1, -1.5, 0.1, 1, -1.5] # SDK ordering: FR(hip,thigh,calf), FL, RR, RL

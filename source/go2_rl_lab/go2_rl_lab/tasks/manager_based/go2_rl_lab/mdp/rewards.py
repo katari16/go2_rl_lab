@@ -112,31 +112,19 @@ def feet_clearence_dense(
     asset_cfg: SceneEntityCfg,
     target_height: float,
 ) -> torch.Tensor:
-    """Reward the swinging feet for clearing a specified height off the ground"""
+    """Penalize swing feet deviating from target height above ground (world-z).
+
+    target_height is in meters above ground — e.g. 0.10 = 10 cm clearance.
+    Penalty scales with horizontal foot velocity so it only activates during swing.
+    """
     asset: RigidObject = env.scene[asset_cfg.name]
-    cur_footpos_translated = asset.data.body_pos_w[:, asset_cfg.body_ids, :] - asset.data.root_pos_w[:, :].unsqueeze(1)
-    footpos_in_body_frame = torch.zeros(env.num_envs, len(asset_cfg.body_ids), 3, device=env.device)
-    cur_footvel_translated = asset.data.body_lin_vel_w[:, asset_cfg.body_ids, :] - asset.data.root_lin_vel_w[
-        :, :
-    ].unsqueeze(1)
-    footvel_in_body_frame = torch.zeros(env.num_envs, len(asset_cfg.body_ids), 3, device=env.device)
-    for i in range(len(asset_cfg.body_ids)):
-        footpos_in_body_frame[:, i, :] = quat_apply_inverse(asset.data.root_quat_w, cur_footpos_translated[:, i, :])
-        footvel_in_body_frame[:, i, :] = quat_apply_inverse(asset.data.root_quat_w, cur_footvel_translated[:, i, :])
-    foot_z_target_error = torch.square(footpos_in_body_frame[:, :, 2] - target_height).view(env.num_envs, -1)
-
-    # this is reward is more oermisice on fast swings but we want smooth motion when we push the robot so palize velocity^2 rather than tanh(velocity)
-    # foot_velocity_tanh = torch.tanh(tanh_mult * torch.norm(footvel_in_body_frame[:, :, :2], dim=2))
-    # reward = torch.sum(foot_z_target_error * foot_velocity_tanh, dim=1)
-
-    # lets penalize more strong movement with L2 norm
-    foot_velocity_sq = torch.sum(footvel_in_body_frame[:, :, :2]**2, dim=2)  # ||v_xz||²
-    reward = torch.sum(foot_z_target_error * foot_velocity_sq, dim=1)
-
-    reward *= torch.linalg.norm(env.command_manager.get_command(command_name), dim=1) > 0.1
-    reward *= torch.clamp(-env.scene["robot"].data.projected_gravity_b[:, 2], 0, 0.7) / 0.7
-
-    return reward
+    foot_z = asset.data.body_pos_w[:, asset_cfg.body_ids, 2]          # [B, N] world height
+    foot_vel_xy = asset.data.body_lin_vel_w[:, asset_cfg.body_ids, :2]  # [B, N, 2]
+    vel_norm = torch.norm(foot_vel_xy, dim=-1)                          # [B, N]
+    delta = torch.square(foot_z - target_height)                        # [B, N]
+    cost = torch.sum(delta * vel_norm, dim=1)                           # [B]
+    cost *= torch.linalg.norm(env.command_manager.get_command(command_name), dim=1) > 0.1
+    return cost
 
 
 def foot_height_sparse(env: ManagerBasedRLEnv,asset_cfg: SceneEntityCfg, sensor_cfg: SceneEntityCfg,target_height: float
@@ -186,10 +174,27 @@ def foot_clearance_reward(
 def feet_too_near(
     env: ManagerBasedRLEnv, threshold: float = 0.2, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot")
 ) -> torch.Tensor:
+    """Penalize all pairs of feet that are closer than threshold (meters)."""
     asset: Articulation = env.scene[asset_cfg.name]
-    feet_pos = asset.data.body_pos_w[:, asset_cfg.body_ids, :]
-    distance = torch.norm(feet_pos[:, 0] - feet_pos[:, 1], dim=-1)
-    return (threshold - distance).clamp(min=0)
+    feet_pos = asset.data.body_pos_w[:, asset_cfg.body_ids, :]  # [B, N, 3]
+    n = len(asset_cfg.body_ids)
+    total = torch.zeros(env.num_envs, device=env.device)
+    for i in range(n):
+        for j in range(i + 1, n):
+            dist = torch.norm(feet_pos[:, i] - feet_pos[:, j], dim=-1)
+            total += (threshold - dist).clamp(min=0)
+    return total
+
+
+def soft_landing(
+    env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg
+) -> torch.Tensor:
+    """Penalize high impact forces at first foot contact to encourage gentle landings."""
+    contact_sensor: ContactSensor = env.scene.sensors[sensor_cfg.name]
+    contact_time = contact_sensor.data.current_contact_time[:, sensor_cfg.body_ids]
+    first_contact = (contact_time > 0) & (contact_time < env.step_dt + 1e-5)
+    force_magnitude = torch.norm(contact_sensor.data.net_forces_w[:, sensor_cfg.body_ids, :], dim=-1)
+    return torch.sum(force_magnitude * first_contact.float(), dim=1)
 
 
 def feet_contact_without_cmd(
