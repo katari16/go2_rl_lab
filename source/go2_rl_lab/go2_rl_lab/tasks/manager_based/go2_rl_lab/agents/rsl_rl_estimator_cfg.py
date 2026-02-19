@@ -65,10 +65,10 @@ class EstimatorRunnerCfg(RslRlOnPolicyRunnerCfg):
     # These are passed to VelocityEstimator via train_cfg["estimator"].
     estimator: dict = {
         # History window: how many past obs steps the encoder sees
-        "temporal_steps": 50,
+        "temporal_steps": 10,
 
         # Encoder: obs_history → z_t  (enc_hidden_dims[-1] = latent dim = 64)
-        "enc_hidden_dims": [256, 128, 64],
+        "enc_hidden_dims": [128, 64],
 
         # Velocity head: z_t → v̂_t (3-dim)
         "v_head_dims": [32, 16],

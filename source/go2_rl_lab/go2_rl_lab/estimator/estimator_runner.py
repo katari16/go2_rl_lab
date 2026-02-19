@@ -39,20 +39,25 @@ from .velocity_estimator import VelocityEstimator
 
 
 class EstimatorOnPolicyRunner(OnPolicyRunner):
-    """OnPolicyRunner extended with concurrent velocity-estimator training.
+    """OnPolicyRunner extended with concurrent state-estimator training.
 
     Extra keys expected in train_cfg (under "estimator"):
         temporal_steps          int     History window length (default: 50)
         enc_hidden_dims         list    Encoder hidden dims (default: [256,128,64])
         v_head_dims             list    Velocity-head dims (default: [32,16])
+        f_head_dims             list    Force-head dims (default: None — disabled)
+        force_dim               int     Force output dim (default: 2 for XY)
         dec_hidden_dims         list    Decoder dims (default: [512,256,128])
         activation              str     Activation (default: "elu")
         learning_rate           float   Estimator LR (default: 1e-3)
         vel_loss_weight         float   Weight for velocity loss (default: 1.0)
+        force_loss_weight       float   Weight for force loss (default: 1.0)
         rec_loss_weight         float   Weight for reconstruction loss (default: 1.0)
         max_grad_norm           float   Gradient clip (default: 10.0)
         gt_vel_obs_start_idx    int     Slice start in critic obs for gt_velocity
                                         (default: 0 — base_lin_vel is first in critic)
+        gt_force_obs_start_idx  int     Slice start in critic obs for gt_force
+                                        (default: -1 — disabled)
         num_estimator_mini_batches  int  Mini-batches for estimator update (default: 4)
     """
 
@@ -61,6 +66,9 @@ class EstimatorOnPolicyRunner(OnPolicyRunner):
         est_cfg: dict = train_cfg.get("estimator", {})
         self._temporal_steps: int = est_cfg.get("temporal_steps", 50)
         self._gt_vel_start: int = est_cfg.get("gt_vel_obs_start_idx", 0)
+        self._gt_force_start: int = est_cfg.get("gt_force_obs_start_idx", -1)
+        self._force_dim: int = est_cfg.get("force_dim", 2)
+        self._has_force: bool = self._gt_force_start >= 0
         self._num_est_mini_batches: int = est_cfg.get("num_estimator_mini_batches", 4)
 
         # Infer single-step obs dim from env (before augmentation)
@@ -73,16 +81,22 @@ class EstimatorOnPolicyRunner(OnPolicyRunner):
             num_one_step_obs=self._num_one_step_obs,
             enc_hidden_dims=est_cfg.get("enc_hidden_dims", [256, 128, 64]),
             v_head_dims=est_cfg.get("v_head_dims", [32, 16]),
+            f_head_dims=est_cfg.get("f_head_dims", None),
+            force_dim=self._force_dim,
             dec_hidden_dims=est_cfg.get("dec_hidden_dims", [512, 256, 128]),
             activation=est_cfg.get("activation", "elu"),
             learning_rate=est_cfg.get("learning_rate", 1e-3),
             vel_loss_weight=est_cfg.get("vel_loss_weight", 1.0),
+            force_loss_weight=est_cfg.get("force_loss_weight", 1.0),
             rec_loss_weight=est_cfg.get("rec_loss_weight", 1.0),
             max_grad_norm=est_cfg.get("max_grad_norm", 10.0),
         ).to(device)
 
+        heads = "v_head"
+        if self.estimator.has_force_head:
+            heads += " + f_head"
         print(
-            f"[EstimatorRunner] VelocityEstimator: "
+            f"[EstimatorRunner] Estimator ({heads}): "
             f"input={self._temporal_steps}×{self._num_one_step_obs}="
             f"{self._temporal_steps * self._num_one_step_obs}  "
             f"latent_dim={self.estimator.latent_dim}  "
@@ -124,6 +138,7 @@ class EstimatorOnPolicyRunner(OnPolicyRunner):
         # Running stats for logging
         self._est_vel_loss_buf: deque = deque(maxlen=20)
         self._est_rec_loss_buf: deque = deque(maxlen=20)
+        self._est_force_loss_buf: deque = deque(maxlen=20)
 
     # ── Main training loop ────────────────────────────────────────────────
 
@@ -225,17 +240,27 @@ class EstimatorOnPolicyRunner(OnPolicyRunner):
         critic_obs = self.alg.storage.observations["critic"]  # [num_steps, num_envs, critic_dim]
         gt_v = critic_obs[:, :, self._gt_vel_start : self._gt_vel_start + 3].reshape(n, 3).detach()
 
+        # Extract gt_force from critic obs (if force estimation enabled)
+        gt_f = None
+        if self._has_force and self.estimator.has_force_head:
+            gt_f = critic_obs[
+                :, :, self._gt_force_start : self._gt_force_start + self._force_dim
+            ].reshape(n, self._force_dim).detach()
+
         # Mini-batch estimator updates
         batch_size = max(n // self._num_est_mini_batches, 1)
         indices = torch.randperm(n, device=self.device)
-        vel_losses, rec_losses = [], []
+        vel_losses, rec_losses, force_losses = [], [], []
 
         self.estimator.train()
         for start in range(0, n, batch_size):
             idx = indices[start : start + batch_size]
-            v_loss, r_loss, _ = self.estimator.update(obs_h[idx], gt_v[idx], next_o[idx])
-            vel_losses.append(v_loss)
-            rec_losses.append(r_loss)
+            gt_f_batch = gt_f[idx] if gt_f is not None else None
+            losses = self.estimator.update(obs_h[idx], gt_v[idx], next_o[idx], gt_force=gt_f_batch)
+            vel_losses.append(losses["vel_loss"])
+            rec_losses.append(losses["rec_loss"])
+            if "force_loss" in losses:
+                force_losses.append(losses["force_loss"])
         self.estimator.eval()
 
         mean_vel = statistics.mean(vel_losses)
@@ -243,7 +268,13 @@ class EstimatorOnPolicyRunner(OnPolicyRunner):
         self._est_vel_loss_buf.append(mean_vel)
         self._est_rec_loss_buf.append(mean_rec)
 
-        return {"vel_loss": mean_vel, "rec_loss": mean_rec}
+        result = {"vel_loss": mean_vel, "rec_loss": mean_rec}
+        if force_losses:
+            mean_force = statistics.mean(force_losses)
+            self._est_force_loss_buf.append(mean_force)
+            result["force_loss"] = mean_force
+
+        return result
 
     # ── Logging ───────────────────────────────────────────────────────────
 
@@ -256,9 +287,15 @@ class EstimatorOnPolicyRunner(OnPolicyRunner):
         # Tensorboard
         self.writer.add_scalar("Estimator/vel_loss", est_losses["vel_loss"], it)
         self.writer.add_scalar("Estimator/rec_loss", est_losses["rec_loss"], it)
+        if "force_loss" in est_losses:
+            self.writer.add_scalar("Estimator/force_loss", est_losses["force_loss"], it)
         if len(self._est_vel_loss_buf) > 0:
             self.writer.add_scalar(
                 "Estimator/vel_loss_smooth", statistics.mean(self._est_vel_loss_buf), it
+            )
+        if len(self._est_force_loss_buf) > 0:
+            self.writer.add_scalar(
+                "Estimator/force_loss_smooth", statistics.mean(self._est_force_loss_buf), it
             )
 
         # Terminal — append estimator block after normal log
@@ -268,9 +305,15 @@ class EstimatorOnPolicyRunner(OnPolicyRunner):
             f"{'[Estimator]':>{pad}} vel_loss={est_losses['vel_loss']:.5f}  "
             f"rec_loss={est_losses['rec_loss']:.5f}"
         )
+        if "force_loss" in est_losses:
+            est_str += f"  force_loss={est_losses['force_loss']:.5f}"
         if len(self._est_vel_loss_buf) >= 5:
             est_str += (
                 f"  |  smooth_vel={statistics.mean(self._est_vel_loss_buf):.5f}"
+            )
+        if len(self._est_force_loss_buf) >= 5:
+            est_str += (
+                f"  smooth_frc={statistics.mean(self._est_force_loss_buf):.5f}"
             )
         print(est_str)
 

@@ -41,12 +41,12 @@ This implementation adapts the **Stage 1** architecture from:
 
 ```
 Observation History (last H steps of proprioception)
-  o_t^H  ∈  ℝ^{H × D_obs}         H=50, D_obs=45  ⟹  2250-dim flattened input
+  o_t^H  ∈  ℝ^{H × D_obs}         H=10, D_obs=45  ⟹  450-dim flattened input
 
        │
        ▼
   ┌─────────────────────────────┐
-  │  Encoder MLP                │   [2250 → 256 → 128 → 64]   activation: ELU
+  │  Encoder MLP                │   [450 → 128 → 64]   activation: ELU
   │  (obs history → z_t)        │
   └─────────────────────────────┘
        │
@@ -155,7 +155,7 @@ Three MLP sub-networks sharing one Adam optimizer:
 
 | Sub-net     | Input         | Output       |
 |-------------|---------------|--------------|
-| `encoder`   | H × D_obs     | z_t (64-dim) |
+| `encoder`   | H × D_obs (450) | z_t (64-dim) |
 | `v_head`    | z_t (64)      | v̂_t (3-dim) |
 | `decoder`   | l_t (67)      | ô_{t+1} (45) |
 
@@ -280,8 +280,8 @@ Loading resumes both policy and estimator training from the same file transparen
 
 | Parameter                  | Default    | Effect                                                  |
 |----------------------------|------------|---------------------------------------------------------|
-| `temporal_steps`           | 50         | History window. Longer = richer context, larger encoder input. |
-| `enc_hidden_dims`          | [256,128,64] | Encoder capacity. `enc_hidden_dims[-1]` = latent dim.  |
+| `temporal_steps`           | 10         | History window (~0.2s at 50Hz). Sufficient for velocity estimation. |
+| `enc_hidden_dims`          | [128,64]   | Encoder capacity. `enc_hidden_dims[-1]` = latent dim.  |
 | `v_head_dims`              | [32,16]    | Small head sufficient; velocity is a simple projection. |
 | `dec_hidden_dims`          | [512,256,128] | Decoder capacity for reconstruction.                 |
 | `learning_rate`            | 1e-3       | Estimator Adam LR (separate from PPO LR).               |

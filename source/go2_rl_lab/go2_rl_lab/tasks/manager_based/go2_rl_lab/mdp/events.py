@@ -15,6 +15,60 @@ if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
 
 
+def apply_persistent_xy_force(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    force_range: tuple[float, float],
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names="base"),
+) -> None:
+    """Apply persistent external XY force to the robot base (Z component zeroed).
+
+    Intended for use with ``mode="interval"`` and ``interval_range_s=(3.0, 5.0)``
+    so forces are re-randomized every ~4 seconds.  Uses the permanent wrench
+    composer API (same as ``apply_external_force_torque``).
+
+    The force magnitude is sampled uniformly in ``[min, max]`` with random sign
+    independently for X and Y, with Z = 0.
+
+    Args:
+        env: The environment instance.
+        env_ids: Environment indices to randomize.
+        force_range: (min_abs, max_abs) magnitude range for each XY axis.
+        asset_cfg: Asset and body to apply force to.
+    """
+    asset: RigidObject | Articulation = env.scene[asset_cfg.name]
+    num = len(env_ids)
+    if env_ids is None:
+        env_ids = torch.arange(env.scene.num_envs, device=asset.device)
+
+    # Resolve number of bodies
+    num_bodies = len(asset_cfg.body_ids) if isinstance(asset_cfg.body_ids, list) else asset.num_bodies
+
+    lo, hi = float(force_range[0]), float(force_range[1])
+    if hi < 1e-6:
+        # No force — set zeros
+        forces = torch.zeros(num, num_bodies, 3, device=asset.device)
+        torques = torch.zeros(num, num_bodies, 3, device=asset.device)
+    else:
+        # Sample magnitude with random sign for X and Y, Z=0
+        mag = torch.empty(num, 2, device=asset.device).uniform_(lo, hi)
+        sign = torch.sign(torch.empty(num, 2, device=asset.device).uniform_(-1, 1))
+        sign[sign == 0] = 1.0
+        xy_force = mag * sign
+
+        forces = torch.zeros(num, num_bodies, 3, device=asset.device)
+        forces[:, :, 0] = xy_force[:, 0:1]
+        forces[:, :, 1] = xy_force[:, 1:2]
+        torques = torch.zeros(num, num_bodies, 3, device=asset.device)
+
+    asset.permanent_wrench_composer.set_forces_and_torques(
+        forces=forces,
+        torques=torques,
+        body_ids=asset_cfg.body_ids,
+        env_ids=env_ids,
+    )
+
+
 def push_by_setting_velocity_with_return(
     env: ManagerBasedEnv,
     env_ids: torch.Tensor,

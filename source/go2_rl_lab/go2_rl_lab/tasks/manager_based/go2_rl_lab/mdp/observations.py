@@ -1,4 +1,5 @@
 from __future__ import annotations
+from isaaclab.assets import Articulation
 from isaaclab.managers import SceneEntityCfg
 import torch
 from typing import TYPE_CHECKING
@@ -25,6 +26,22 @@ def gait_phase(env: ManagerBasedRLEnv, period: float) -> torch.Tensor:
     phase[:, 0] = torch.sin(global_phase * torch.pi * 2.0)
     phase[:, 1] = torch.cos(global_phase * torch.pi * 2.0)
     return phase
+
+def base_applied_force_xy(
+    env: ManagerBasedRLEnv,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names="base"),
+) -> torch.Tensor:
+    """XY components of persistent external force applied to the base body.
+
+    Reads from the permanent wrench composer buffer (shape: [num_envs, num_bodies, 3]).
+    Returns [num_envs, 2] — ground truth for force estimation head.
+    """
+    asset: Articulation = env.scene[asset_cfg.name]
+    # composed_force_as_torch: [num_envs, num_bodies, 3] in body frame
+    forces = asset.permanent_wrench_composer.composed_force_as_torch
+    # Select the target body and take XY
+    return forces[:, asset_cfg.body_ids, :2].squeeze(1)
+
 
 def base_external_force(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names="base")) -> torch.Tensor:
     """External forces applied to the base body."""

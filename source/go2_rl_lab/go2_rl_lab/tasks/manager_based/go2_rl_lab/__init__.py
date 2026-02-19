@@ -62,9 +62,22 @@ gym.register(
 )
 
 
+# force estimator env — persistent XY forces + velocity/force estimator
+
+gym.register(
+    id="Go2-Force-Estimator-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_force_estimator_env_cfg:UnitreeGo2ForceEstimatorEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_force_estimator_cfg:ForceEstimatorRunnerCfg",
+    },
+)
+
+
 # force envs
 
-gym.register(                                                                                                       
+gym.register(
     id="Go2-Force-v0",                                                                                
     entry_point="isaaclab.envs:ManagerBasedRLEnv",                                                                  
     disable_env_checker=True,                                                                                       
