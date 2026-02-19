@@ -274,6 +274,14 @@ class EstimatorOnPolicyRunner(OnPolicyRunner):
             self._est_force_loss_buf.append(mean_force)
             result["force_loss"] = mean_force
 
+            # Bridge: write smoothed force loss to env extras for adaptive curriculum
+            smooth_force_loss = (
+                statistics.mean(self._est_force_loss_buf)
+                if len(self._est_force_loss_buf) > 5
+                else mean_force
+            )
+            self._wrapped_env._env.unwrapped.extras["estimator_force_loss_smooth"] = smooth_force_loss
+
         return result
 
     # ── Logging ───────────────────────────────────────────────────────────

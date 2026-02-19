@@ -6,7 +6,7 @@ impulse-based TemporalStageCurriculum).  This config adds:
 1. **Persistent XY force event** — re-randomized every 3-5 s via interval mode.
 2. **Critic obs** — appends ``base_applied_force_xy`` (2-dim) as ground truth for
    the estimator's f_head.
-3. **Force curriculum** — reward-gated ramp from 0 N to 50 N.
+3. **Force curriculum** — adaptive loss-driven ramp from 0 N to 20 N.
 
 Critic obs layout::
 
@@ -320,18 +320,18 @@ class TerminationsCfg:
 
 @configclass
 class CurriculumCfg:
-    """Curriculum — reward-gated force magnitude ramp."""
+    """Curriculum — adaptive loss-driven force magnitude ramp."""
 
     terrain_levels = None
 
     force_curriculum = CurrTerm(
         func=force_magnitude_curriculum,
         params={
-            "reward_term_name": "track_lin_vel_xy_exp",
-            "reward_threshold_frac": 0.85,
             "event_term_name": "persistent_xy_force",
             "max_force": 20.0,
             "ramp_step": 2.0,
+            "convergence_ratio": 0.8,
+            "min_wait": 100,
         },
     )
 
