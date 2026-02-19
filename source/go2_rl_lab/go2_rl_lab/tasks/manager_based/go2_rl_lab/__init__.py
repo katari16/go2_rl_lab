@@ -49,6 +49,19 @@ gym.register(
 )
 
 
+# estimator envs — same env as testbench, different runner (EstimatorOnPolicyRunner)
+
+gym.register(
+    id="Go2-Testbench-Estimator-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_test_bench_env_cfg:UnitreeGo2EnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_estimator_cfg:EstimatorRunnerCfg",
+    },
+)
+
+
 # force envs
 
 gym.register(                                                                                                       
