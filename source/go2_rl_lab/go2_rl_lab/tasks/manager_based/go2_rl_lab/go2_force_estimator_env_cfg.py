@@ -328,10 +328,11 @@ class CurriculumCfg:
         func=force_magnitude_curriculum,
         params={
             "event_term_name": "persistent_xy_force",
-            "max_force": 20.0,
-            "ramp_step": 2.0,
-            "convergence_ratio": 0.8,
-            "min_wait": 100,
+            "max_force": 50.0,
+            "start_force": 15.0,
+            "ramp_step": 5.0,
+            "patience": 500,
+            "min_delta": 0.01,
         },
     )
 

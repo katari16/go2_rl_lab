@@ -54,7 +54,7 @@ class ForceEstimatorRunnerCfg(RslRlOnPolicyRunnerCfg):
     )
 
     estimator: dict = {
-        "temporal_steps": 10,
+        "temporal_steps": 20,
         "enc_hidden_dims": [128, 64],
         "v_head_dims": [32, 16],
         # Force head — this is the new addition
@@ -72,4 +72,7 @@ class ForceEstimatorRunnerCfg(RslRlOnPolicyRunnerCfg):
         "gt_vel_obs_start_idx": 0,    # base_lin_vel at [0:3]
         "gt_force_obs_start_idx": 48,  # base_applied_force_xy at [48:50]
         "num_estimator_mini_batches": 4,
+        # Gate: only train estimator once robot tracks XY velocity well
+        # XY tracking reward = exp(-error²/0.25), max=1.0; threshold=0.8 means 80% of max
+        "estimator_training_min_xy_reward": 0.8,
     }

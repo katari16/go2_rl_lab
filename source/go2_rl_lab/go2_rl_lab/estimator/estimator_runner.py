@@ -140,6 +140,19 @@ class EstimatorOnPolicyRunner(OnPolicyRunner):
         self._est_rec_loss_buf: deque = deque(maxlen=20)
         self._est_force_loss_buf: deque = deque(maxlen=20)
 
+        # Estimator training gate: only train the estimator once the robot
+        # walks stably.  Training on observations from a robot that can't walk
+        # teaches the network noise, not dynamics.
+        # Gate metric: mean XY tracking reward (exp(-error²/0.25), max=1.0).
+        self._est_train_min_xy_reward: float = est_cfg.get("estimator_training_min_xy_reward", 0.0)
+        self._estimator_training_active: bool = self._est_train_min_xy_reward <= 0.0
+        self._xy_reward_buf: deque = deque(maxlen=50)
+        if not self._estimator_training_active:
+            print(
+                f"[EstimatorRunner] Estimator training gated on XY tracking "
+                f"reward >= {self._est_train_min_xy_reward:.2f}"
+            )
+
     # ── Main training loop ────────────────────────────────────────────────
 
     def learn(self, num_learning_iterations: int, init_at_random_ep_len: bool = False) -> None:
@@ -210,6 +223,28 @@ class EstimatorOnPolicyRunner(OnPolicyRunner):
             # ── PPO update ─────────────────────────────────────────────────
             loss_dict = self.alg.update()
 
+            # ── Check XY tracking reward for estimator training gate ────
+            if not self._estimator_training_active:
+                # Compute raw XY tracking reward from critic obs:
+                #   critic layout: [0:2]=base_lin_vel_xy, [9:11]=vel_cmd_xy
+                #   reward = exp(-||v_cmd - v_actual||² / 0.25)
+                critic_obs = self.alg.storage.observations["critic"]
+                vel_xy = critic_obs[:, :, 0:2]
+                cmd_xy = critic_obs[:, :, 9:11]
+                error_sq = ((cmd_xy - vel_xy) ** 2).sum(dim=-1)
+                mean_xy_rew = torch.exp(-error_sq / 0.25).mean().item()
+                self._xy_reward_buf.append(mean_xy_rew)
+
+                if len(self._xy_reward_buf) >= 10:
+                    smooth_xy = statistics.mean(self._xy_reward_buf)
+                    if smooth_xy >= self._est_train_min_xy_reward:
+                        self._estimator_training_active = True
+                        print(
+                            f"\n[EstimatorRunner] XY tracking reward reached "
+                            f"{smooth_xy:.3f} >= {self._est_train_min_xy_reward:.2f} "
+                            f"— activating estimator training (iter {it})"
+                        )
+
             # ── Estimator update ───────────────────────────────────────────
             est_losses = self._update_estimator()
 
@@ -230,6 +265,9 @@ class EstimatorOnPolicyRunner(OnPolicyRunner):
 
     def _update_estimator(self) -> dict[str, float]:
         """Train the estimator on the just-collected rollout data."""
+        if not self._estimator_training_active:
+            return {}
+
         # Flatten [num_steps, num_envs, ...] → [num_steps*num_envs, ...]
         n = self.num_steps_per_env * self.env.num_envs
         obs_h = self._est_obs_history.reshape(n, -1)
@@ -293,8 +331,12 @@ class EstimatorOnPolicyRunner(OnPolicyRunner):
 
         it = locs["it"]
         # Tensorboard
-        self.writer.add_scalar("Estimator/vel_loss", est_losses["vel_loss"], it)
-        self.writer.add_scalar("Estimator/rec_loss", est_losses["rec_loss"], it)
+        self.writer.add_scalar("Estimator/training_active", float(self._estimator_training_active), it)
+        if len(self._xy_reward_buf) > 0:
+            self.writer.add_scalar("Estimator/xy_tracking_reward", statistics.mean(self._xy_reward_buf), it)
+        if "vel_loss" in est_losses:
+            self.writer.add_scalar("Estimator/vel_loss", est_losses["vel_loss"], it)
+            self.writer.add_scalar("Estimator/rec_loss", est_losses["rec_loss"], it)
         if "force_loss" in est_losses:
             self.writer.add_scalar("Estimator/force_loss", est_losses["force_loss"], it)
         if len(self._est_vel_loss_buf) > 0:
@@ -308,22 +350,26 @@ class EstimatorOnPolicyRunner(OnPolicyRunner):
 
         # Terminal — append estimator block after normal log
         pad = 35
-        est_str = (
-            f"\n{'─' * 80}\n"
-            f"{'[Estimator]':>{pad}} vel_loss={est_losses['vel_loss']:.5f}  "
-            f"rec_loss={est_losses['rec_loss']:.5f}"
-        )
-        if "force_loss" in est_losses:
-            est_str += f"  force_loss={est_losses['force_loss']:.5f}"
-        if len(self._est_vel_loss_buf) >= 5:
-            est_str += (
-                f"  |  smooth_vel={statistics.mean(self._est_vel_loss_buf):.5f}"
+        if "vel_loss" in est_losses:
+            est_str = (
+                f"\n{'─' * 80}\n"
+                f"{'[Estimator]':>{pad}} vel_loss={est_losses['vel_loss']:.5f}  "
+                f"rec_loss={est_losses['rec_loss']:.5f}"
             )
-        if len(self._est_force_loss_buf) >= 5:
-            est_str += (
-                f"  smooth_frc={statistics.mean(self._est_force_loss_buf):.5f}"
-            )
-        print(est_str)
+            if "force_loss" in est_losses:
+                est_str += f"  force_loss={est_losses['force_loss']:.5f}"
+            if len(self._est_vel_loss_buf) >= 5:
+                est_str += (
+                    f"  |  smooth_vel={statistics.mean(self._est_vel_loss_buf):.5f}"
+                )
+            if len(self._est_force_loss_buf) >= 5:
+                est_str += (
+                    f"  smooth_frc={statistics.mean(self._est_force_loss_buf):.5f}"
+                )
+            print(est_str)
+        elif not self._estimator_training_active:
+            xy_str = f"  xy_reward={statistics.mean(self._xy_reward_buf):.3f}/{self._est_train_min_xy_reward:.2f}" if self._xy_reward_buf else ""
+            print(f"\n{'─' * 80}\n{'[Estimator]':>{pad}} waiting for stable walking...{xy_str}")
 
     # ── Save / Load ───────────────────────────────────────────────────────
 
