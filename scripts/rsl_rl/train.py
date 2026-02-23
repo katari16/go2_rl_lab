@@ -204,6 +204,9 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     elif agent_cfg.class_name == "EstimatorOnPolicyRunner":
         from go2_rl_lab.estimator import EstimatorOnPolicyRunner
         runner = EstimatorOnPolicyRunner(env, agent_cfg.to_dict(), log_dir=log_dir, device=agent_cfg.device)
+    elif agent_cfg.class_name == "ForceOnPolicyRunner":
+        from go2_rl_lab.estimator import ForceOnPolicyRunner
+        runner = ForceOnPolicyRunner(env, agent_cfg.to_dict(), log_dir=log_dir, device=agent_cfg.device)
     else:
         raise ValueError(f"Unsupported runner class: {agent_cfg.class_name}")
     # write git state to logs

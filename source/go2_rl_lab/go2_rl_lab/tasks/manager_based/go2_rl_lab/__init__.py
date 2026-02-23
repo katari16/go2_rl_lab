@@ -75,6 +75,19 @@ gym.register(
 )
 
 
+# force-only estimator env — expanded obs + HAC-LOCO style optimizer
+
+gym.register(
+    id="Go2-Force-Only-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_force_only_env_cfg:UnitreeGo2ForceOnlyEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_force_only_cfg:ForceOnlyRunnerCfg",
+    },
+)
+
+
 # force envs
 
 gym.register(

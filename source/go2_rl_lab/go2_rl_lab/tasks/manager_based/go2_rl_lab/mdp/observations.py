@@ -9,11 +9,45 @@ if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
 
-def foot_contact_force_norms(env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg) -> torch.Tensor:
-    """Norm of net contact forces on foot bodies. Shape: [num_envs, num_feet]."""
+def foot_contact_force_norms(
+    env: ManagerBasedRLEnv, sensor_cfg: SceneEntityCfg, scale: float = 1.0
+) -> torch.Tensor:
+    """Norm of net contact forces on foot bodies. Shape: [num_envs, num_feet].
+
+    Args:
+        scale: Multiplicative scaling factor (e.g. 0.01 to bring raw ~30-200 N into ~0.3-2.0).
+    """
     contact_sensor = env.scene.sensors[sensor_cfg.name]
     forces = contact_sensor.data.net_forces_w[:, sensor_cfg.body_ids, :]
-    return torch.norm(forces, dim=-1)
+    return torch.norm(forces, dim=-1) * scale
+
+
+def applied_torque(
+    env: ManagerBasedRLEnv,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    scale: float = 1.0,
+) -> torch.Tensor:
+    """Scaled joint applied torques. Shape: [num_envs, num_joints].
+
+    Args:
+        scale: Multiplicative scaling factor (e.g. 0.1 to bring raw ~5-30 Nm into ~0.5-3.0).
+    """
+    asset: Articulation = env.scene[asset_cfg.name]
+    return asset.data.applied_torque[:, asset_cfg.joint_ids] * scale
+
+
+def joint_acc(
+    env: ManagerBasedRLEnv,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    scale: float = 1.0,
+) -> torch.Tensor:
+    """Scaled joint accelerations. Shape: [num_envs, num_joints].
+
+    Args:
+        scale: Multiplicative scaling factor (e.g. 0.01 to bring raw ~100-500 rad/s² into ~1-5).
+    """
+    asset: Articulation = env.scene[asset_cfg.name]
+    return asset.data.joint_acc[:, asset_cfg.joint_ids] * scale
 
 
 def gait_phase(env: ManagerBasedRLEnv, period: float) -> torch.Tensor:
