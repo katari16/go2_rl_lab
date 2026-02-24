@@ -136,11 +136,11 @@ class ForceEstimator(nn.Module):
         obs_history: torch.Tensor,
         gt_force: torch.Tensor,
         next_obs: torch.Tensor,
-        lr: float | None = None,
     ) -> dict[str, float]:
         """One gradient step on the combined supervised loss.
 
         Called per PPO mini-batch (HAC-LOCO pattern).
+        Uses its own fixed learning rate (decoupled from PPO).
 
         Args:
             obs_history:  [batch, temporal_steps * num_one_step_obs]
@@ -148,13 +148,8 @@ class ForceEstimator(nn.Module):
             next_obs:     [batch, num_one_step_obs] — target for reconstruction
 
         Returns:
-            Dict with keys: force_loss, rec_loss, total_loss.
+            Dict with loss values and diagnostics.
         """
-        if lr is not None:
-            self.learning_rate = lr
-            for pg in self.optimizer.param_groups:
-                pg["lr"] = lr
-
         z_t, force_hat = self._forward(obs_history)
         latent = self._build_latent(force_hat, z_t)
         next_obs_hat = self.decoder(latent)
@@ -165,11 +160,47 @@ class ForceEstimator(nn.Module):
 
         self.optimizer.zero_grad()
         total_loss.backward()
+
+        # Collect gradient norms BEFORE clipping
+        grad_norm_encoder = _grad_norm(self.encoder)
+        grad_norm_f_head = _grad_norm(self.f_head)
+        grad_norm_decoder = _grad_norm(self.decoder)
+
         nn.utils.clip_grad_norm_(self.parameters(), self.max_grad_norm)
         self.optimizer.step()
+
+        # ── Diagnostics (detached, no grad) ─────────────────────────────
+        with torch.no_grad():
+            gt_mag = gt_force.norm(dim=-1)           # [batch]
+            pred_mag = force_hat.norm(dim=-1)         # [batch]
+            error = (force_hat - gt_force).abs()      # [batch, 2]
 
         return {
             "force_loss": force_loss.item(),
             "rec_loss": rec_loss.item(),
             "total_loss": total_loss.item(),
+            "estimator_lr": self.optimizer.param_groups[0]["lr"],
+            # GT force stats
+            "gt_force_mean_mag": gt_mag.mean().item(),
+            "gt_force_max_mag": gt_mag.max().item(),
+            "gt_force_std_mag": gt_mag.std().item(),
+            # Prediction stats
+            "pred_force_mean_mag": pred_mag.mean().item(),
+            # Per-component MAE
+            "mae_x": error[:, 0].mean().item(),
+            "mae_y": error[:, 1].mean().item(),
+            "mae_total": error.mean().item(),
+            # Gradient norms (before clipping)
+            "grad_norm_encoder": grad_norm_encoder,
+            "grad_norm_f_head": grad_norm_f_head,
+            "grad_norm_decoder": grad_norm_decoder,
         }
+
+
+def _grad_norm(module: nn.Module) -> float:
+    """Compute total L2 gradient norm of a module's parameters."""
+    total = 0.0
+    for p in module.parameters():
+        if p.grad is not None:
+            total += p.grad.data.norm(2).item() ** 2
+    return total ** 0.5

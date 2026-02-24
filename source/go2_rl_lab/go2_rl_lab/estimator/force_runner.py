@@ -6,11 +6,9 @@ Extends rsl_rl's OnPolicyRunner with:
 3. Estimator-specific tensorboard logging alongside standard PPO stats.
 4. Estimator weights saved/loaded with the policy checkpoint.
 
-Key difference from EstimatorOnPolicyRunner:
-    - No velocity head — force only.
-    - Estimator updates happen INSIDE the PPO mini-batch loop (via ForceEstimatorPPO),
-      not in a separate pass after PPO.
-    - No training gate — force estimation trains from iteration 0.
+Key behaviours:
+    - Force estimation only trains when forces are active (not on zero-force data).
+    - Estimator has its own fixed LR, decoupled from PPO's adaptive schedule.
 """
 
 from __future__ import annotations
@@ -86,7 +84,8 @@ class ForceOnPolicyRunner(OnPolicyRunner):
             f"input={self._temporal_steps}x{self._num_one_step_obs}="
             f"{self._temporal_steps * self._num_one_step_obs}  "
             f"latent_dim={self.estimator.latent_dim}  "
-            f"policy_input={self._num_one_step_obs + self.estimator.latent_dim}"
+            f"policy_input={self._num_one_step_obs + self.estimator.latent_dim}  "
+            f"estimator_lr={est_cfg.get('learning_rate', 1e-3)}"
         )
 
         # ── Create obs history buffer ─────────────────────────────────────
@@ -132,7 +131,8 @@ class ForceOnPolicyRunner(OnPolicyRunner):
         if not self._force_active:
             print(
                 f"[ForceRunner] Forces gated on XY tracking reward "
-                f">= {self._force_activation_threshold:.2f}"
+                f">= {self._force_activation_threshold:.2f}  "
+                f"(estimator training SKIPPED until forces activate)"
             )
 
     # ── Override algorithm construction ────────────────────────────────────
@@ -253,11 +253,12 @@ class ForceOnPolicyRunner(OnPolicyRunner):
                 start = time.time()
                 self.alg.compute_returns(obs)
 
-            # ── Pass estimator data to PPO, then update ───────────────────
+            # ── Pass estimator data + force state to PPO, then update ────
             self.alg.set_estimator_data(self._est_obs_history, self._est_next_raw_obs)
+            self.alg.set_force_active(self._force_active)
             loss_dict = self.alg.update()
 
-            # Track estimator losses
+            # Track estimator losses (only present when force is active)
             if "force_loss" in loss_dict:
                 self._est_force_loss_buf.append(loss_dict["force_loss"])
             if "rec_loss" in loss_dict:
@@ -314,26 +315,54 @@ class ForceOnPolicyRunner(OnPolicyRunner):
         # Standard OnPolicyRunner log (handles reward, losses, FPS, ...)
         self.log(locs)
 
-        # Force gate tensorboard
+        # ── Force gate ───────────────────────────────────────────────────
         self.writer.add_scalar("Estimator/force_active", float(self._force_active), it)
         if len(self._xy_reward_buf) > 0:
             self.writer.add_scalar("Estimator/xy_tracking_reward", statistics.mean(self._xy_reward_buf), it)
 
-        # Estimator-specific tensorboard
-        if "force_loss" in loss_dict:
-            self.writer.add_scalar("Estimator/force_loss", loss_dict["force_loss"], it)
-        if "rec_loss" in loss_dict:
-            self.writer.add_scalar("Estimator/rec_loss", loss_dict["rec_loss"], it)
-        if len(self._est_force_loss_buf) > 0:
-            self.writer.add_scalar(
-                "Estimator/force_loss_smooth", statistics.mean(self._est_force_loss_buf), it
-            )
-        if len(self._est_rec_loss_buf) > 0:
-            self.writer.add_scalar(
-                "Estimator/rec_loss_smooth", statistics.mean(self._est_rec_loss_buf), it
-            )
+        # ── Learning rates (both) ────────────────────────────────────────
+        if "ppo_lr" in loss_dict:
+            self.writer.add_scalar("LR/ppo", loss_dict["ppo_lr"], it)
+        if "estimator_lr" in loss_dict:
+            self.writer.add_scalar("LR/estimator", loss_dict["estimator_lr"], it)
 
-        # Terminal — append estimator block after normal log
+        # ── Estimator diagnostics (only when force active) ───────────────
+        if "force_loss" in loss_dict:
+            # Core losses
+            self.writer.add_scalar("Estimator/force_loss", loss_dict["force_loss"], it)
+            self.writer.add_scalar("Estimator/rec_loss", loss_dict["rec_loss"], it)
+            if len(self._est_force_loss_buf) > 0:
+                self.writer.add_scalar(
+                    "Estimator/force_loss_smooth", statistics.mean(self._est_force_loss_buf), it
+                )
+            if len(self._est_rec_loss_buf) > 0:
+                self.writer.add_scalar(
+                    "Estimator/rec_loss_smooth", statistics.mean(self._est_rec_loss_buf), it
+                )
+
+            # GT force stats
+            if "gt_force_mean_mag" in loss_dict:
+                self.writer.add_scalar("Estimator/gt_force_mean_mag", loss_dict["gt_force_mean_mag"], it)
+                self.writer.add_scalar("Estimator/gt_force_max_mag", loss_dict["gt_force_max_mag"], it)
+                self.writer.add_scalar("Estimator/gt_force_std_mag", loss_dict["gt_force_std_mag"], it)
+
+            # Predicted force stats
+            if "pred_force_mean_mag" in loss_dict:
+                self.writer.add_scalar("Estimator/pred_force_mean_mag", loss_dict["pred_force_mean_mag"], it)
+
+            # Per-component MAE
+            if "mae_x" in loss_dict:
+                self.writer.add_scalar("Estimator/mae_x", loss_dict["mae_x"], it)
+                self.writer.add_scalar("Estimator/mae_y", loss_dict["mae_y"], it)
+                self.writer.add_scalar("Estimator/mae_total", loss_dict["mae_total"], it)
+
+            # Gradient norms
+            if "grad_norm_encoder" in loss_dict:
+                self.writer.add_scalar("Estimator/grad_norm_encoder", loss_dict["grad_norm_encoder"], it)
+                self.writer.add_scalar("Estimator/grad_norm_f_head", loss_dict["grad_norm_f_head"], it)
+                self.writer.add_scalar("Estimator/grad_norm_decoder", loss_dict["grad_norm_decoder"], it)
+
+        # ── Terminal output ──────────────────────────────────────────────
         pad = 35
         if "force_loss" in loss_dict:
             force_status = f"ACTIVE {self._max_force:.0f}N" if self._force_active else "waiting"
@@ -343,13 +372,28 @@ class ForceOnPolicyRunner(OnPolicyRunner):
                 f"rec_loss={loss_dict['rec_loss']:.5f}  "
                 f"force={force_status}"
             )
+            if "mae_total" in loss_dict:
+                est_str += f"  mae={loss_dict['mae_total']:.4f}"
+            if "gt_force_mean_mag" in loss_dict:
+                est_str += f"  gt_mag={loss_dict['gt_force_mean_mag']:.2f}"
+            if "pred_force_mean_mag" in loss_dict:
+                est_str += f"  pred_mag={loss_dict['pred_force_mean_mag']:.2f}"
+            if "estimator_lr" in loss_dict:
+                est_str += f"  lr={loss_dict['estimator_lr']:.1e}"
             if len(self._est_force_loss_buf) >= 5:
-                est_str += f"  |  smooth_frc={statistics.mean(self._est_force_loss_buf):.5f}"
+                est_str += f"\n{'':>{pad}} smooth_frc={statistics.mean(self._est_force_loss_buf):.5f}"
             if len(self._est_rec_loss_buf) >= 5:
                 est_str += f"  smooth_rec={statistics.mean(self._est_rec_loss_buf):.5f}"
-            if not self._force_active and self._xy_reward_buf:
-                est_str += f"  xy_rew={statistics.mean(self._xy_reward_buf):.3f}/{self._force_activation_threshold:.2f}"
             print(est_str)
+        elif not self._force_active and self._xy_reward_buf:
+            xy_str = (
+                f"\n{'─' * 80}\n"
+                f"{'[ForceEstimator]':>{pad}} WAITING  "
+                f"xy_rew={statistics.mean(self._xy_reward_buf):.3f}"
+                f"/{self._force_activation_threshold:.2f}  "
+                f"(estimator not training)"
+            )
+            print(xy_str)
 
     # ── Save / Load ───────────────────────────────────────────────────────
 

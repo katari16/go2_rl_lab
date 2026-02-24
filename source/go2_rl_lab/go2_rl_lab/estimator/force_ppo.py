@@ -4,8 +4,11 @@ Follows the HAC-LOCO pattern (HIM-PPO): the estimator has its own optimizer
 and is updated inside the PPO mini-batch loop *before* the PPO gradient step.
 
 Training loop (per mini-batch):
-    1. estimator.update(obs_history_batch, gt_force_batch, next_obs_batch, lr)
+    1. estimator.update(obs_history_batch, gt_force_batch, next_obs_batch)
     2. Standard PPO: surrogate_loss + value_loss - entropy  → PPO optimizer
+
+The estimator uses its own fixed learning rate, decoupled from PPO's
+adaptive KL-based schedule.
 """
 
 from __future__ import annotations
@@ -49,6 +52,9 @@ class ForceEstimatorPPO(PPO):
         self._est_obs_history: torch.Tensor | None = None
         self._est_next_raw_obs: torch.Tensor | None = None
 
+        # Force active flag — set by runner; estimator skips training when False
+        self._force_active: bool = False
+
     def set_estimator_data(
         self,
         obs_history: torch.Tensor,
@@ -63,27 +69,35 @@ class ForceEstimatorPPO(PPO):
         self._est_obs_history = obs_history
         self._est_next_raw_obs = next_raw_obs
 
+    def set_force_active(self, active: bool) -> None:
+        """Set whether external forces are active (estimator only trains when True)."""
+        self._force_active = active
+
     def update(self) -> dict[str, float]:
         """PPO update with estimator updated per mini-batch (HAC-LOCO pattern).
 
         Returns:
-            Loss dict with standard PPO losses + force_loss, rec_loss.
+            Loss dict with standard PPO losses + estimator diagnostics.
         """
         mean_value_loss = 0
         mean_surrogate_loss = 0
         mean_entropy = 0
-        mean_force_loss = 0
-        mean_rec_loss = 0
+
+        # Accumulate estimator diagnostics across mini-batches
+        est_diag_accum: dict[str, float] = {}
+        est_update_count = 0
 
         # ── Flatten estimator data to match PPO's flattened batches ──────
         n = self.storage.num_transitions_per_env * self.storage.num_envs
-        est_obs_h = self._est_obs_history.reshape(n, -1)
-        est_next_o = self._est_next_raw_obs.reshape(n, -1)
 
-        # Extract GT force from critic obs stored in PPO rollout storage
-        critic_obs = self.storage.observations["critic"]  # [num_steps, num_envs, critic_dim]
-        gt_force = critic_obs[:, :, self._gt_force_start : self._gt_force_start + self._force_dim]
-        gt_force = gt_force.reshape(n, self._force_dim).detach()
+        if self._force_active:
+            est_obs_h = self._est_obs_history.reshape(n, -1)
+            est_next_o = self._est_next_raw_obs.reshape(n, -1)
+
+            # Extract GT force from critic obs stored in PPO rollout storage
+            critic_obs = self.storage.observations["critic"]  # [num_steps, num_envs, critic_dim]
+            gt_force = critic_obs[:, :, self._gt_force_start : self._gt_force_start + self._force_dim]
+            gt_force = gt_force.reshape(n, self._force_dim).detach()
 
         # ── Mini-batch generator ─────────────────────────────────────────
         if self.policy.is_recurrent:
@@ -96,8 +110,6 @@ class ForceEstimatorPPO(PPO):
             )
 
         # We need the same indices as the PPO generator to slice estimator data.
-        # The standard generator uses sequential slicing of a randperm, so we
-        # replicate that indexing scheme.
         batch_size = self.storage.num_envs * self.storage.num_transitions_per_env
         mini_batch_size = batch_size // self.num_mini_batches
         indices = torch.randperm(
@@ -118,23 +130,24 @@ class ForceEstimatorPPO(PPO):
             hidden_states_batch,
             masks_batch,
         ) in generator:
-            # ── Estimator update FIRST (own optimizer) ───────────────────
-            # Compute the batch indices for this mini-batch
-            epoch_idx = mini_batch_counter // self.num_mini_batches
-            mb_idx = mini_batch_counter % self.num_mini_batches
-            start = mb_idx * mini_batch_size
-            stop = (mb_idx + 1) * mini_batch_size
-            batch_idx = indices[start:stop]
+            # ── Estimator update FIRST (own optimizer, own LR) ─────────
+            if self._force_active:
+                mb_idx = mini_batch_counter % self.num_mini_batches
+                start = mb_idx * mini_batch_size
+                stop = (mb_idx + 1) * mini_batch_size
+                batch_idx = indices[start:stop]
 
-            self.force_estimator.train()
-            est_losses = self.force_estimator.update(
-                obs_history=est_obs_h[batch_idx],
-                gt_force=gt_force[batch_idx],
-                next_obs=est_next_o[batch_idx],
-                lr=self.learning_rate,
-            )
-            mean_force_loss += est_losses["force_loss"]
-            mean_rec_loss += est_losses["rec_loss"]
+                self.force_estimator.train()
+                est_losses = self.force_estimator.update(
+                    obs_history=est_obs_h[batch_idx],
+                    gt_force=gt_force[batch_idx],
+                    next_obs=est_next_o[batch_idx],
+                )
+
+                # Accumulate all diagnostics
+                for k, v in est_losses.items():
+                    est_diag_accum[k] = est_diag_accum.get(k, 0.0) + v
+                est_update_count += 1
 
             mini_batch_counter += 1
 
@@ -212,15 +225,19 @@ class ForceEstimatorPPO(PPO):
         mean_value_loss /= num_updates
         mean_surrogate_loss /= num_updates
         mean_entropy /= num_updates
-        mean_force_loss /= num_updates
-        mean_rec_loss /= num_updates
 
-        self.storage.clear()
-
-        return {
+        result = {
             "value_function": mean_value_loss,
             "surrogate": mean_surrogate_loss,
             "entropy": mean_entropy,
-            "force_loss": mean_force_loss,
-            "rec_loss": mean_rec_loss,
+            "ppo_lr": self.learning_rate,
         }
+
+        # Average estimator diagnostics
+        if est_update_count > 0:
+            for k, v in est_diag_accum.items():
+                result[k] = v / est_update_count
+
+        self.storage.clear()
+
+        return result
