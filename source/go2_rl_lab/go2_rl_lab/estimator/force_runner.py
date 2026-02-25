@@ -75,7 +75,9 @@ class ForceOnPolicyRunner(OnPolicyRunner):
             activation=est_cfg.get("activation", "elu"),
             learning_rate=est_cfg.get("learning_rate", 1e-3),
             force_loss_weight=est_cfg.get("force_loss_weight", 1.0),
+            angle_loss_weight=est_cfg.get("angle_loss_weight", 1.0),
             rec_loss_weight=est_cfg.get("rec_loss_weight", 1.0),
+            angle_min_force=est_cfg.get("angle_min_force", 1.0),
             max_grad_norm=est_cfg.get("max_grad_norm", 10.0),
         ).to(device)
 
@@ -121,17 +123,29 @@ class ForceOnPolicyRunner(OnPolicyRunner):
         self._est_force_loss_buf: deque = deque(maxlen=20)
         self._est_rec_loss_buf: deque = deque(maxlen=20)
 
+        # Observation group names for per-category logging.
+        # Maps (start_idx, end_idx) → category name within the single-step obs.
+        self._obs_categories: list[tuple[str, int, int]] = [
+            ("base_ang_vel", 0, 3),
+            ("proj_gravity", 3, 6),
+            ("vel_commands", 6, 9),
+            ("joint_pos", 9, 21),
+            ("joint_vel", 21, 33),
+            ("last_action", 33, 45),
+            ("applied_torque", 45, 57),
+            ("foot_forces", 57, 61),
+        ]
+
         # ── Force activation gate ─────────────────────────────────────────
-        # Forces start at 0 and activate once XY tracking reward >= threshold.
-        self._force_activation_threshold: float = est_cfg.get("force_activation_reward_threshold", 0.8)
+        # Forces start at 0 and activate once mean episode reward >= threshold.
+        self._force_activation_threshold: float = est_cfg.get("force_activation_reward_threshold", 30.0)
         self._force_event_term_name: str = est_cfg.get("force_event_term_name", "persistent_xy_force")
         self._max_force: float = est_cfg.get("max_force", 20.0)
         self._force_active: bool = self._force_activation_threshold <= 0.0
-        self._xy_reward_buf: deque = deque(maxlen=50)
         if not self._force_active:
             print(
-                f"[ForceRunner] Forces gated on XY tracking reward "
-                f">= {self._force_activation_threshold:.2f}  "
+                f"[ForceRunner] Forces gated on mean episode reward "
+                f">= {self._force_activation_threshold:.1f}  "
                 f"(estimator training SKIPPED until forces activate)"
             )
 
@@ -265,32 +279,21 @@ class ForceOnPolicyRunner(OnPolicyRunner):
                 self._est_rec_loss_buf.append(loss_dict["rec_loss"])
 
             # ── Force activation gate ─────────────────────────────────────
-            if not self._force_active:
-                # Compute XY tracking reward from critic obs:
-                #   critic layout: [0:2]=base_lin_vel_xy, [9:11]=vel_cmd_xy
-                #   reward = exp(-||v_cmd - v_actual||² / 0.25)
-                critic_obs = self.alg.storage.observations["critic"]
-                vel_xy = critic_obs[:, :, 0:2]
-                cmd_xy = critic_obs[:, :, 9:11]
-                error_sq = ((cmd_xy - vel_xy) ** 2).sum(dim=-1)
-                mean_xy_rew = torch.exp(-error_sq / 0.25).mean().item()
-                self._xy_reward_buf.append(mean_xy_rew)
-
-                if len(self._xy_reward_buf) >= 10:
-                    smooth_xy = statistics.mean(self._xy_reward_buf)
-                    if smooth_xy >= self._force_activation_threshold:
-                        self._force_active = True
-                        # Activate forces via event manager
-                        underlying_env = self._wrapped_env._env.unwrapped
-                        event_cfg = underlying_env.event_manager.get_term_cfg(
-                            self._force_event_term_name
-                        )
-                        event_cfg.params["force_range"] = (0.0, self._max_force)
-                        print(
-                            f"\n[ForceRunner] XY tracking reward reached "
-                            f"{smooth_xy:.3f} >= {self._force_activation_threshold:.2f} "
-                            f"— activating forces at {self._max_force:.0f}N (iter {it})"
-                        )
+            if not self._force_active and len(rewbuffer) >= 10:
+                mean_ep_rew = statistics.mean(rewbuffer)
+                if mean_ep_rew >= self._force_activation_threshold:
+                    self._force_active = True
+                    # Activate forces via event manager
+                    underlying_env = self._wrapped_env._env.unwrapped
+                    event_cfg = underlying_env.event_manager.get_term_cfg(
+                        self._force_event_term_name
+                    )
+                    event_cfg.params["force_range"] = (0.0, self._max_force)
+                    print(
+                        f"\n[ForceRunner] Mean episode reward reached "
+                        f"{mean_ep_rew:.1f} >= {self._force_activation_threshold:.1f} "
+                        f"— activating forces at {self._max_force:.0f}N (iter {it})"
+                    )
 
             learn_time = time.time() - start
             self.current_learning_iteration = it
@@ -317,8 +320,9 @@ class ForceOnPolicyRunner(OnPolicyRunner):
 
         # ── Force gate ───────────────────────────────────────────────────
         self.writer.add_scalar("Estimator/force_active", float(self._force_active), it)
-        if len(self._xy_reward_buf) > 0:
-            self.writer.add_scalar("Estimator/xy_tracking_reward", statistics.mean(self._xy_reward_buf), it)
+        rewbuffer = locs["rewbuffer"]
+        if len(rewbuffer) > 0:
+            self.writer.add_scalar("Estimator/mean_ep_reward_gate", statistics.mean(rewbuffer), it)
 
         # ── Learning rates (both) ────────────────────────────────────────
         if "ppo_lr" in loss_dict:
@@ -356,11 +360,23 @@ class ForceOnPolicyRunner(OnPolicyRunner):
                 self.writer.add_scalar("Estimator/mae_y", loss_dict["mae_y"], it)
                 self.writer.add_scalar("Estimator/mae_total", loss_dict["mae_total"], it)
 
+            # Angular loss and error
+            if "angle_loss" in loss_dict:
+                self.writer.add_scalar("Estimator/angle_loss", loss_dict["angle_loss"], it)
+            if "angle_err_mean_deg" in loss_dict:
+                self.writer.add_scalar("Estimator/angle_err_mean_deg", loss_dict["angle_err_mean_deg"], it)
+                self.writer.add_scalar("Estimator/angle_err_median_deg", loss_dict["angle_err_median_deg"], it)
+
             # Gradient norms
             if "grad_norm_encoder" in loss_dict:
                 self.writer.add_scalar("Estimator/grad_norm_encoder", loss_dict["grad_norm_encoder"], it)
                 self.writer.add_scalar("Estimator/grad_norm_f_head", loss_dict["grad_norm_f_head"], it)
                 self.writer.add_scalar("Estimator/grad_norm_decoder", loss_dict["grad_norm_decoder"], it)
+
+        # ── Observation statistics + weight importance (every 50 iters) ──
+        if it % 50 == 0:
+            self._log_obs_stats(it)
+            self._log_weight_importance(it)
 
         # ── Terminal output ──────────────────────────────────────────────
         pad = 35
@@ -378,6 +394,8 @@ class ForceOnPolicyRunner(OnPolicyRunner):
                 est_str += f"  gt_mag={loss_dict['gt_force_mean_mag']:.2f}"
             if "pred_force_mean_mag" in loss_dict:
                 est_str += f"  pred_mag={loss_dict['pred_force_mean_mag']:.2f}"
+            if "angle_err_mean_deg" in loss_dict:
+                est_str += f"  ang_err={loss_dict['angle_err_mean_deg']:.1f}deg"
             if "estimator_lr" in loss_dict:
                 est_str += f"  lr={loss_dict['estimator_lr']:.1e}"
             if len(self._est_force_loss_buf) >= 5:
@@ -385,15 +403,53 @@ class ForceOnPolicyRunner(OnPolicyRunner):
             if len(self._est_rec_loss_buf) >= 5:
                 est_str += f"  smooth_rec={statistics.mean(self._est_rec_loss_buf):.5f}"
             print(est_str)
-        elif not self._force_active and self._xy_reward_buf:
-            xy_str = (
+        elif not self._force_active and len(rewbuffer) > 0:
+            mean_rew = statistics.mean(rewbuffer)
+            wait_str = (
                 f"\n{'─' * 80}\n"
                 f"{'[ForceEstimator]':>{pad}} WAITING  "
-                f"xy_rew={statistics.mean(self._xy_reward_buf):.3f}"
-                f"/{self._force_activation_threshold:.2f}  "
+                f"mean_ep_rew={mean_rew:.1f}"
+                f"/{self._force_activation_threshold:.1f}  "
                 f"(estimator not training)"
             )
-            print(xy_str)
+            print(wait_str)
+
+    # ── Observation & weight diagnostics ─────────────────────────────────
+
+    @torch.no_grad()
+    def _log_obs_stats(self, it: int) -> None:
+        """Log per-category mean and std of the raw policy observations."""
+        # Use the last collected rollout step's raw obs from the history buffer.
+        raw_obs = self._wrapped_env.get_last_raw_policy_obs()
+        if raw_obs is None:
+            return
+        # raw_obs: [num_envs, obs_dim]
+        for name, s, e in self._obs_categories:
+            chunk = raw_obs[:, s:e]
+            self.writer.add_scalar(f"ObsStats/{name}_mean", chunk.mean().item(), it)
+            self.writer.add_scalar(f"ObsStats/{name}_std", chunk.std().item(), it)
+            self.writer.add_scalar(f"ObsStats/{name}_absmax", chunk.abs().max().item(), it)
+
+    @torch.no_grad()
+    def _log_weight_importance(self, it: int) -> None:
+        """Log encoder first-layer weight importance per observation category."""
+        enc_w = None
+        for name, param in self.estimator.named_parameters():
+            if name == "encoder.0.weight":
+                enc_w = param
+                break
+        if enc_w is None:
+            return
+        # enc_w: [hidden, temporal_steps * obs_dim]
+        obs_dim = self._num_one_step_obs
+        temporal = self._temporal_steps
+        if enc_w.shape[1] != temporal * obs_dim:
+            return
+        # Reshape to [hidden, temporal, obs_dim], average abs weight over hidden & temporal
+        w = enc_w.abs().reshape(enc_w.shape[0], temporal, obs_dim).mean(dim=(0, 1))
+        for name, s, e in self._obs_categories:
+            importance = w[s:e].mean().item()
+            self.writer.add_scalar(f"WeightImportance/{name}", importance, it)
 
     # ── Save / Load ───────────────────────────────────────────────────────
 

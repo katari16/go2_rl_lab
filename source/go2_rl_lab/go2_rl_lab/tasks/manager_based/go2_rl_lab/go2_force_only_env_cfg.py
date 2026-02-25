@@ -1,35 +1,33 @@
 """Force-only environment config — expanded dynamics observations + fixed 20N force.
 
 Based on ``go2_force_estimator_env_cfg.py`` with changes:
-1. **Expanded policy obs (73 dims)** — adds joint_acc, applied_torque, foot_contact_force_norms.
+1. **Expanded policy obs (61 dims)** — adds applied_torque, foot_contact_force_norms.
 2. **Fixed 20N force** — no curriculum, keeps things simple for initial validation.
 3. **No velocity head** — force estimation only via ForceEstimator.
 
-Policy obs layout (73 dims)::
+Policy obs layout (61 dims)::
 
-    [0:3]   base_ang_vel               (noisy)
-    [3:6]   projected_gravity          (noisy)
+    [0:3]   base_ang_vel                           (noisy)
+    [3:6]   projected_gravity                      (noisy)
     [6:9]   velocity_commands
-    [9:21]  joint_pos_rel              (noisy)
-    [21:33] joint_vel_rel              (noisy)
-    [33:45] joint_acc (scale=0.01)     (noisy)
-    [45:57] last_action
-    [57:69] applied_torque (scale=0.1) (noisy)
-    [69:73] foot_contact_force_norms (scale=0.01) (noisy)
+    [9:21]  joint_pos_rel                          (noisy)
+    [21:33] joint_vel_rel                          (noisy)
+    [33:45] last_action
+    [45:57] applied_torque (scale=0.1)             (noisy)
+    [57:61] foot_contact_force_norms (scale=0.01)  (noisy)
 
-Critic obs layout (78 dims)::
+Critic obs layout (66 dims)::
 
-    [0:3]   base_lin_vel               ← privileged
+    [0:3]   base_lin_vel                           ← privileged
     [3:6]   base_ang_vel
     [6:9]   projected_gravity
     [9:12]  velocity_commands
     [12:24] joint_pos_rel
     [24:36] joint_vel_rel
-    [36:48] joint_acc (scale=0.01)
-    [48:60] last_action
-    [60:72] applied_torque (scale=0.1)
-    [72:76] foot_contact_force_norms (scale=0.01)
-    [76:78] base_applied_force_xy      ← gt for f_head
+    [36:48] last_action
+    [48:60] applied_torque (scale=0.1)
+    [60:64] foot_contact_force_norms (scale=0.01)
+    [64:66] base_applied_force_xy                  ← gt for f_head
 """
 
 import math
@@ -57,7 +55,6 @@ from .mdp.observations import (
     applied_torque,
     base_applied_force_xy,
     foot_contact_force_norms,
-    joint_acc,
 )
 from go2_rl_lab.assets.unitree import UNITREE_GO2_CFG as ROBOT_CFG
 from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG
@@ -137,18 +134,17 @@ class ObservationsCfg:
 
     @configclass
     class PolicyCfg(ObsGroup):
-        """Observations for policy group — proprioceptive + dynamics (73 dims)."""
+        """Observations for policy group — proprioceptive + dynamics (61 dims).
+
+        Matches the proven working config from 2026-02-24 run.
+        Observation normalisation for the estimator is handled inside the
+        ForceEstimator encoder (not here) so the policy sees raw magnitudes.
+        """
         base_ang_vel = ObsTerm(func=mdp.base_ang_vel, clip=(-100, 100), noise=Unoise(n_min=-0.2, n_max=0.2))
         projected_gravity = ObsTerm(func=mdp.projected_gravity, clip=(-100, 100), noise=Unoise(n_min=-0.05, n_max=0.05))
         velocity_commands = ObsTerm(func=mdp.generated_commands, clip=(-100, 100), params={"command_name": "base_velocity"})
         joint_pos = ObsTerm(func=mdp.joint_pos_rel, clip=(-100, 100), noise=Unoise(n_min=-0.01, n_max=0.01))
         joint_vel = ObsTerm(func=mdp.joint_vel_rel, clip=(-100, 100), noise=Unoise(n_min=-1.5, n_max=1.5))
-        joint_acc_obs = ObsTerm(
-            func=joint_acc,
-            clip=(-100, 100),
-            noise=Unoise(n_min=-0.05, n_max=0.05),
-            params={"asset_cfg": SceneEntityCfg("robot"), "scale": 0.01},
-        )
         actions = ObsTerm(func=mdp.last_action, clip=(-100, 100))
         applied_torque_obs = ObsTerm(
             func=applied_torque,
@@ -169,18 +165,13 @@ class ObservationsCfg:
 
     @configclass
     class CriticCfg(ObsGroup):
-        """Privileged critic observations (78 dims) — clean + GT force at end."""
+        """Privileged critic observations (66 dims) — clean + GT force at end."""
         base_lin_vel = ObsTerm(func=mdp.base_lin_vel, clip=(-100, 100))
         base_ang_vel = ObsTerm(func=mdp.base_ang_vel, clip=(-100, 100))
         projected_gravity = ObsTerm(func=mdp.projected_gravity, clip=(-100, 100))
         velocity_commands = ObsTerm(func=mdp.generated_commands, clip=(-100, 100), params={"command_name": "base_velocity"})
         joint_pos = ObsTerm(func=mdp.joint_pos_rel, clip=(-100, 100))
         joint_vel = ObsTerm(func=mdp.joint_vel_rel, clip=(-100, 100))
-        joint_acc_obs = ObsTerm(
-            func=joint_acc,
-            clip=(-100, 100),
-            params={"asset_cfg": SceneEntityCfg("robot"), "scale": 0.01},
-        )
         actions = ObsTerm(func=mdp.last_action, clip=(-100, 100))
         applied_torque_obs = ObsTerm(
             func=applied_torque,
@@ -192,7 +183,7 @@ class ObservationsCfg:
             clip=(-100, 100),
             params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"), "scale": 0.01},
         )
-        # Ground truth for f_head — XY force applied to base
+        # Ground truth for f_head — XY force applied to base (NOT scaled — raw Newtons)
         base_applied_force_xy = ObsTerm(
             func=base_applied_force_xy,
             params={"asset_cfg": SceneEntityCfg("robot", body_names="base")},

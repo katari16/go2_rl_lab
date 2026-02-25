@@ -50,6 +50,20 @@ def joint_acc(
     return asset.data.joint_acc[:, asset_cfg.joint_ids] * scale
 
 
+def joint_vel_scaled(
+    env: ManagerBasedRLEnv,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    scale: float = 1.0,
+) -> torch.Tensor:
+    """Scaled joint velocities relative to default. Shape: [num_envs, num_joints].
+
+    Args:
+        scale: Multiplicative scaling factor (e.g. 0.1 to bring raw ~±10 rad/s into ~±1).
+    """
+    asset: Articulation = env.scene[asset_cfg.name]
+    return (asset.data.joint_vel[:, asset_cfg.joint_ids] - asset.data.default_joint_vel[:, asset_cfg.joint_ids]) * scale
+
+
 def gait_phase(env: ManagerBasedRLEnv, period: float) -> torch.Tensor:
     if not hasattr(env, "episode_length_buf"):
         env.episode_length_buf = torch.zeros(env.num_envs, device=env.device, dtype=torch.long)

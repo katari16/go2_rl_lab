@@ -42,7 +42,9 @@ class ForceEstimator(nn.Module):
         activation:         Activation name (default: 'elu').
         learning_rate:      Estimator optimizer LR.
         force_loss_weight:  Weight for force MSE loss.
+        angle_loss_weight:  Weight for angular MSE loss (default: 1.0).
         rec_loss_weight:    Weight for reconstruction MSE loss.
+        angle_min_force:    Min GT force magnitude to apply angular loss (default: 1.0 N).
         max_grad_norm:      Gradient-clipping norm.
     """
 
@@ -57,7 +59,9 @@ class ForceEstimator(nn.Module):
         activation: str = "elu",
         learning_rate: float = 1e-3,
         force_loss_weight: float = 1.0,
+        angle_loss_weight: float = 1.0,
         rec_loss_weight: float = 1.0,
+        angle_min_force: float = 1.0,
         max_grad_norm: float = 10.0,
         **kwargs,
     ) -> None:
@@ -83,7 +87,9 @@ class ForceEstimator(nn.Module):
         self.latent_dim = self.force_dim + self.enc_latent_dim
 
         self.force_loss_weight = force_loss_weight
+        self.angle_loss_weight = angle_loss_weight
         self.rec_loss_weight = rec_loss_weight
+        self.angle_min_force = angle_min_force
         self.max_grad_norm = max_grad_norm
         self.learning_rate = learning_rate
 
@@ -156,7 +162,28 @@ class ForceEstimator(nn.Module):
 
         force_loss = F.mse_loss(force_hat, gt_force)
         rec_loss = F.mse_loss(next_obs_hat, next_obs)
-        total_loss = self.force_loss_weight * force_loss + self.rec_loss_weight * rec_loss
+
+        # ── Angular loss: MSE on wrapped angle difference ────────────
+        # Only for samples where GT force magnitude > threshold (angle
+        # is meaningless near zero).
+        gt_angle = torch.atan2(gt_force[:, 1], gt_force[:, 0])       # [batch]
+        pred_angle = torch.atan2(force_hat[:, 1], force_hat[:, 0])   # [batch]
+        angle_diff = gt_angle - pred_angle
+        # Wrap to [-pi, pi]
+        angle_diff = torch.atan2(torch.sin(angle_diff), torch.cos(angle_diff))
+
+        gt_mag = gt_force.norm(dim=-1)  # [batch]
+        mask = gt_mag > self.angle_min_force
+        if mask.any():
+            angle_loss = (angle_diff[mask] ** 2).mean()
+        else:
+            angle_loss = torch.tensor(0.0, device=obs_history.device)
+
+        total_loss = (
+            self.force_loss_weight * force_loss
+            + self.angle_loss_weight * angle_loss
+            + self.rec_loss_weight * rec_loss
+        )
 
         self.optimizer.zero_grad()
         total_loss.backward()
@@ -171,12 +198,20 @@ class ForceEstimator(nn.Module):
 
         # ── Diagnostics (detached, no grad) ─────────────────────────────
         with torch.no_grad():
-            gt_mag = gt_force.norm(dim=-1)           # [batch]
             pred_mag = force_hat.norm(dim=-1)         # [batch]
             error = (force_hat - gt_force).abs()      # [batch, 2]
+            # Angular error in degrees for interpretability
+            angle_err_deg = angle_diff.abs() * (180.0 / torch.pi)
+            if mask.any():
+                mean_angle_err_deg = angle_err_deg[mask].mean().item()
+                median_angle_err_deg = angle_err_deg[mask].median().item()
+            else:
+                mean_angle_err_deg = 0.0
+                median_angle_err_deg = 0.0
 
         return {
             "force_loss": force_loss.item(),
+            "angle_loss": angle_loss.item(),
             "rec_loss": rec_loss.item(),
             "total_loss": total_loss.item(),
             "estimator_lr": self.optimizer.param_groups[0]["lr"],
@@ -190,6 +225,9 @@ class ForceEstimator(nn.Module):
             "mae_x": error[:, 0].mean().item(),
             "mae_y": error[:, 1].mean().item(),
             "mae_total": error.mean().item(),
+            # Angular error (only for samples with |f_gt| > threshold)
+            "angle_err_mean_deg": mean_angle_err_deg,
+            "angle_err_median_deg": median_angle_err_deg,
             # Gradient norms (before clipping)
             "grad_norm_encoder": grad_norm_encoder,
             "grad_norm_f_head": grad_norm_f_head,

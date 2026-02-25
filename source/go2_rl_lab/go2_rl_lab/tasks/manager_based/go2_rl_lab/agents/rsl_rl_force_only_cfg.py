@@ -10,12 +10,11 @@ Critic obs layout for Go2-Force-Only-v0:
     [9:12]  velocity_commands
     [12:24] joint_pos_rel
     [24:36] joint_vel_rel
-    [36:48] joint_acc (scale=0.01)
-    [48:60] last_action
-    [60:72] applied_torque (scale=0.1)
-    [72:76] foot_contact_force_norms (scale=0.01)
-    [76:78] base_applied_force_xy      ← gt for f_head
-    total = 78 dims
+    [36:48] last_action
+    [48:60] applied_torque (scale=0.1)
+    [60:64] foot_contact_force_norms (scale=0.01)
+    [64:66] base_applied_force_xy      ← gt for f_head
+    total = 66 dims
 """
 
 from isaaclab.utils import configclass
@@ -66,17 +65,17 @@ class ForceOnlyRunnerCfg(RslRlOnPolicyRunnerCfg):
         "dec_hidden_dims": [256, 128],
         "activation": "elu",
         "learning_rate": 1e-3,
-        # Loss weights: L = w1*L_force + w2*L_rec
+        # Loss weights: L = w1*L_force + w2*L_angle + w3*L_rec
         "force_loss_weight": 1.0,
+        "angle_loss_weight": 1.0,
         "rec_loss_weight": 1.0,
+        "angle_min_force": 1.0,  # skip angular loss when |f_gt| < 1N
         "max_grad_norm": 10.0,
         # Ground truth index in critic obs
-        "gt_force_obs_start_idx": 76,  # base_applied_force_xy at [76:78]
+        "gt_force_obs_start_idx": 64,  # base_applied_force_xy at [64:66]
         # Force activation gate: forces start at 0 and activate once
-        # XY tracking reward (exp(-error²/0.25)) exceeds threshold.
-        # Critic obs indices for computing tracking reward:
-        #   vel_xy = critic[0:2], cmd_xy = critic[9:11]
-        "force_activation_reward_threshold": 0.8,
+        # mean episode reward exceeds threshold (policy must be robust first).
+        "force_activation_reward_threshold": 30.0,
         "force_event_term_name": "persistent_xy_force",
         "max_force": 20.0,
     }
