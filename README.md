@@ -1,4 +1,4 @@
-# Learning Compliance: Bridging the Sim2Real Gap Towards Compliant Legged Locomotion
+# Learning Compliance: Towards Compliant and Safe Human Robot Interaction
 
 **Force-Compliant Quadruped Locomotion with Sim2Real Transfer**
 
