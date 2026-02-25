@@ -41,6 +41,7 @@ parser.add_argument("--seed", type=int, default=None, help="Seed used for the en
 parser.add_argument("--force_min", type=float, default=10.0, help="Minimum force magnitude per axis (N).")
 parser.add_argument("--force_max", type=float, default=20.0, help="Maximum force magnitude per axis (N).")
 parser.add_argument("--duration", type=float, default=20.0, help="Duration to run in seconds (then save plots and exit).")
+parser.add_argument("--ema_alpha", type=float, default=0.1, help="EMA smoothing factor for filtered estimate (0=full smooth, 1=no smooth).")
 parser.add_argument("--real-time", action="store_true", default=False, help="Run in real-time, if possible.")
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
@@ -155,6 +156,7 @@ def generate_plots(
     force_min: float,
     force_max: float,
     checkpoint_path: str,
+    ema_alpha: float,
 ) -> None:
     """Generate 3-panel evaluation plot and save next to checkpoint."""
     import matplotlib.pyplot as plt
@@ -163,16 +165,21 @@ def generate_plots(
     t = np.array(log["time_s"])
     gt_ang = np.array(log["gt_angle"])
     est_ang = np.array(log["est_angle"])
+    filt_ang = np.array(log["filt_angle"])
     gt_mag = np.array(log["gt_mag"])
     est_mag = np.array(log["est_mag"])
+    filt_mag = np.array(log["filt_mag"])
     ang_err = np.array(log["ang_error"])
+    filt_ang_err = np.array(log["filt_ang_error"])
     valid = np.array(log["valid_mask"])
     rerandom = log["rerandom_steps"]
 
     # Mask invalid (low-force) samples with NaN for plotting
     gt_ang_plot = np.where(valid, gt_ang, np.nan)
     est_ang_plot = np.where(valid, est_ang, np.nan)
+    filt_ang_plot = np.where(valid, filt_ang, np.nan)
     ang_err_plot = np.where(valid, ang_err, np.nan)
+    filt_ang_err_plot = np.where(valid, filt_ang_err, np.nan)
 
     # Rolling stats on angular error (1-second window ≈ 50 steps at 50Hz)
     window = max(1, int(1.0 / (t[1] - t[0])) if len(t) > 1 else 50)
@@ -188,7 +195,7 @@ def generate_plots(
 
     fig, axes = plt.subplots(3, 1, figsize=(14, 10), sharex=True)
     fig.suptitle(
-        f"Force Estimation — [{force_min:.0f}, {force_max:.0f}] N/axis",
+        f"Force Estimation — [{force_min:.0f}, {force_max:.0f}] N/axis — EMA \u03b1={ema_alpha}",
         fontsize=14,
         fontweight="bold",
     )
@@ -202,7 +209,8 @@ def generate_plots(
     # ── Panel 1: GT angle vs Estimated angle ─────────────────────────────
     ax = axes[0]
     ax.plot(t, gt_ang_plot, color="tab:red", linewidth=0.8, alpha=0.8, label="GT angle")
-    ax.plot(t, est_ang_plot, color="tab:blue", linewidth=0.8, alpha=0.8, label="Est angle")
+    ax.plot(t, est_ang_plot, color="tab:blue", linewidth=0.5, alpha=0.4, label="Est raw")
+    ax.plot(t, filt_ang_plot, color="tab:green", linewidth=1.2, alpha=0.9, label=f"Est EMA (\u03b1={ema_alpha})")
     ax.set_ylabel("Force angle (°)")
     ax.set_ylim(-200, 200)
     ax.set_yticks([-180, -90, 0, 90, 180])
@@ -212,17 +220,23 @@ def generate_plots(
 
     # ── Panel 2: Angular error with rolling mean ± std ───────────────────
     ax = axes[1]
-    ax.plot(t, ang_err_plot, color="tab:orange", linewidth=0.5, alpha=0.4, label="Instantaneous")
-    ax.plot(t, err_mean, color="tab:orange", linewidth=1.5, label=f"Rolling mean ({window}-step)")
+    ax.plot(t, ang_err_plot, color="tab:orange", linewidth=0.5, alpha=0.3, label="Raw instantaneous")
+    ax.plot(t, filt_ang_err_plot, color="tab:green", linewidth=0.8, alpha=0.7, label=f"EMA (\u03b1={ema_alpha})")
+    ax.plot(t, err_mean, color="tab:orange", linewidth=1.5, label=f"Raw rolling mean ({window}-step)")
     ax.fill_between(t, err_mean - err_std, err_mean + err_std, color="tab:orange", alpha=0.15, label="±1 std")
     ax.axhline(0, color="black", linewidth=0.5, linestyle="-")
-    # Mean absolute error annotation
+    # Mean absolute error annotations
     valid_errs = np.abs(ang_err[valid])
+    valid_filt_errs = np.abs(filt_ang_err[valid])
     if len(valid_errs) > 0:
         mae = np.mean(valid_errs)
-        ax.axhline(mae, color="tab:red", linewidth=1, linestyle=":", alpha=0.7)
-        ax.axhline(-mae, color="tab:red", linewidth=1, linestyle=":", alpha=0.7)
-        ax.text(t[-1], mae, f"  MAE={mae:.1f}°", va="bottom", fontsize=8, color="tab:red")
+        filt_mae = np.mean(valid_filt_errs)
+        ax.axhline(mae, color="tab:orange", linewidth=1, linestyle=":", alpha=0.7)
+        ax.axhline(-mae, color="tab:orange", linewidth=1, linestyle=":", alpha=0.7)
+        ax.text(t[-1], mae, f"  Raw MAE={mae:.1f}°", va="bottom", fontsize=8, color="tab:orange")
+        ax.axhline(filt_mae, color="tab:green", linewidth=1, linestyle=":", alpha=0.7)
+        ax.axhline(-filt_mae, color="tab:green", linewidth=1, linestyle=":", alpha=0.7)
+        ax.text(t[-1], -filt_mae, f"  EMA MAE={filt_mae:.1f}°", va="top", fontsize=8, color="tab:green")
     ax.set_ylabel("Angular error (°)")
     ax.set_ylim(-180, 180)
     ax.legend(loc="upper right", fontsize=9)
@@ -232,13 +246,16 @@ def generate_plots(
     # ── Panel 3: GT magnitude vs Estimated magnitude ─────────────────────
     ax = axes[2]
     ax.plot(t, gt_mag, color="tab:red", linewidth=0.8, alpha=0.8, label="GT |F|")
-    ax.plot(t, est_mag, color="tab:blue", linewidth=0.8, alpha=0.8, label="Est |F|")
+    ax.plot(t, est_mag, color="tab:blue", linewidth=0.5, alpha=0.4, label="Est raw |F|")
+    ax.plot(t, filt_mag, color="tab:green", linewidth=1.2, alpha=0.9, label=f"Est EMA |F| (\u03b1={ema_alpha})")
     mag_err = np.abs(gt_mag - est_mag)
-    mag_mean, mag_std = _rolling_stats(mag_err, window)
-    ax.fill_between(t, 0, mag_err, color="tab:gray", alpha=0.15, label="Magnitude error")
+    filt_mag_err = np.abs(gt_mag - filt_mag)
+    ax.fill_between(t, 0, mag_err, color="tab:gray", alpha=0.1, label="Raw mag error")
     if len(mag_err) > 0:
         mmae = np.mean(mag_err)
-        ax.text(t[-1], mmae, f"  MAE={mmae:.1f}N", va="bottom", fontsize=8, color="tab:gray")
+        filt_mmae = np.mean(filt_mag_err)
+        ax.text(t[-1], mmae + 1, f"  Raw MAE={mmae:.1f}N", va="bottom", fontsize=8, color="tab:gray")
+        ax.text(t[-1], filt_mmae - 1, f"  EMA MAE={filt_mmae:.1f}N", va="top", fontsize=8, color="tab:green")
     ax.set_ylabel("Force magnitude (N)")
     ax.set_xlabel("Time (s)")
     ax.legend(loc="upper right", fontsize=9)
@@ -251,7 +268,7 @@ def generate_plots(
     eval_dir = os.path.join(os.path.dirname(checkpoint_path), "force_eval")
     os.makedirs(eval_dir, exist_ok=True)
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    filename = f"force_eval_max_{force_max:.0f}_min_{force_min:.0f}_{timestamp}.png"
+    filename = f"force_eval_max_{force_max:.0f}_min_{force_min:.0f}_ema{ema_alpha}_{timestamp}.png"
     fig_path = os.path.join(eval_dir, filename)
     fig.savefig(fig_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
@@ -336,8 +353,9 @@ def main(
     base_idx = base_body_ids[0] if isinstance(base_body_ids, (list, tuple)) else int(base_body_ids)
 
     # ── Create arrow markers ─────────────────────────────────────────────
-    gt_markers = _create_arrow_markers("/World/Visuals/GTForceArrow", (1.0, 0.0, 0.0))   # Red
-    est_markers = _create_arrow_markers("/World/Visuals/EstForceArrow", (0.0, 0.4, 1.0))  # Blue
+    gt_markers = _create_arrow_markers("/World/Visuals/GTForceArrow", (1.0, 0.0, 0.0))     # Red
+    est_markers = _create_arrow_markers("/World/Visuals/EstForceArrow", (0.0, 0.4, 1.0))   # Blue
+    filt_markers = _create_arrow_markers("/World/Visuals/FiltForceArrow", (0.0, 0.8, 0.2))  # Green
 
     # ── Run loop ──────────────────────────────────────────────────────────
     dt = isaac_env.step_dt
@@ -346,14 +364,21 @@ def main(
     step_count = 0
     max_steps = int(args_cli.duration / dt)
 
+    # EMA filter state (body frame XY)
+    ema_alpha = args_cli.ema_alpha
+    force_filtered = torch.zeros(n, 2, device=device)
+
     # Data collection for plots (env 0 only)
     plot_log: dict[str, list] = {
         "time_s": [],
         "gt_angle": [],
         "est_angle": [],
+        "filt_angle": [],
         "gt_mag": [],
         "est_mag": [],
+        "filt_mag": [],
         "ang_error": [],
+        "filt_ang_error": [],
         "valid_mask": [],     # True when |GT| > 1N (angle meaningful)
         "rerandom_steps": [], # step indices where force re-randomized
     }
@@ -361,7 +386,8 @@ def main(
 
     print(f"\n{'=' * 70}")
     print(f"  Force range : [{args_cli.force_min:.0f}, {args_cli.force_max:.0f}] N per axis")
-    print(f"  Arrows      : RED = ground truth   BLUE = NN estimate")
+    print(f"  EMA alpha   : {ema_alpha}")
+    print(f"  Arrows      : RED = GT   BLUE = raw NN   GREEN = EMA filtered")
     print(f"  Duration    : {args_cli.duration:.0f}s ({max_steps} steps)")
     print(f"  Envs        : {n}")
     print(f"{'=' * 70}\n")
@@ -389,6 +415,9 @@ def main(
                 )
                 force_hat = force_hat[:n]
 
+                # ── EMA-filtered estimate ─────────────────────────────
+                force_filtered = ema_alpha * force_hat[:, :2] + (1.0 - ema_alpha) * force_filtered
+
                 # ── Transform to world frame for arrow rendering ──────
                 base_pos = asset.data.root_pos_w[:n]
                 base_quat = asset.data.root_quat_w[:n]
@@ -401,19 +430,27 @@ def main(
                 est_3d[:, :2] = force_hat
                 est_world = quat_apply(base_quat, est_3d)
 
+                filt_3d = torch.zeros(n, 3, device=device)
+                filt_3d[:, :2] = force_filtered
+                filt_world = quat_apply(base_quat, filt_3d)
+
                 # ── Arrow positions (above the robot base) ────────────
                 gt_pos = base_pos.clone()
-                gt_pos[:, 2] += 0.5
+                gt_pos[:, 2] += 0.55
                 est_pos = base_pos.clone()
-                est_pos[:, 2] += 0.35
+                est_pos[:, 2] += 0.40
+                filt_pos = base_pos.clone()
+                filt_pos[:, 2] += 0.25
 
                 # ── Arrow orientations ────────────────────────────────
                 gt_quats = _force_to_quat(gt_world, device)
                 est_quats = _force_to_quat(est_world, device)
+                filt_quats = _force_to_quat(filt_world, device)
 
                 # ── Arrow scales (length ∝ magnitude) ─────────────────
                 gt_mag_w = gt_world.norm(dim=-1, keepdim=True)
                 est_mag_w = est_world.norm(dim=-1, keepdim=True)
+                filt_mag_w = filt_world.norm(dim=-1, keepdim=True)
                 scale_factor = 0.05  # 20N → length 1.0
 
                 gt_scales = torch.full((n, 3), 0.3, device=device)
@@ -422,26 +459,37 @@ def main(
                 est_scales = torch.full((n, 3), 0.3, device=device)
                 est_scales[:, 0:1] = (est_mag_w * scale_factor).clamp(min=0.05)
 
+                filt_scales = torch.full((n, 3), 0.3, device=device)
+                filt_scales[:, 0:1] = (filt_mag_w * scale_factor).clamp(min=0.05)
+
                 # ── Render arrows ─────────────────────────────────────
                 gt_markers.visualize(gt_pos, gt_quats, gt_scales)
                 est_markers.visualize(est_pos, est_quats, est_scales)
+                filt_markers.visualize(filt_pos, filt_quats, filt_scales)
 
                 # ── Record data for plots (env 0) ────────────────────
                 g0 = gt_force_body_xy[0]
                 e0 = force_hat[0]
+                f0 = force_filtered[0]
                 gm0 = g0.norm().item()
                 em0 = e0.norm().item()
+                fm0 = f0.norm().item()
                 ga0 = math.atan2(g0[1].item(), g0[0].item()) * 180.0 / math.pi
                 ea0 = math.atan2(e0[1].item(), e0[0].item()) * 180.0 / math.pi
+                fa0 = math.atan2(f0[1].item(), f0[0].item()) * 180.0 / math.pi
                 ang_diff = (ga0 - ea0 + 180.0) % 360.0 - 180.0
+                filt_ang_diff = (ga0 - fa0 + 180.0) % 360.0 - 180.0
                 is_valid = gm0 > 1.0
 
                 plot_log["time_s"].append(step_count * dt)
                 plot_log["gt_angle"].append(ga0)
                 plot_log["est_angle"].append(ea0)
+                plot_log["filt_angle"].append(fa0)
                 plot_log["gt_mag"].append(gm0)
                 plot_log["est_mag"].append(em0)
+                plot_log["filt_mag"].append(fm0)
                 plot_log["ang_error"].append(ang_diff)
+                plot_log["filt_ang_error"].append(filt_ang_diff)
                 plot_log["valid_mask"].append(is_valid)
 
                 # Detect force re-randomization (GT force jumped)
@@ -491,7 +539,7 @@ def main(
     # ── Save plots ────────────────────────────────────────────────────────
     if len(plot_log["time_s"]) > 10:
         print(f"[static_eval] Collected {len(plot_log['time_s'])} steps. Saving plots...")
-        generate_plots(plot_log, args_cli.force_min, args_cli.force_max, resume_path)
+        generate_plots(plot_log, args_cli.force_min, args_cli.force_max, resume_path, ema_alpha)
     else:
         print("[static_eval] Too few steps collected, skipping plots.")
 
