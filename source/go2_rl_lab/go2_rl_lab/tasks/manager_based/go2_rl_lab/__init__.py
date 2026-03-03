@@ -88,6 +88,19 @@ gym.register(
 )
 
 
+# force-only estimator env with terrain curriculum
+
+gym.register(
+    id="Go2-Force-Only-Terrain-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_force_only_terrain_env_cfg:UnitreeGo2ForceOnlyTerrainEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_force_only_terrain_cfg:ForceOnlyTerrainRunnerCfg",
+    },
+)
+
+
 # force envs
 
 gym.register(

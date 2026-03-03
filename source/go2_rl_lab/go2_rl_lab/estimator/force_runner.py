@@ -51,6 +51,10 @@ class ForceOnPolicyRunner(OnPolicyRunner):
         force_activation_reward_threshold  float  XY tracking reward gate (default: 0.8)
         force_event_term_name   str     Event term name for force (default: "persistent_xy_force")
         max_force               float   Force magnitude once activated (default: 20.0)
+        compliance_k            float   Target compliance gain k (default: 0.0 = disabled)
+        compliance_ema_alpha    float   EMA smoothing factor for force estimate (default: 0.1)
+        compliance_angle_threshold  float  angle_err_median_deg threshold to activate (default: 7.0)
+        compliance_ramp_iters   int     Iterations to linearly ramp k from 0 to target (default: 100)
     """
 
     def __init__(self, env: VecEnv, train_cfg: dict, log_dir: str | None = None, device: str = "cpu") -> None:
@@ -147,6 +151,28 @@ class ForceOnPolicyRunner(OnPolicyRunner):
                 f"[ForceRunner] Forces gated on mean episode reward "
                 f">= {self._force_activation_threshold:.1f}  "
                 f"(estimator training SKIPPED until forces activate)"
+            )
+
+        # ── Compliance modulation (SAC-Loco) ─────────────────────────────
+        # Velocity command modulation: v*_xy = v'_xy + k * F̂_xy
+        # Activates once angle_err_median_deg < threshold, then ramps k
+        # linearly from 0 to k_target over ramp_iters iterations.
+        self._compliance_k_target: float = est_cfg.get("compliance_k", 0.0)
+        self._compliance_ema_alpha: float = est_cfg.get("compliance_ema_alpha", 0.1)
+        self._compliance_angle_threshold: float = est_cfg.get("compliance_angle_threshold", 7.0)
+        self._compliance_ramp_iters: int = est_cfg.get("compliance_ramp_iters", 100)
+        self._compliance_active: bool = False
+        self._compliance_ramp_start_iter: int = -1
+
+        # Set EMA alpha on the wrapper now (always needed, even before compliance activates)
+        self._wrapped_env.ema_alpha = self._compliance_ema_alpha
+
+        if self._compliance_k_target > 0.0:
+            print(
+                f"[ForceRunner] Compliance modulation: k_target={self._compliance_k_target:.4f}  "
+                f"angle_threshold={self._compliance_angle_threshold:.1f}°  "
+                f"ramp_iters={self._compliance_ramp_iters}  "
+                f"ema_alpha={self._compliance_ema_alpha}"
             )
 
     # ── Override algorithm construction ────────────────────────────────────
@@ -295,6 +321,28 @@ class ForceOnPolicyRunner(OnPolicyRunner):
                         f"— activating forces at {self._max_force:.0f}N (iter {it})"
                     )
 
+            # ── Compliance modulation gate + k-ramp ──────────────────────
+            if self._compliance_k_target > 0.0 and self._force_active:
+                angle_err = loss_dict.get("angle_err_median_deg")
+                if not self._compliance_active and angle_err is not None:
+                    if angle_err < self._compliance_angle_threshold:
+                        self._compliance_active = True
+                        self._compliance_ramp_start_iter = it
+                        print(
+                            f"\n[ForceRunner] Compliance activated: "
+                            f"angle_err_median={angle_err:.1f}° < "
+                            f"{self._compliance_angle_threshold:.1f}° threshold  "
+                            f"— ramping k to {self._compliance_k_target:.4f} "
+                            f"over {self._compliance_ramp_iters} iters (iter {it})"
+                        )
+                if self._compliance_active:
+                    ramp_progress = min(
+                        1.0,
+                        (it - self._compliance_ramp_start_iter) / max(1, self._compliance_ramp_iters),
+                    )
+                    current_k = self._compliance_k_target * ramp_progress
+                    self._wrapped_env.compliance_k = current_k
+
             learn_time = time.time() - start
             self.current_learning_iteration = it
 
@@ -373,6 +421,12 @@ class ForceOnPolicyRunner(OnPolicyRunner):
                 self.writer.add_scalar("Estimator/grad_norm_f_head", loss_dict["grad_norm_f_head"], it)
                 self.writer.add_scalar("Estimator/grad_norm_decoder", loss_dict["grad_norm_decoder"], it)
 
+        # ── Compliance modulation ────────────────────────────────────────
+        if self._compliance_k_target > 0.0:
+            self.writer.add_scalar("Compliance/active", float(self._compliance_active), it)
+            self.writer.add_scalar("Compliance/k", self._wrapped_env.compliance_k, it)
+            self.writer.add_scalar("Compliance/k_target", self._compliance_k_target, it)
+
         # ── Observation statistics + weight importance (every 50 iters) ──
         if it % 50 == 0:
             self._log_obs_stats(it)
@@ -402,6 +456,10 @@ class ForceOnPolicyRunner(OnPolicyRunner):
                 est_str += f"\n{'':>{pad}} smooth_frc={statistics.mean(self._est_force_loss_buf):.5f}"
             if len(self._est_rec_loss_buf) >= 5:
                 est_str += f"  smooth_rec={statistics.mean(self._est_rec_loss_buf):.5f}"
+            if self._compliance_k_target > 0.0:
+                k_now = self._wrapped_env.compliance_k
+                status = "ACTIVE" if self._compliance_active else "waiting"
+                est_str += f"\n{'':>{pad}} compliance={status}  k={k_now:.4f}/{self._compliance_k_target:.4f}"
             print(est_str)
         elif not self._force_active and len(rewbuffer) > 0:
             mean_rew = statistics.mean(rewbuffer)

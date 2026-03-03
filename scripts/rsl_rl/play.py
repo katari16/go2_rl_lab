@@ -33,6 +33,8 @@ parser.add_argument(
     action="store_true",
     help="Use the pre-trained checkpoint from Nucleus.",
 )
+parser.add_argument("--compliance_k", type=float, default=0.0, help="Compliance gain k for v*=v+k*F (0=disabled).")
+parser.add_argument("--ema_alpha", type=float, default=0.1, help="EMA smoothing factor for force estimate.")
 parser.add_argument("--real-time", action="store_true", default=False, help="Run in real-time, if possible.")
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
@@ -154,6 +156,15 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # observations with the estimator latent (the actor expects augmented obs).
     if hasattr(runner, "_wrapped_env"):
         env = runner._wrapped_env
+
+    # ── Compliance modulation (inference-time, SAC-Loco) ─────────────
+    if args_cli.compliance_k > 0.0 and hasattr(env, "compliance_k"):
+        env.compliance_k = args_cli.compliance_k
+        env.ema_alpha = args_cli.ema_alpha
+        print(
+            f"[INFO] Compliance modulation: k={args_cli.compliance_k:.4f}  "
+            f"EMA α={args_cli.ema_alpha}  (v* = v + k*F̂)"
+        )
 
     # obtain the trained policy for inference
     policy = runner.get_inference_policy(device=env.unwrapped.device)

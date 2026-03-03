@@ -24,6 +24,10 @@ from .velocity_estimator import VelocityEstimator
 class EstimatorEnvWrapper:
     """Wraps an rsl_rl VecEnv to augment policy observations with estimator latent.
 
+    Optionally applies SAC-Loco-style velocity command modulation:
+        v*_x = v'_x + k * F̂_x,  v*_y = v'_y + k * F̂_y
+    where F̂ is an EMA-filtered force estimate from the estimator.
+
     Args:
         env:                Underlying rsl_rl VecEnv (RslRlVecEnvWrapper).
         estimator:          VelocityEstimator instance.
@@ -48,14 +52,45 @@ class EstimatorEnvWrapper:
         # the reconstruction target (next_obs in estimator.update()).
         self._last_raw_policy_obs: torch.Tensor | None = None
 
+        # ── Compliance modulation (SAC-Loco) ─────────────────────────────
+        # Set compliance_k > 0 to enable velocity command modulation.
+        self.compliance_k: float = 0.0
+        self.ema_alpha: float = 0.1
+        # Velocity command XY indices in the raw observation
+        self._vel_cmd_start: int = 6
+        self._vel_cmd_end: int = 8
+        # EMA-filtered force estimate (lazily initialized)
+        self._force_filtered: torch.Tensor | None = None
+
     # ── Observation augmentation ──────────────────────────────────────────
 
     def _augment_obs(self, raw_obs: TensorDict) -> TensorDict:
-        """Augment the 'policy' key with estimator latent."""
+        """Augment the 'policy' key with estimator latent.
+
+        When compliance_k > 0, also modulates the velocity command with
+        EMA-filtered force estimate: v*_xy = v'_xy + k * F̂_filtered_xy.
+        """
         raw_policy = raw_obs["policy"].to(self.device)
         # Insert current obs into history, then compute latent
         self.history_buffer.insert(raw_policy)
-        _, latent = self.estimator.get_latent(self.history_buffer.get_flattened())
+        force_hat, latent = self.estimator.get_latent(self.history_buffer.get_flattened())
+
+        # ── Compliance modulation ─────────────────────────────────────
+        if self.compliance_k > 0.0:
+            # Lazy-init EMA state
+            if self._force_filtered is None:
+                self._force_filtered = torch.zeros(
+                    raw_policy.shape[0], force_hat.shape[-1], device=self.device
+                )
+            # EMA update
+            self._force_filtered = (
+                self.ema_alpha * force_hat + (1.0 - self.ema_alpha) * self._force_filtered
+            )
+            # Modulate velocity command XY in the raw obs
+            raw_policy = raw_policy.clone()
+            s, e = self._vel_cmd_start, self._vel_cmd_end
+            raw_policy[:, s:e] = raw_policy[:, s:e] + self.compliance_k * self._force_filtered[:, :2]
+
         augmented_policy = torch.cat([raw_policy, latent], dim=-1)
 
         # Build a new TensorDict with the augmented policy obs
@@ -75,6 +110,10 @@ class EstimatorEnvWrapper:
         # Reset history for environments that just terminated
         done_ids = dones.nonzero(as_tuple=False).flatten()
         self.history_buffer.reset(done_ids)
+
+        # Reset EMA-filtered force for terminated episodes
+        if self._force_filtered is not None and len(done_ids) > 0:
+            self._force_filtered[done_ids] = 0.0
 
         # Store raw policy obs before augmentation (used as next_obs target)
         self._last_raw_policy_obs = raw_obs["policy"].to(self.device).clone()
