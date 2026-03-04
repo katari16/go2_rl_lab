@@ -62,6 +62,16 @@ class EstimatorEnvWrapper:
         # EMA-filtered force estimate (lazily initialized)
         self._force_filtered: torch.Tensor | None = None
 
+        # ── Tracking reward correction ────────────────────────────────────
+        # When enabled AND compliance_k > 0, corrects the velocity tracking
+        # reward so it uses modulated command c* = c + k*f̂ instead of c.
+        # This ensures the reward is consistent with the modulated observation.
+        self.tracking_correction_enabled: bool = False
+        # Must match env cfg RewardsCfg weights and std
+        self._track_lin_weight: float = 1.5
+        self._track_ang_weight: float = 0.75
+        self._track_std_sq: float = 0.25  # std=sqrt(0.25), std²=0.25
+
     # ── Observation augmentation ──────────────────────────────────────────
 
     def _augment_obs(self, raw_obs: TensorDict) -> TensorDict:
@@ -119,7 +129,50 @@ class EstimatorEnvWrapper:
         self._last_raw_policy_obs = raw_obs["policy"].to(self.device).clone()
 
         augmented_obs = self._augment_obs(raw_obs)
+
+        # ── Tracking reward correction ────────────────────────────────
+        # When compliance is active, the observation's velocity command is
+        # modulated to c* = c + k*f̂, but the env computed tracking reward
+        # against the original c. We add a correction so the effective
+        # tracking reward uses c*.
+        if (
+            self.tracking_correction_enabled
+            and self.compliance_k > 0.0
+            and self._force_filtered is not None
+        ):
+            correction = self._compute_tracking_correction()
+            rewards = rewards.to(self.device) + correction
+
         return augmented_obs, rewards, dones, extras
+
+    def _compute_tracking_correction(self) -> torch.Tensor:
+        """Compute tracking reward correction: r_track(c*) - r_track(c).
+
+        The env computed tracking reward using original command c.
+        We need tracking reward using modulated command c* = c + k*f̂.
+        The correction is the difference.
+        """
+        underlying = self._env.unwrapped if hasattr(self._env, "unwrapped") else self._env
+        robot = underlying.scene["robot"]
+        v_xy = robot.data.root_lin_vel_b[:, :2].to(self.device)
+
+        # Original velocity command from raw obs (before modulation)
+        c_xy = self._last_raw_policy_obs[:, self._vel_cmd_start:self._vel_cmd_end]
+
+        # Compliance modulation delta
+        delta_xy = self.compliance_k * self._force_filtered[:, :2]
+
+        # Original tracking (what env computed)
+        r_lin_orig = torch.exp(
+            -((c_xy - v_xy) ** 2).sum(dim=-1) / self._track_std_sq
+        )
+        # Modified tracking (using c* = c + k*f̂)
+        r_lin_mod = torch.exp(
+            -(((c_xy + delta_xy) - v_xy) ** 2).sum(dim=-1) / self._track_std_sq
+        )
+
+        # Only correct linear XY tracking (force is XY only, yaw unchanged)
+        return self._track_lin_weight * (r_lin_mod - r_lin_orig)
 
     def get_last_raw_policy_obs(self) -> torch.Tensor | None:
         """Return the raw (un-augmented) policy obs from the last step.

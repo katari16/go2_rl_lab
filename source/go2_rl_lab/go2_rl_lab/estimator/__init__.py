@@ -4,6 +4,7 @@ Provides concurrent state estimation (HAC-LOCO style) trained alongside
 the PPO locomotion policy.
 """
 
+from .compliant_force_runner import CompliantForceRunner
 from .estimator_env_wrapper import EstimatorEnvWrapper
 from .estimator_runner import EstimatorOnPolicyRunner
 from .force_estimator import ForceEstimator
@@ -13,6 +14,7 @@ from .obs_history_buffer import ObsHistoryBuffer
 from .velocity_estimator import VelocityEstimator
 
 __all__ = [
+    "CompliantForceRunner",
     "VelocityEstimator",
     "ForceEstimator",
     "ForceEstimatorPPO",

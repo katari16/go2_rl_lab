@@ -34,6 +34,7 @@ parser.add_argument("--export_io_descriptors", action="store_true", default=Fals
 parser.add_argument(
     "--ray-proc-id", "-rid", type=int, default=None, help="Automatically configured by Ray integration, otherwise None."
 )
+parser.add_argument("--estimator_checkpoint", type=str, default=None, help="Path to pre-trained estimator checkpoint for compliant training.")
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -168,6 +169,11 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # set the log directory for the environment (works for all environment types)
     env_cfg.log_dir = log_dir
 
+    # Set force estimator checkpoint on env config (for compliant training)
+    if args_cli.estimator_checkpoint and hasattr(env_cfg, "force_estimator_checkpoint"):
+        env_cfg.force_estimator_checkpoint = args_cli.estimator_checkpoint
+        print(f"[INFO] Force estimator checkpoint: {args_cli.estimator_checkpoint}")
+
     # create isaac environment
     env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
 
@@ -199,6 +205,12 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # create runner from rsl-rl
     if agent_cfg.class_name == "OnPolicyRunner":
         runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=log_dir, device=agent_cfg.device)
+    elif agent_cfg.class_name == "CompliantOnPolicyRunner":
+        from go2_rl_lab.estimator.compliant_on_policy_runner import CompliantOnPolicyRunner
+        train_cfg = agent_cfg.to_dict()
+        if args_cli.estimator_checkpoint is not None:
+            train_cfg["estimator_checkpoint"] = args_cli.estimator_checkpoint
+        runner = CompliantOnPolicyRunner(env, train_cfg, log_dir=log_dir, device=agent_cfg.device)
     elif agent_cfg.class_name == "DistillationRunner":
         runner = DistillationRunner(env, agent_cfg.to_dict(), log_dir=log_dir, device=agent_cfg.device)
     elif agent_cfg.class_name == "EstimatorOnPolicyRunner":
@@ -207,6 +219,12 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     elif agent_cfg.class_name == "ForceOnPolicyRunner":
         from go2_rl_lab.estimator import ForceOnPolicyRunner
         runner = ForceOnPolicyRunner(env, agent_cfg.to_dict(), log_dir=log_dir, device=agent_cfg.device)
+    elif agent_cfg.class_name == "CompliantForceRunner":
+        from go2_rl_lab.estimator.compliant_force_runner import CompliantForceRunner
+        train_cfg = agent_cfg.to_dict()
+        if args_cli.estimator_checkpoint is not None:
+            train_cfg.setdefault("compliance", {})["estimator_checkpoint"] = args_cli.estimator_checkpoint
+        runner = CompliantForceRunner(env, train_cfg, log_dir=log_dir, device=agent_cfg.device)
     else:
         raise ValueError(f"Unsupported runner class: {agent_cfg.class_name}")
     # write git state to logs

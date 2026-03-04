@@ -101,6 +101,19 @@ gym.register(
 )
 
 
+# compliant locomotion — frozen estimator as obs term, standard runner
+
+gym.register(
+    id="Go2-Compliant-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_compliant_env_cfg:UnitreeGo2CompliantEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_compliant_cfg:CompliantRunnerCfg",
+    },
+)
+
+
 # force envs
 
 gym.register(

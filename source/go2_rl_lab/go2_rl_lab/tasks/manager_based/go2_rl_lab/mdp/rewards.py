@@ -360,6 +360,113 @@ def action_smoothness_2(env: ManagerBasedRLEnv) -> torch.Tensor:
     return torch.sum(torch.square(second_diff), dim=1)
 
 
+def compliant_track_lin_vel_xy_exp(
+    env: ManagerBasedRLEnv,
+    std: float,
+    command_name: str,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Linear velocity tracking with piecewise compliance modulation.
+
+    When ``env._mapping_active`` is True:
+        - ``|f_hat| <= alpha``: k=0, track original command (resist)
+        - ``|f_hat| > alpha``: k=1/beta, track ``v_cmd + k * f_hat`` (comply)
+
+    Before mapping activates: identical to standard ``track_lin_vel_xy_exp``.
+
+    Args:
+        std: Exponential kernel width.
+        command_name: Velocity command term name.
+        asset_cfg: Robot asset config.
+    """
+    asset: Articulation = env.scene[asset_cfg.name]
+    vel_cmd = env.command_manager.get_command(command_name)[:, :2].clone()
+    v_actual = asset.data.root_lin_vel_b[:, :2]
+
+    if getattr(env, "_mapping_active", False):
+        f_hat = getattr(env, "_force_estimate_xy", None)
+        if f_hat is not None:
+            alpha = getattr(env, "_compliance_alpha", 5.0)
+            beta = getattr(env, "_compliance_beta", 50.0)
+            f_mag = f_hat.norm(dim=1, keepdim=True)  # [N, 1]
+            k = torch.where(f_mag <= alpha, 0.0, 1.0 / beta)  # [N, 1]
+            vel_cmd = vel_cmd + k * f_hat
+
+    error = torch.sum(torch.square(vel_cmd - v_actual), dim=1)
+    return torch.exp(-error / std)
+
+
+def resistance_compliance_reward(
+    env: ManagerBasedRLEnv,
+    alpha: float,
+    beta: float,
+    std: float = 0.25,
+    command_name: str = "base_velocity",
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names="base"),
+) -> torch.Tensor:
+    """HAC-LOCO resistance-compliance reward (r_comp) — exponential form.
+
+    Piecewise exponential reward based on external force magnitude:
+
+    When ``||f|| <= alpha`` (small disturbance — resist)::
+
+        r_comp = exp(-||a'||^2 / std)
+
+    When ``||f|| > alpha`` (large disturbance — comply)::
+
+        r_comp = exp(-(||a'_xy - target||^2 + ||a'_z||^2) / std)
+
+    where ``target = f_xy/beta * (1 + alpha/|f_xy|)`` and
+    ``a' = [v_actual - v_cmd, omega_actual - omega_cmd]``.
+
+    Returns values in (0, 1]. Use with **positive** weight.
+
+    Args:
+        alpha: Force threshold (N). Below: resist. Above: comply.
+        beta: Virtual impedance. Smaller = more compliant.
+        std: Exponential kernel width (temperature).
+        command_name: Velocity command term name.
+        asset_cfg: Robot asset with body_names="base" for force readout.
+    """
+    asset: Articulation = env.scene[asset_cfg.name]
+
+    # Velocity deviation = effective "command adjustment" a'
+    vel_cmd = env.command_manager.get_command(command_name)
+    a_prime_xy = asset.data.root_lin_vel_b[:, :2] - vel_cmd[:, :2]   # [N, 2]
+    a_prime_z = asset.data.root_ang_vel_b[:, 2] - vel_cmd[:, 2]      # [N]
+
+    # Ground-truth applied force (body frame) from permanent wrench composer
+    f_xy = asset.permanent_wrench_composer.composed_force_as_torch[
+        :, asset_cfg.body_ids, :2
+    ].squeeze(1)  # [N, 2]
+    f_mag = f_xy.norm(dim=1)  # [N]
+
+    # ── Small force: reward resisting (staying on command) ───────────────
+    error_small = a_prime_xy.pow(2).sum(dim=1) + a_prime_z.pow(2)
+
+    # ── Large force: reward complying with impedance target ─────────────
+    f_xy_mag = f_mag.unsqueeze(1).clamp(min=1e-6)  # [N, 1]
+    target_xy = (f_xy / beta) * (1.0 + alpha / f_xy_mag)  # [N, 2]
+    error_large = (a_prime_xy - target_xy).pow(2).sum(dim=1) + a_prime_z.pow(2)
+
+    # ── Gate: only active after runner activates forces ──────────────────
+    if not getattr(env, "_rcomp_active", False):
+        return torch.zeros(env.num_envs, device=env.device)
+
+    # ── Piecewise exponential reward ────────────────────────────────────
+    error = torch.where(f_mag <= alpha, error_small, error_large)
+    reward = torch.exp(-error / std)
+
+    # ── Logging ─────────────────────────────────────────────────────────
+    env.extras["r_comp/reward_mean"] = reward.mean().item()
+    env.extras["r_comp/error_mean"] = error.mean().item()
+    env.extras["r_comp/gt_force_mean_mag"] = f_mag.mean().item()
+    env.extras["r_comp/num_envs_above_alpha"] = (f_mag > alpha).sum().float().item()
+    env.extras["r_comp/a_prime_xy_norm_mean"] = a_prime_xy.norm(dim=1).mean().item()
+
+    return reward
+
+
 def track_lin_vel_xy_exp_staged(
     env: ManagerBasedRLEnv,
     std: float,
