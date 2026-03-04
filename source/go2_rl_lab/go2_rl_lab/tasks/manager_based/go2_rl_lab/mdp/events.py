@@ -69,6 +69,65 @@ def apply_persistent_xy_force(
     )
 
 
+def apply_persistent_xyz_force(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    force_range: tuple[float, float],
+    fz_scale: float = 0.6,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names="base"),
+) -> None:
+    """Apply persistent external XYZ force to the robot base (body frame).
+
+    Same as ``apply_persistent_xy_force`` but also samples a Z component.
+    The Z magnitude range is scaled by ``fz_scale`` relative to XY to avoid
+    instability from large vertical forces.
+
+    Args:
+        env: The environment instance.
+        env_ids: Environment indices to randomize.
+        force_range: (min_abs, max_abs) magnitude range for each XY axis.
+        fz_scale: Scale factor for Z magnitude range relative to XY (default: 0.6).
+        asset_cfg: Asset and body to apply force to.
+    """
+    asset: RigidObject | Articulation = env.scene[asset_cfg.name]
+    num = len(env_ids)
+    if env_ids is None:
+        env_ids = torch.arange(env.scene.num_envs, device=asset.device)
+
+    num_bodies = len(asset_cfg.body_ids) if isinstance(asset_cfg.body_ids, list) else asset.num_bodies
+
+    lo, hi = float(force_range[0]), float(force_range[1])
+    if hi < 1e-6:
+        forces = torch.zeros(num, num_bodies, 3, device=asset.device)
+        torques = torch.zeros(num, num_bodies, 3, device=asset.device)
+    else:
+        # Sample XY magnitude with random sign
+        mag_xy = torch.empty(num, 2, device=asset.device).uniform_(lo, hi)
+        sign_xy = torch.sign(torch.empty(num, 2, device=asset.device).uniform_(-1, 1))
+        sign_xy[sign_xy == 0] = 1.0
+        xy_force = mag_xy * sign_xy
+
+        # Sample Z magnitude with scaled range and random sign
+        lo_z, hi_z = lo * fz_scale, hi * fz_scale
+        mag_z = torch.empty(num, 1, device=asset.device).uniform_(lo_z, hi_z)
+        sign_z = torch.sign(torch.empty(num, 1, device=asset.device).uniform_(-1, 1))
+        sign_z[sign_z == 0] = 1.0
+        z_force = mag_z * sign_z
+
+        forces = torch.zeros(num, num_bodies, 3, device=asset.device)
+        forces[:, :, 0] = xy_force[:, 0:1]
+        forces[:, :, 1] = xy_force[:, 1:2]
+        forces[:, :, 2] = z_force[:, 0:1]
+        torques = torch.zeros(num, num_bodies, 3, device=asset.device)
+
+    asset.permanent_wrench_composer.set_forces_and_torques(
+        forces=forces,
+        torques=torques,
+        body_ids=asset_cfg.body_ids,
+        env_ids=env_ids,
+    )
+
+
 def push_by_setting_velocity_with_return(
     env: ManagerBasedEnv,
     env_ids: torch.Tensor,

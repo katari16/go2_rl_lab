@@ -146,15 +146,14 @@ def generate_plots(
     ema_alpha: float,
     compliance_k: float,
 ) -> None:
-    """Generate 4-panel evaluation plot and save next to checkpoint.
+    """Generate multi-panel evaluation plot and save next to checkpoint.
 
-    Panel 1 (RED):    Applied force — GT vs estimated (Fx, Fy)
-    Panel 2 (BLUE):   Base velocity (vx, vy)
-    Panel 3 (GREEN):  Normal velocity command (cmd_vx, cmd_vy)
-    Panel 4 (YELLOW): Adjusted velocity command v* = v_cmd + k * F_hat
+    Panels: Force XY, Force Z (if 3D), Base velocity, Cmd velocity, Adjusted velocity.
     """
     import matplotlib.pyplot as plt
     from datetime import datetime
+
+    has_fz = "gt_force_z" in log and len(log["gt_force_z"]) > 0
 
     t = np.array(log["time_s"])
     gt_fx = np.array(log["gt_force_x"])
@@ -169,22 +168,25 @@ def generate_plots(
     adj_vy = np.array(log["adj_vel_y"])
     rerandom = log["rerandom_steps"]
 
-    fig, axes = plt.subplots(4, 1, figsize=(14, 12), sharex=True)
+    n_panels = 5 if has_fz else 4
+    fig, axes = plt.subplots(n_panels, 1, figsize=(14, 3 * n_panels), sharex=True)
     k_str = f"k={compliance_k:.4f}" if compliance_k > 0 else "k=0 (disabled)"
     fig.suptitle(
-        f"Static Force Eval — [{force_min:.0f}, {force_max:.0f}] N/axis — EMA \u03b1={ema_alpha} — {k_str}",
+        f"Static Force Eval — [{force_min:.0f}, {force_max:.0f}] N/axis — EMA \u03b1={ema_alpha} — {k_str}"
+        + (" (XYZ)" if has_fz else ""),
         fontsize=14,
         fontweight="bold",
     )
 
-    # Vertical lines for force re-randomization events
     for ax in axes:
         for rs in rerandom:
             if rs < len(t):
                 ax.axvline(t[rs], color="gray", alpha=0.3, linewidth=0.5, linestyle="--")
 
-    # ── Panel 1 (RED): Applied force — GT solid, estimated dashed ────────
-    ax = axes[0]
+    panel = 0
+
+    # ── Panel: Applied force XY ──────────────────────────────────────────
+    ax = axes[panel]
     ax.plot(t, gt_fx, color="tab:red", linewidth=1.2, alpha=0.9, label="GT Fx")
     ax.plot(t, gt_fy, color="darkred", linewidth=1.2, alpha=0.9, label="GT Fy")
     ax.plot(t, est_fx, color="tab:red", linewidth=0.8, alpha=0.5, linestyle="--", label="Est Fx")
@@ -192,46 +194,61 @@ def generate_plots(
     ax.set_ylabel("Force (N)")
     ax.legend(loc="upper right", fontsize=9, ncol=2)
     ax.grid(True, alpha=0.3)
-    ax.set_title("Applied Force: GT (solid) vs Estimated (dashed)", fontsize=11)
+    ax.set_title("Applied Force XY: GT (solid) vs Estimated (dashed)", fontsize=11)
+    panel += 1
 
-    # ── Panel 2 (BLUE): Base velocity ────────────────────────────────────
-    ax = axes[1]
+    # ── Panel: Applied force Z (only if 3D) ──────────────────────────────
+    if has_fz:
+        gt_fz = np.array(log["gt_force_z"])
+        est_fz = np.array(log["est_force_z"])
+        ax = axes[panel]
+        ax.plot(t, gt_fz, color="tab:purple", linewidth=1.2, alpha=0.9, label="GT Fz")
+        ax.plot(t, est_fz, color="purple", linewidth=0.8, alpha=0.5, linestyle="--", label="Est Fz")
+        ax.set_ylabel("Force (N)")
+        ax.legend(loc="upper right", fontsize=9)
+        ax.grid(True, alpha=0.3)
+        ax.set_title("Applied Force Z: GT (solid) vs Estimated (dashed)", fontsize=11)
+        panel += 1
+
+    # ── Panel: Base velocity ─────────────────────────────────────────────
+    ax = axes[panel]
     ax.plot(t, base_vx, color="tab:blue", linewidth=1.0, alpha=0.9, label="base vx")
     ax.plot(t, base_vy, color="navy", linewidth=1.0, alpha=0.9, label="base vy")
     ax.set_ylabel("Velocity (m/s)")
     ax.legend(loc="upper right", fontsize=9)
     ax.grid(True, alpha=0.3)
     ax.set_title("Base Velocity (body frame)", fontsize=11)
+    panel += 1
 
-    # ── Panel 3 (GREEN): Normal velocity command ─────────────────────────
-    ax = axes[2]
+    # ── Panel: Normal velocity command ───────────────────────────────────
+    ax = axes[panel]
     ax.plot(t, cmd_vx, color="tab:green", linewidth=1.2, alpha=0.9, label="cmd vx")
     ax.plot(t, cmd_vy, color="darkgreen", linewidth=1.2, alpha=0.9, label="cmd vy")
     ax.set_ylabel("Velocity (m/s)")
     ax.legend(loc="upper right", fontsize=9)
     ax.grid(True, alpha=0.3)
     ax.set_title("Normal Velocity Command", fontsize=11)
+    panel += 1
 
-    # ── Panel 4 (YELLOW): Adjusted velocity command v* = v_cmd + k*F_hat ─
-    ax = axes[3]
+    # ── Panel: Adjusted velocity command ─────────────────────────────────
+    ax = axes[panel]
     ax.plot(t, adj_vx, color="goldenrod", linewidth=1.2, alpha=0.9, label="v* x")
     ax.plot(t, adj_vy, color="darkgoldenrod", linewidth=1.2, alpha=0.9, label="v* y")
-    # Overlay normal cmd as dashed for comparison
     ax.plot(t, cmd_vx, color="tab:green", linewidth=0.6, alpha=0.4, linestyle="--", label="cmd vx")
     ax.plot(t, cmd_vy, color="darkgreen", linewidth=0.6, alpha=0.4, linestyle="--", label="cmd vy")
     ax.set_ylabel("Velocity (m/s)")
     ax.set_xlabel("Time (s)")
     ax.legend(loc="upper right", fontsize=9, ncol=2)
     ax.grid(True, alpha=0.3)
-    ax.set_title(f"Adjusted Velocity Command: v* = v_cmd + {compliance_k:.4f} * F_hat", fontsize=11)
+    ax.set_title(f"Adjusted Velocity: v* = v_cmd + {compliance_k:.4f} * F_hat_xy", fontsize=11)
 
     plt.tight_layout()
 
-    # Save to force_eval/ folder next to checkpoint
     eval_dir = os.path.join(os.path.dirname(checkpoint_path), "force_eval")
     os.makedirs(eval_dir, exist_ok=True)
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    filename = f"static_eval_F{force_max:.0f}_k{compliance_k:.4f}_ema{ema_alpha}_{timestamp}.png"
+    dim_str = "xyz" if has_fz else "xy"
+    filename = f"static_eval_{dim_str}_F{force_max:.0f}_k{compliance_k:.4f}_ema{ema_alpha}_{timestamp}.png"
     fig_path = os.path.join(eval_dir, filename)
     fig.savefig(fig_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
@@ -261,22 +278,32 @@ def main(
     env_cfg.commands.base_velocity.ranges.heading = (0.0, 0.0)
     env_cfg.commands.base_velocity.debug_vis = False
 
+    # Auto-detect force event term name (XY vs XYZ) from agent config
+    force_event_name = agent_cfg.to_dict().get("force_event_term_name", "persistent_xy_force")
+    is_xyz = "xyz" in force_event_name
+
     # Activate forces immediately with user-specified range
-    env_cfg.events.persistent_xy_force.params["force_range"] = (
-        args_cli.force_min,
-        args_cli.force_max,
-    )
+    force_event = getattr(env_cfg.events, force_event_name)
+    force_event.params["force_range"] = (args_cli.force_min, args_cli.force_max)
     # Re-randomize frequently for a dynamic demo
-    env_cfg.events.persistent_xy_force.interval_range_s = (1.0, 3.0)
+    force_event.interval_range_s = (1.0, 3.0)
 
-    # Override the reset event to also apply XY forces on episode start.
-    from go2_rl_lab.tasks.manager_based.go2_rl_lab.mdp.events import apply_persistent_xy_force
-
-    env_cfg.events.base_external_force_torque.func = apply_persistent_xy_force
-    env_cfg.events.base_external_force_torque.params = {
-        "asset_cfg": SceneEntityCfg("robot", body_names="base"),
-        "force_range": (args_cli.force_min, args_cli.force_max),
-    }
+    # Override the reset event to also apply forces on episode start.
+    if is_xyz:
+        from go2_rl_lab.tasks.manager_based.go2_rl_lab.mdp.events import apply_persistent_xyz_force
+        env_cfg.events.base_external_force_torque.func = apply_persistent_xyz_force
+        env_cfg.events.base_external_force_torque.params = {
+            "asset_cfg": SceneEntityCfg("robot", body_names="base"),
+            "force_range": (args_cli.force_min, args_cli.force_max),
+            "fz_scale": force_event.params.get("fz_scale", 0.6),
+        }
+    else:
+        from go2_rl_lab.tasks.manager_based.go2_rl_lab.mdp.events import apply_persistent_xy_force
+        env_cfg.events.base_external_force_torque.func = apply_persistent_xy_force
+        env_cfg.events.base_external_force_torque.params = {
+            "asset_cfg": SceneEntityCfg("robot", body_names="base"),
+            "force_range": (args_cli.force_min, args_cli.force_max),
+        }
 
     # ── Resolve checkpoint ────────────────────────────────────────────────
     log_root_path = os.path.abspath(os.path.join("logs", "rsl_rl", agent_cfg.experiment_name))
@@ -328,7 +355,10 @@ def main(
 
     # For CompliantOnPolicyRunner, determine the raw obs dim (without force estimate)
     if runner_mode == "compliant":
-        compliant_raw_obs_dim = runner._num_one_step_obs  # 61
+        compliant_raw_obs_dim = runner._num_one_step_obs
+
+    # Detect force dimension from runner
+    force_dim = getattr(runner, "_force_dim", 2)
 
     policy = runner.get_inference_policy(device=env.unwrapped.device)
     try:
@@ -354,16 +384,16 @@ def main(
 
     # Initialize force estimate for CompliantOnPolicyRunner
     if runner_mode == "compliant":
-        isaac_env._force_estimate_xy = torch.zeros(n, 2, device=device)
+        isaac_env._force_estimate_xy = torch.zeros(n, force_dim, device=device)
 
     obs = env.get_observations()
     step_count = 0
     max_steps = int(args_cli.duration / dt)
 
-    # Compliance
+    # Compliance (always XY only)
     ema_alpha = args_cli.ema_alpha
     compliance_k = args_cli.compliance_k
-    force_ema = torch.zeros(n, 2, device=device)  # EMA-filtered force estimate
+    force_ema = torch.zeros(n, 2, device=device)  # EMA-filtered force estimate (XY only)
 
     # Data collection for plots (env 0 only)
     plot_log: dict[str, list] = {
@@ -380,15 +410,20 @@ def main(
         "adj_vel_y": [],
         "rerandom_steps": [],
     }
+    if force_dim >= 3:
+        plot_log["gt_force_z"] = []
+        plot_log["est_force_z"] = []
     prev_gt_xy = None
 
     print(f"\n{'=' * 70}")
     print(f"  Runner      : {runner_class_name} ({runner_mode})")
     print(f"  Mode        : STATIC (zero velocity commands)")
-    print(f"  Force range : [{args_cli.force_min:.0f}, {args_cli.force_max:.0f}] N per axis")
+    print(f"  Force dims  : {'XYZ (3D)' if force_dim >= 3 else 'XY (2D)'}")
+    print(f"  Force range : [{args_cli.force_min:.0f}, {args_cli.force_max:.0f}] N per axis" +
+          (f" (fz: x0.6)" if force_dim >= 3 else ""))
     print(f"  EMA alpha   : {ema_alpha}")
     if compliance_k > 0.0:
-        print(f"  Compliance  : k={compliance_k:.4f}  (v* = v_cmd + k * F_hat)")
+        print(f"  Compliance  : k={compliance_k:.4f}  (v* = v_cmd + k * F_hat_xy)")
     else:
         print(f"  Compliance  : DISABLED (use --compliance_k to enable)")
     print(f"  Arrows      : RED = GT force   GREEN = cmd vel   YELLOW = adjusted cmd vel")
@@ -430,20 +465,20 @@ def main(
                     if len(done_ids) > 0:
                         runner._history_buffer.reset(done_ids)
 
-                # ── GT force (body frame XY from wrench composer) ─────
-                gt_force_body_xy = asset.permanent_wrench_composer.composed_force_as_torch[
-                    :n, base_idx, :2
+                # ── GT force (body frame from wrench composer) ─────────
+                gt_force_body = asset.permanent_wrench_composer.composed_force_as_torch[
+                    :n, base_idx, :force_dim
                 ]
-                if gt_force_body_xy.dim() == 3:
-                    gt_force_body_xy = gt_force_body_xy.squeeze(1)
+                if gt_force_body.dim() == 3:
+                    gt_force_body = gt_force_body.squeeze(1)
 
-                # ── NN estimated force (body frame XY) ────────────────
+                # ── NN estimated force (body frame) ───────────────────
                 force_hat, _ = runner.estimator.get_latent(
                     runner._history_buffer.get_flattened()
                 )
                 force_hat = force_hat[:n]
 
-                # EMA filter for force runner (compliant already updated above)
+                # EMA filter (XY only for compliance)
                 if runner_mode != "compliant":
                     force_ema = ema_alpha * force_hat[:, :2] + (1.0 - ema_alpha) * force_ema
 
@@ -451,7 +486,7 @@ def main(
                 base_lin_vel = asset.data.root_lin_vel_b[:n]  # [n, 3]
                 cmd_vel = isaac_env.command_manager.get_command("base_velocity")[:n]  # [n, 3+]
 
-                # Adjusted velocity: v* = v_cmd + k * EMA(F_hat)
+                # Adjusted velocity: v* = v_cmd + k * EMA(F_hat) (XY only)
                 adj_vel_x = cmd_vel[:, 0] + compliance_k * force_ema[:, 0]
                 adj_vel_y = cmd_vel[:, 1] + compliance_k * force_ema[:, 1]
 
@@ -459,9 +494,9 @@ def main(
                 base_pos = asset.data.root_pos_w[:n]
                 base_quat = asset.data.root_quat_w[:n]
 
-                # GT force arrow (RED)
+                # GT force arrow (RED) — uses full 3D for arrow direction
                 gt_3d = torch.zeros(n, 3, device=device)
-                gt_3d[:, :2] = gt_force_body_xy
+                gt_3d[:, :force_dim] = gt_force_body
                 gt_world = quat_apply(base_quat, gt_3d)
 
                 # Normal cmd vel arrow (GREEN)
@@ -511,7 +546,7 @@ def main(
                 adj_markers.visualize(adj_pos, adj_quats, adj_scales)
 
                 # ── Record data for plots (env 0) ────────────────────
-                g0 = gt_force_body_xy[0]
+                g0 = gt_force_body[0]
                 e0 = force_hat[0]
 
                 plot_log["time_s"].append(step_count * dt)
@@ -519,6 +554,9 @@ def main(
                 plot_log["gt_force_y"].append(g0[1].item())
                 plot_log["est_force_x"].append(e0[0].item())
                 plot_log["est_force_y"].append(e0[1].item())
+                if force_dim >= 3:
+                    plot_log["gt_force_z"].append(g0[2].item())
+                    plot_log["est_force_z"].append(e0[2].item())
                 plot_log["base_vel_x"].append(base_lin_vel[0, 0].item())
                 plot_log["base_vel_y"].append(base_lin_vel[0, 1].item())
                 plot_log["cmd_vel_x"].append(cmd_vel[0, 0].item())
@@ -528,10 +566,10 @@ def main(
 
                 # Detect force re-randomization (GT force jumped)
                 if prev_gt_xy is not None:
-                    delta = (g0 - prev_gt_xy).norm().item()
+                    delta = (g0[:2] - prev_gt_xy).norm().item()
                     if delta > 1.0:
                         plot_log["rerandom_steps"].append(step_count)
-                prev_gt_xy = g0.clone()
+                prev_gt_xy = g0[:2].clone()
 
                 # ── Terminal readout (first env, every 10 steps) ──────
                 step_count += 1
@@ -543,9 +581,10 @@ def main(
                     filled = int(bar_len * pct)
                     bar = "\u2588" * filled + "\u2591" * (bar_len - filled)
                     elapsed_s = step_count * dt
+                    fz_str = f",{g0[2]:+6.1f}" if force_dim >= 3 else ""
                     print(
                         f"\r  [{bar}] {elapsed_s:.0f}/{args_cli.duration:.0f}s  "
-                        f"GT:[{g0[0]:+6.1f},{g0[1]:+6.1f}]N |{gm0:5.1f}|  "
+                        f"GT:[{g0[0]:+6.1f},{g0[1]:+6.1f}{fz_str}]N |{gm0:5.1f}|  "
                         f"Est:[{e0[0]:+6.1f},{e0[1]:+6.1f}]N |{em0:5.1f}|  "
                         f"v*:[{adj_vel_x[0]:+5.2f},{adj_vel_y[0]:+5.2f}]",
                         end="",

@@ -386,11 +386,13 @@ def compliant_track_lin_vel_xy_exp(
     if getattr(env, "_mapping_active", False):
         f_hat = getattr(env, "_force_estimate_xy", None)
         if f_hat is not None:
+            # Use only XY components for compliance (works with both 2D and 3D estimates)
+            f_hat_xy = f_hat[:, :2]
             alpha = getattr(env, "_compliance_alpha", 5.0)
             beta = getattr(env, "_compliance_beta", 50.0)
-            f_mag = f_hat.norm(dim=1, keepdim=True)  # [N, 1]
+            f_mag = f_hat_xy.norm(dim=1, keepdim=True)  # [N, 1]
             k = torch.where(f_mag <= alpha, 0.0, 1.0 / beta)  # [N, 1]
-            vel_cmd = vel_cmd + k * f_hat
+            vel_cmd = vel_cmd + k * f_hat_xy
 
     error = torch.sum(torch.square(vel_cmd - v_actual), dim=1)
     return torch.exp(-error / std)

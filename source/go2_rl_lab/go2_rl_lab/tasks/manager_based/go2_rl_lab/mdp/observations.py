@@ -78,10 +78,12 @@ class ForceEstimateObsTerm(ManagerTermBase):
 
     def __call__(self, env: ManagerBasedRLEnv) -> torch.Tensor:
         if self._dummy:
-            # Passthrough mode: return whatever the runner set, or zeros
+            # Passthrough mode: return whatever the runner set, or zeros.
+            # The runner sets _force_estimate_xy with shape [N, force_dim] (2 or 3).
             f = getattr(env, "_force_estimate_xy", None)
             if f is not None:
                 return f.clone()
+            # Default to 2D zeros; the runner will override with correct dim before first use
             return torch.zeros(env.num_envs, 2, device=env.device)
 
         asset: Articulation = env.scene["robot"]
@@ -191,6 +193,20 @@ def base_applied_force_xy(
     forces = asset.permanent_wrench_composer.composed_force_as_torch
     # Select the target body and take XY
     return forces[:, asset_cfg.body_ids, :2].squeeze(1)
+
+
+def base_applied_force_xyz(
+    env: ManagerBasedRLEnv,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names="base"),
+) -> torch.Tensor:
+    """XYZ components of persistent external force applied to the base body.
+
+    Reads from the permanent wrench composer buffer (shape: [num_envs, num_bodies, 3]).
+    Returns [num_envs, 3] — ground truth for 3D force estimation head.
+    """
+    asset: Articulation = env.scene[asset_cfg.name]
+    forces = asset.permanent_wrench_composer.composed_force_as_torch
+    return forces[:, asset_cfg.body_ids, :3].squeeze(1)
 
 
 def base_external_force(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names="base")) -> torch.Tensor:

@@ -48,11 +48,15 @@ class CompliantOnPolicyRunner(OnPolicyRunner):
         # GT force location in critic obs (from force-only layout: indices 64:66)
         self._gt_force_start: int = est_cfg.get("gt_force_obs_start_idx", -1)
 
+        # ── Initialize force estimate on env before first get_observations() ──
+        # This ensures ForceEstimateObsTerm returns the correct dimension
+        env.unwrapped._force_estimate_xy = torch.zeros(env.num_envs, self._force_dim, device=device)
+
         # ── Infer obs dim from env (before calling super) ────────────────
         raw_obs = env.get_observations()
         policy_obs_dim = raw_obs["policy"].shape[-1]
-        # The last 2 dims are the force estimate passthrough (zeros initially)
-        self._num_one_step_obs: int = policy_obs_dim - 2  # 61
+        # The last force_dim dims are the force estimate passthrough (zeros initially)
+        self._num_one_step_obs: int = policy_obs_dim - self._force_dim
 
         # ── Create force estimator ───────────────────────────────────────
         self.estimator = ForceEstimator(
@@ -154,6 +158,11 @@ class CompliantOnPolicyRunner(OnPolicyRunner):
                     self._est_obs_history[step] = self._history_buffer.get_flattened()
                     force_hat, _ = self.estimator.get_latent(self._history_buffer.get_flattened())
 
+                    # Zero out force estimate before estimator is trained (phase 1)
+                    # to avoid random noise confusing the policy
+                    if not self._force_active:
+                        force_hat = force_hat * 0.0
+
                     # Set force estimate on env (obs term reads it, reward reads it)
                     self.env.unwrapped._force_estimate_xy = force_hat
 
@@ -239,9 +248,9 @@ class CompliantOnPolicyRunner(OnPolicyRunner):
         """Train the estimator on collected rollout data (same as ForceOnPolicyRunner)."""
         isaac_env = self.env.unwrapped
 
-        # Get GT force from critic obs or wrench composer
+        # Get GT force from wrench composer (supports both 2D and 3D)
         asset = isaac_env.scene["robot"]
-        gt_force_xy = asset.permanent_wrench_composer.composed_force_as_torch[:, 0, :2]
+        gt_force = asset.permanent_wrench_composer.composed_force_as_torch[:, 0, :self._force_dim]
 
         # Use stored rollout data
         num_steps = self.num_steps_per_env
@@ -252,7 +261,7 @@ class CompliantOnPolicyRunner(OnPolicyRunner):
         next_obs_flat = self._est_next_raw_obs.reshape(num_steps * num_envs, -1)
 
         # GT force: use current force for all steps (approximation — force is persistent)
-        gt_force_flat = gt_force_xy.unsqueeze(0).expand(num_steps, -1, -1).reshape(num_steps * num_envs, -1)
+        gt_force_flat = gt_force.unsqueeze(0).expand(num_steps, -1, -1).reshape(num_steps * num_envs, -1)
 
         # Mini-batch training (4 mini-batches, same as PPO)
         batch_size = obs_hist_flat.shape[0]
@@ -344,7 +353,7 @@ class CompliantOnPolicyRunner(OnPolicyRunner):
         est = self._last_est_stats
         if est:
             for key in ["force_loss", "angle_loss", "rec_loss", "mae_total",
-                        "mae_x", "mae_y", "angle_err_mean_deg", "angle_err_median_deg",
+                        "mae_x", "mae_y", "mae_z", "angle_err_mean_deg", "angle_err_median_deg",
                         "gt_force_mean_mag", "pred_force_mean_mag"]:
                 if key in est:
                     self.writer.add_scalar(f"Estimator/{key}", est[key], it)
@@ -356,8 +365,8 @@ class CompliantOnPolicyRunner(OnPolicyRunner):
         # ── Force magnitude ──────────────────────────────────────────────
         if self._force_active:
             asset = isaac_env.scene["robot"]
-            f_xy = asset.permanent_wrench_composer.composed_force_as_torch[:, 0, :2]
-            f_mags = f_xy.norm(dim=1)
+            f = asset.permanent_wrench_composer.composed_force_as_torch[:, 0, :self._force_dim]
+            f_mags = f.norm(dim=1)
             self.writer.add_scalar("Compliant/force_magnitude_mean", f_mags.mean().item(), it)
 
         # ── Terminal output ──────────────────────────────────────────────
@@ -379,8 +388,8 @@ class CompliantOnPolicyRunner(OnPolicyRunner):
 
         if self._mapping_active:
             asset = isaac_env.scene["robot"]
-            f_xy = asset.permanent_wrench_composer.composed_force_as_torch[:, 0, :2]
-            f_mean = f_xy.norm(dim=1).mean().item()
+            f = asset.permanent_wrench_composer.composed_force_as_torch[:, 0, :self._force_dim]
+            f_mean = f.norm(dim=1).mean().item()
             term_str += f"  |f|={f_mean:.1f}N  alpha={self._compliance_alpha:.1f} beta={self._compliance_beta:.1f}"
 
         print(term_str)

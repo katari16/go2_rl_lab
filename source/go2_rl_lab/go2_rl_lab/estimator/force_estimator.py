@@ -148,9 +148,16 @@ class ForceEstimator(nn.Module):
         Called per PPO mini-batch (HAC-LOCO pattern).
         Uses its own fixed learning rate (decoupled from PPO).
 
+        Supports both 2D (XY) and 3D (XYZ) force estimation:
+        - Force MSE loss: computed over all force components (2 or 3).
+        - Angle loss: always computed on the XY plane projection using
+          atan2(fy, fx). The mask uses XY magnitude so the angle is only
+          penalized when the horizontal force is significant.
+        - Reconstruction loss: unchanged.
+
         Args:
             obs_history:  [batch, temporal_steps * num_one_step_obs]
-            gt_force:     [batch, force_dim]       — ground-truth XY force from critic obs
+            gt_force:     [batch, force_dim]       — ground-truth force (2D or 3D)
             next_obs:     [batch, num_one_step_obs] — target for reconstruction
 
         Returns:
@@ -164,16 +171,17 @@ class ForceEstimator(nn.Module):
         rec_loss = F.mse_loss(next_obs_hat, next_obs)
 
         # ── Angular loss: MSE on wrapped angle difference ────────────
-        # Only for samples where GT force magnitude > threshold (angle
-        # is meaningless near zero).
+        # Always computed on the XY plane (first 2 components).
+        # Mask uses XY magnitude — angle is meaningless when horizontal
+        # force is near zero, regardless of fz.
         gt_angle = torch.atan2(gt_force[:, 1], gt_force[:, 0])       # [batch]
         pred_angle = torch.atan2(force_hat[:, 1], force_hat[:, 0])   # [batch]
         angle_diff = gt_angle - pred_angle
         # Wrap to [-pi, pi]
         angle_diff = torch.atan2(torch.sin(angle_diff), torch.cos(angle_diff))
 
-        gt_mag = gt_force.norm(dim=-1)  # [batch]
-        mask = gt_mag > self.angle_min_force
+        gt_mag_xy = gt_force[:, :2].norm(dim=-1)  # [batch] — XY magnitude only
+        mask = gt_mag_xy > self.angle_min_force
         if mask.any():
             angle_loss = (angle_diff[mask] ** 2).mean()
         else:
@@ -198,9 +206,10 @@ class ForceEstimator(nn.Module):
 
         # ── Diagnostics (detached, no grad) ─────────────────────────────
         with torch.no_grad():
-            pred_mag = force_hat.norm(dim=-1)         # [batch]
-            error = (force_hat - gt_force).abs()      # [batch, 2]
-            # Angular error in degrees for interpretability
+            gt_mag = gt_force.norm(dim=-1)            # [batch] — full magnitude
+            pred_mag = force_hat.norm(dim=-1)          # [batch]
+            error = (force_hat - gt_force).abs()       # [batch, force_dim]
+            # Angular error in degrees for interpretability (XY plane)
             angle_err_deg = angle_diff.abs() * (180.0 / torch.pi)
             if mask.any():
                 mean_angle_err_deg = angle_err_deg[mask].mean().item()
@@ -209,7 +218,7 @@ class ForceEstimator(nn.Module):
                 mean_angle_err_deg = 0.0
                 median_angle_err_deg = 0.0
 
-        return {
+        stats = {
             "force_loss": force_loss.item(),
             "angle_loss": angle_loss.item(),
             "rec_loss": rec_loss.item(),
@@ -225,7 +234,7 @@ class ForceEstimator(nn.Module):
             "mae_x": error[:, 0].mean().item(),
             "mae_y": error[:, 1].mean().item(),
             "mae_total": error.mean().item(),
-            # Angular error (only for samples with |f_gt| > threshold)
+            # Angular error (only for samples with |f_gt_xy| > threshold)
             "angle_err_mean_deg": mean_angle_err_deg,
             "angle_err_median_deg": median_angle_err_deg,
             # Gradient norms (before clipping)
@@ -233,6 +242,12 @@ class ForceEstimator(nn.Module):
             "grad_norm_f_head": grad_norm_f_head,
             "grad_norm_decoder": grad_norm_decoder,
         }
+
+        # Add fz MAE if 3D
+        if self.force_dim >= 3:
+            stats["mae_z"] = error[:, 2].mean().item()
+
+        return stats
 
 
 def _grad_norm(module: nn.Module) -> float:
