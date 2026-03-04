@@ -324,7 +324,7 @@ def main(
 
     # For CompliantOnPolicyRunner, determine the raw obs dim (without force estimate)
     if runner_mode == "compliant":
-        compliant_raw_obs_dim = runner._num_one_step_obs  # 61
+        compliant_raw_obs_dim = runner._num_one_step_obs
 
     policy = runner.get_inference_policy(device=env.unwrapped.device)
     try:

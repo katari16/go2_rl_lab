@@ -1,0 +1,58 @@
+msg_type: "go"     # "hg" or "go" for unitree robots
+imu_type: "pelvis" # "torso" or "pelvis"
+
+lowcmd_topic: "rt/lowcmd"     # topic to publish command for the go2 robot
+lowstate_topic: "rt/lowstate" # topic to collect the data from the robot
+
+policy_path: "policy_compliant_no_foot.pt"
+
+leg_joint2motor_idx: [3,0,9,6,4,1,10,7,5,2,11,8]                                # Isaac-to-SDK motor index mapping
+default_angles: [-0.1,  0.8, -1.5, 0.1, 0.8, -1.5, -0.1, 1, -1.5, 0.1, 1, -1.5] # SDK ordering: FR(hip,thigh,calf), FL, RR, RL
+
+kps: [ 25.0, 25.0, 25.0, 25.0, 25.0, 25.0, 25.0, 25.0, 25.0, 25.0, 25.0, 25.0]
+kds: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
+
+weak_motor: []
+arm_waist_joint2motor_idx: []
+arm_waist_kps: []
+arm_waist_kds: []
+arm_waist_target: [ ]
+
+# MUST MATCH TRAINING ENVIRONMENT (from env.yaml: decimation=4, sim.dt=0.005)
+# Obs order (59 dims):
+#   [0:3]   base_ang_vel
+#   [3:6]   projected_gravity
+#   [6:9]   velocity_commands (vx, vy, wz)
+#   [9:21]  joint_pos - default_joint (Isaac convention)
+#   [21:33] joint_vel (Isaac convention)
+#   [33:45] last_action
+#   [45:57] applied_torque * 0.1 (Isaac convention)
+#   [57:59] force_estimate (from estimator)
+control_dt: 0.02
+ang_vel_scale: 1.0
+dof_pos_scale: 1.0
+dof_vel_scale: 1.0
+action_scale: 0.25
+cmd_scale: [1.0, 1.0, 1.0]
+num_actions: 12
+num_obs: 59
+num_raw_obs: 57       # obs without force_estimate (estimator input dim)
+max_cmd: [1.0, 1.0, 1.0]
+torque_scale: 0.1     # applied_torque is multiplied by this before going into obs
+
+# ── Force Estimator ──────────────────────────────────────────────────────────
+estimator:
+  temporal_steps: 20
+  enc_hidden_dims: [128, 64]
+  f_head_dims: [32, 16]
+  force_dim: 2
+  dec_hidden_dims: [256, 128]
+  activation: elu
+
+# ── Compliance Mapping ───────────────────────────────────────────────────────
+# v* = v_cmd + k(f) * EMA(f_hat)
+# k(f) = 0 if |f_hat| < alpha, else 1/beta
+compliance:
+  alpha: 5.0          # force threshold (N) below which k=0
+  beta: 50.0          # k = 1/beta when |f| >= alpha
+  ema_alpha: 0.1      # EMA smoothing factor (0=full smooth, 1=no smooth)

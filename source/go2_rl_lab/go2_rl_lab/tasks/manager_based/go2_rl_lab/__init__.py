@@ -113,6 +113,16 @@ gym.register(
     },
 )
 
+gym.register(
+    id="Go2-Compliant-NoFoot-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_compliant_no_foot_env_cfg:UnitreeGo2CompliantNoFootEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_compliant_no_foot_cfg:CompliantNoFootRunnerCfg",
+    },
+)
+
 
 # force envs
 
