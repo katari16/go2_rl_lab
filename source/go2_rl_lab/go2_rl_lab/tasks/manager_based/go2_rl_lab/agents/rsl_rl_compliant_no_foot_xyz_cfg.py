@@ -42,7 +42,7 @@ class CompliantNoFootXyzRunnerCfg(RslRlOnPolicyRunnerCfg):
         "activation": "elu",
         "learning_rate": 1e-3,
         "force_loss_weight": 1.0,
-        "angle_loss_weight": 1.0,
+        "angle_loss_weight": 3.0,
         "rec_loss_weight": 1.0,
         "angle_min_force": 1.0,
         "max_grad_norm": 10.0,
