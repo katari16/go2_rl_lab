@@ -38,5 +38,5 @@ policy_obs_dim: 60       # raw_obs_dim + force_dim = policy input
 estimator_temporal_steps: 20
 
 # Compliance modulation (v* = v_cmd + k * EMA(F_hat_xy))
-compliance_k: 0.0        # set > 0 to enable (e.g. 0.06)
+compliance_k: 0.06       # v* = v_cmd + k * EMA(F_hat_xy)
 ema_alpha: 0.1            # EMA smoothing for force estimate

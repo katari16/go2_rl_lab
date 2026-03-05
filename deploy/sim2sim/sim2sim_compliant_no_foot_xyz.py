@@ -24,6 +24,7 @@ Controls (keyboard):
   F      = toggle external force (same as Y on gamepad)
 """
 
+import argparse
 import json
 import socket
 import struct
@@ -36,6 +37,11 @@ import threading
 from pathlib import Path
 from datetime import datetime
 from collections import deque
+
+cli_parser = argparse.ArgumentParser(description="Sim2Sim compliant deployment with force estimator.")
+cli_parser.add_argument("--debug", action="store_true", default=False,
+                        help="Generate obs/action distribution plots after run.")
+cli_args = cli_parser.parse_args()
 
 # ── Try to import pynput for keyboard control ─────────────────────────────────
 try:
@@ -720,31 +726,141 @@ if __name__ == "__main__":
             time.sleep(dt - elapsed)
     print("Robot is lying down.")
 
-    # ── Save logs ─────────────────────────────────────────────────────────
-    log_dir = Path(__file__).resolve().parent / "logs"
-    log_dir.mkdir(parents=True, exist_ok=True)
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    log_path = log_dir / f"sim2sim_compliant_xyz_{timestamp}.npz"
-
+    # ── Save debug logs (only with --debug) ─────────────────────────────
     N = len(debug_log)
-    if N > 0:
-        np.savez(log_path,
-                 raw_obs=np.array([s['raw_obs'] for s in debug_log]),
-                 force_hat=np.array([s['force_hat'] for s in debug_log]),
-                 force_ema=np.array([s['force_ema'] for s in debug_log]),
-                 actions=np.array([s['action'] for s in debug_log]),
-                 target_dof_pos=np.array([s['target_dof_pos'] for s in debug_log]),
-                 velocity_cmd=np.array([s['velocity_cmd'] for s in debug_log]),
-                 steps=np.array([s['step'] for s in debug_log]),
-                 timestamps=np.arange(N) * control_dt,
-                 control_dt=control_dt,
-                 action_scale=action_scale,
-                 compliance_k=compliance_k,
-                 ema_alpha=ema_alpha,
-                 )
-        print(f"Saved {N} steps to {log_path}")
-    else:
-        print("No data to save.")
+    if cli_args.debug and N > 10:
+        log_dir = Path(__file__).resolve().parent / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
+        raw_obs_arr = np.array([s['raw_obs'] for s in debug_log])
+        actions_arr = np.array([s['action'] for s in debug_log])
+        force_hat_arr = np.array([s['force_hat'] for s in debug_log])
+        force_ema_arr = np.array([s['force_ema'] for s in debug_log])
+        velocity_cmd_arr = np.array([s['velocity_cmd'] for s in debug_log])
+        target_dof_arr = np.array([s['target_dof_pos'] for s in debug_log])
+        timestamps = (np.arange(N) * control_dt).tolist()
+
+        # ── Save JSON ─────────────────────────────────────────────────
+        obs_labels = (
+            ["ang_vel_x", "ang_vel_y", "ang_vel_z"]
+            + ["grav_x", "grav_y", "grav_z"]
+            + ["cmd_vx", "cmd_vy", "cmd_wz"]
+            + [f"jpos_{i}" for i in range(12)]
+            + [f"jvel_{i}" for i in range(12)]
+            + [f"last_act_{i}" for i in range(12)]
+            + [f"torque_{i}" for i in range(12)]
+        )
+        action_labels = [f"action_{i}" for i in range(num_actions)]
+
+        log_json = {
+            "timestamp": timestamp,
+            "control_dt": control_dt,
+            "num_steps": N,
+            "compliance_k": compliance_k,
+            "ema_alpha": ema_alpha,
+            "obs_labels": obs_labels,
+            "action_labels": action_labels,
+            "time_s": timestamps,
+            "raw_obs": raw_obs_arr.tolist(),
+            "actions": actions_arr.tolist(),
+            "force_hat": force_hat_arr.tolist(),
+            "force_ema": force_ema_arr.tolist(),
+            "velocity_cmd": velocity_cmd_arr.tolist(),
+            "target_dof_pos": target_dof_arr.tolist(),
+        }
+        json_path = log_dir / f"sim2sim_debug_{timestamp}.json"
+        with open(json_path, "w") as f:
+            json.dump(log_json, f)
+        print(f"[debug] JSON saved: {json_path}")
+
+        # ── Generate PDF plots ────────────────────────────────────────
+        import matplotlib.pyplot as plt
+        from matplotlib.backends.backend_pdf import PdfPages
+
+        pdf_path = log_dir / f"sim2sim_debug_{timestamp}.pdf"
+        t = np.array(timestamps)
+
+        with PdfPages(str(pdf_path)) as pdf:
+            # Page 1: Obs time series (grouped)
+            obs_groups = [
+                ("Angular Velocity", [0, 1, 2], ["x", "y", "z"]),
+                ("Projected Gravity", [3, 4, 5], ["x", "y", "z"]),
+                ("Velocity Command", [6, 7, 8], ["vx", "vy", "wz"]),
+                ("Joint Positions (rel)", list(range(9, 21)), [f"j{i}" for i in range(12)]),
+                ("Joint Velocities (rel)", list(range(21, 33)), [f"j{i}" for i in range(12)]),
+                ("Last Action", list(range(33, 45)), [f"j{i}" for i in range(12)]),
+                ("Applied Torque (x0.1)", list(range(45, 57)), [f"j{i}" for i in range(12)]),
+            ]
+            for title, idxs, labels in obs_groups:
+                fig, ax = plt.subplots(figsize=(14, 4))
+                for i, idx in enumerate(idxs):
+                    ax.plot(t, raw_obs_arr[:, idx], linewidth=0.6, alpha=0.8, label=labels[i])
+                ax.set_title(f"Obs: {title}")
+                ax.set_xlabel("Time (s)")
+                ax.legend(loc="upper right", fontsize=7, ncol=min(len(idxs), 6))
+                ax.grid(True, alpha=0.3)
+                plt.tight_layout()
+                pdf.savefig(fig)
+                plt.close(fig)
+
+            # Page: Actions time series
+            fig, ax = plt.subplots(figsize=(14, 5))
+            for i in range(num_actions):
+                ax.plot(t, actions_arr[:, i], linewidth=0.6, alpha=0.8, label=f"a{i}")
+            ax.set_title("Actions")
+            ax.set_xlabel("Time (s)")
+            ax.legend(loc="upper right", fontsize=7, ncol=6)
+            ax.grid(True, alpha=0.3)
+            plt.tight_layout()
+            pdf.savefig(fig)
+            plt.close(fig)
+
+            # Page: Force estimate
+            fig, ax = plt.subplots(figsize=(14, 4))
+            force_labels = ["Fx", "Fy", "Fz"][:force_dim]
+            for i in range(force_dim):
+                ax.plot(t, force_hat_arr[:, i], linewidth=0.8, alpha=0.7, label=f"hat {force_labels[i]}")
+                ax.plot(t, force_ema_arr[:, i], linewidth=1.2, alpha=0.9, linestyle="--", label=f"ema {force_labels[i]}")
+            ax.set_title("Force Estimate (raw vs EMA)")
+            ax.set_xlabel("Time (s)")
+            ax.set_ylabel("Force (N)")
+            ax.legend(loc="upper right", fontsize=9)
+            ax.grid(True, alpha=0.3)
+            plt.tight_layout()
+            pdf.savefig(fig)
+            plt.close(fig)
+
+            # Page: Obs distributions (histograms)
+            fig, axes = plt.subplots(6, 10, figsize=(20, 12))
+            fig.suptitle("Obs Distributions (per dimension)", fontsize=14)
+            for i in range(min(57, 60)):
+                ax = axes[i // 10, i % 10]
+                ax.hist(raw_obs_arr[:, i], bins=50, alpha=0.7, color="tab:blue", edgecolor="none")
+                ax.set_title(f"d{i}", fontsize=7)
+                ax.tick_params(labelsize=5)
+            for i in range(57, 60):
+                ax = axes[i // 10, i % 10]
+                ax.set_visible(False)
+            plt.tight_layout()
+            pdf.savefig(fig)
+            plt.close(fig)
+
+            # Page: Action distributions
+            fig, axes = plt.subplots(2, 6, figsize=(16, 5))
+            fig.suptitle("Action Distributions", fontsize=14)
+            for i in range(12):
+                ax = axes[i // 6, i % 6]
+                ax.hist(actions_arr[:, i], bins=50, alpha=0.7, color="tab:orange", edgecolor="none")
+                ax.set_title(f"a{i}", fontsize=9)
+                ax.tick_params(labelsize=6)
+            plt.tight_layout()
+            pdf.savefig(fig)
+            plt.close(fig)
+
+        print(f"[debug] PDF saved: {pdf_path}")
+    elif cli_args.debug:
+        print("[debug] Too few steps collected, skipping debug output.")
 
     ext_force.stop()
     if kb is not None:
