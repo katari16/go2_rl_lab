@@ -40,11 +40,38 @@ from unitree_sdk2py.utils.crc import CRC
 from unitree_sdk2py.comm.motion_switcher.motion_switcher_client import MotionSwitcherClient
 from unitree_sdk2py.go2.sport.sport_client import SportClient
 
-from common.command_helper import init_cmd_go
-from common.rotation_helper import get_gravity_orientation
 from common.remote_controller import RemoteController, KeyMap
 
 import yaml
+
+
+def get_gravity_orientation(quat):
+    """Project gravity into body frame from quaternion [w, x, y, z]."""
+    qw, qx, qy, qz = quat[0], quat[1], quat[2], quat[3]
+    gx = 2 * (-qz * qx + qw * qy)
+    gy = -2 * (qz * qy + qw * qx)
+    gz = -1 + 2 * (qx * qx + qy * qy)
+    return np.array([gx, gy, gz])
+
+
+def init_cmd_go(cmd, weak_motor=None):
+    """Initialize low-level command for Go2."""
+    if weak_motor is None:
+        weak_motor = []
+    cmd.head[0] = 0xFE
+    cmd.head[1] = 0xEF
+    cmd.level_flag = 0xFF
+    cmd.gpio = 0
+    for i in range(len(cmd.motor_cmd)):
+        if i in weak_motor:
+            cmd.motor_cmd[i].mode = 1
+        else:
+            cmd.motor_cmd[i].mode = 0x0A
+        cmd.motor_cmd[i].q = 2.146e9
+        cmd.motor_cmd[i].qd = 16000.0
+        cmd.motor_cmd[i].kp = 0
+        cmd.motor_cmd[i].kd = 0
+        cmd.motor_cmd[i].tau = 0
 
 # Global state
 low_state = unitree_go_msg_dds__LowState_()
