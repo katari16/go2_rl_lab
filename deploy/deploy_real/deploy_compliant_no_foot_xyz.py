@@ -46,6 +46,9 @@ from common.remote_controller import RemoteController, KeyMap
 
 import yaml
 
+# Global state
+low_state = unitree_go_msg_dds__LowState_()
+
 
 # ── Force Estimator Wrapper (JIT) ─────────────────────────────────────────────
 
@@ -154,13 +157,12 @@ if __name__ == "__main__":
     remote_controller = RemoteController()
 
     low_cmd = unitree_go_msg_dds__LowCmd_()
-    low_state = unitree_go_msg_dds__LowState_()
 
     pub = ChannelPublisher("rt/lowcmd", LowCmd_)
     pub.Init()
 
     def low_state_handler(msg):
-        nonlocal low_state
+        global low_state
         low_state = msg
         remote_controller.set(msg.wireless_remote)
 
