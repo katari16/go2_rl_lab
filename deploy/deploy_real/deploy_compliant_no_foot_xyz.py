@@ -29,7 +29,7 @@ import torch
 from pathlib import Path
 from datetime import datetime
 
-project_root = Path(__file__).resolve().parents[1]
+project_root = Path(__file__).resolve().parents[2]  # go2_rl_lab/
 sys.path.append(str(project_root))
 sys.path.append(str(project_root / "unitree_sdk2_python"))
 
