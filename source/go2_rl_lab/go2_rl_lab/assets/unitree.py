@@ -59,6 +59,25 @@ UNITREE_GO2_CFG = ArticulationCfg(
 )
 """Configuration of Unitree Go2 using DC-Motor actuator model."""
 
+
+# ----- LOW GAIN CFG (Kp=8, Kd=0.4) -----
+# Based on Kyle Morgenstein heuristic: gains soft enough for better exploration.
+UNITREE_GO2_LOW_GAIN_CFG = UNITREE_GO2_CFG.replace(
+    actuators={
+        "base_legs": DCMotorCfg(
+            joint_names_expr=[".*_hip_joint", ".*_thigh_joint", ".*_calf_joint"],
+            effort_limit=23.5,
+            saturation_effort=23.5,
+            velocity_limit=30.0,
+            stiffness=8.0,
+            damping=0.4,
+            friction=0.0,
+        ),
+    },
+)
+"""Unitree Go2 with uniform low PD gains (Kp=8, Kd=0.4) for RL exploration."""
+
+
 # ----- PACE GO2 CFG -----
 UNITREE_GO2_PACE_CFG = UNITREE_GO2_CFG.replace(
     actuators={

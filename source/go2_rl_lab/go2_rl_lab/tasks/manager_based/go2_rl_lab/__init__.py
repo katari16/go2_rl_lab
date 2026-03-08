@@ -146,6 +146,32 @@ gym.register(
 )
 
 
+# ── Low-level locomotion finetuning experiments (8 jobs) ──────────────────────
+# 2 gain presets (Low Kp=8, Baseline Kp=25) x 4 reward presets (R1-R4)
+
+_finetune_jobs = {
+    1: "FinetuneJ1EnvCfg",  # Low gains + R1 Baseline
+    2: "FinetuneJ2EnvCfg",  # Low gains + R2 Enhanced Smoothness
+    3: "FinetuneJ3EnvCfg",  # Low gains + R3 Active Gait
+    4: "FinetuneJ4EnvCfg",  # Low gains + R4 Deep Compliant Style
+    5: "FinetuneJ5EnvCfg",  # Baseline gains + R1 Baseline
+    6: "FinetuneJ6EnvCfg",  # Baseline gains + R2 Enhanced Smoothness
+    7: "FinetuneJ7EnvCfg",  # Baseline gains + R3 Active Gait
+    8: "FinetuneJ8EnvCfg",  # Baseline gains + R4 Deep Compliant Style
+}
+
+for _j, _cls in _finetune_jobs.items():
+    gym.register(
+        id=f"Go2-Finetune-J{_j}-v0",
+        entry_point="isaaclab.envs:ManagerBasedRLEnv",
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": f"{__name__}.go2_finetune_env_cfgs:{_cls}",
+            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_finetune_cfg:FinetuneJ{_j}RunnerCfg",
+        },
+    )
+
+
 # force envs
 
 gym.register(
