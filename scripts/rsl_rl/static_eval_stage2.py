@@ -191,9 +191,14 @@ def main(
     obs = wrapper.get_observations()
     step_count = 0
 
-    # EMA state for linear mapping comparison
-    force_ema = torch.zeros(n, force_dim, device=device)
-    ema_alpha = 0.1
+    # Data logging
+    plot_log = {
+        "time_s": [],
+        "gt_force_x": [], "gt_force_y": [],
+        "lin_vel_x": [], "lin_vel_y": [],
+        "learned_vel_x": [], "learned_vel_y": [],
+        "est_force_x": [], "est_force_y": [],
+    }
 
     print(f"\n{'=' * 70}")
     print(f"  HAC-LOCO Stage 2 — Static Eval")
@@ -232,12 +237,11 @@ def main(
                 force_hat = wrapper.estimator.get_latent(
                     wrapper.history_buffer.get_flattened()
                 )[0][:n]  # [n, 3]
-                force_ema = ema_alpha * force_hat + (1.0 - ema_alpha) * force_ema
 
-                # Linear mapping: v_lin = k * EMA(F_hat_xy)
+                # Linear mapping: v_lin = k * F_hat_xy (raw, no filter)
                 lin_vel = torch.zeros(n, 3, device=device)
-                lin_vel[:, 0] = compliance_k * force_ema[:, 0]
-                lin_vel[:, 1] = compliance_k * force_ema[:, 1]
+                lin_vel[:, 0] = compliance_k * force_hat[:, 0]
+                lin_vel[:, 1] = compliance_k * force_hat[:, 1]
 
                 # Transform to world frame for arrows
                 base_pos = asset.data.root_pos_w[:n]
@@ -285,12 +289,24 @@ def main(
                 lin_markers.visualize(lin_pos, lin_quats, lin_scales)
                 adj_markers.visualize(adj_pos, adj_quats, adj_scales)
 
+                # Log data (env 0)
+                g0 = gt_force_body[0]
+                e0 = force_hat[0]
+                l0 = lin_vel[0]
+                a0 = adj_vel[0]
+                plot_log["time_s"].append(step_count * dt)
+                plot_log["gt_force_x"].append(g0[0].item())
+                plot_log["gt_force_y"].append(g0[1].item())
+                plot_log["est_force_x"].append(e0[0].item())
+                plot_log["est_force_y"].append(e0[1].item())
+                plot_log["lin_vel_x"].append(l0[0].item())
+                plot_log["lin_vel_y"].append(l0[1].item())
+                plot_log["learned_vel_x"].append(a0[0].item())
+                plot_log["learned_vel_y"].append(a0[1].item())
+
                 # Terminal readout
                 step_count += 1
                 if step_count % 10 == 0:
-                    g0 = gt_force_body[0]
-                    a0 = adj_vel[0]
-                    l0 = lin_vel[0]
                     r0 = rewards[0].item() if rewards.dim() > 0 else rewards.item()
                     pct = step_count / max_steps
                     bar_len = 20
@@ -318,6 +334,67 @@ def main(
 
     print()
     env.close()
+
+    from time import sleep
+    sleep(1)
+
+    # ── Generate plots ────────────────────────────────────────────────────
+    if len(plot_log["time_s"]) > 10:
+        import matplotlib.pyplot as plt
+        from datetime import datetime
+
+        t = np.array(plot_log["time_s"])
+        gt_fx = np.array(plot_log["gt_force_x"])
+        gt_fy = np.array(plot_log["gt_force_y"])
+        est_fx = np.array(plot_log["est_force_x"])
+        est_fy = np.array(plot_log["est_force_y"])
+        lin_vx = np.array(plot_log["lin_vel_x"])
+        lin_vy = np.array(plot_log["lin_vel_y"])
+        learned_vx = np.array(plot_log["learned_vel_x"])
+        learned_vy = np.array(plot_log["learned_vel_y"])
+
+        # Scale GT force to velocity units for comparison: v = k * F
+        gt_vx = gt_fx * compliance_k
+        gt_vy = gt_fy * compliance_k
+
+        fig, axes = plt.subplots(2, 1, figsize=(14, 8), sharex=True)
+        fig.suptitle(
+            f"Stage 2 Static Eval — k={compliance_k:.4f}",
+            fontsize=14, fontweight="bold",
+        )
+
+        # Panel 1: X component
+        ax = axes[0]
+        ax.plot(t, gt_vx, color="tab:red", linewidth=1.2, label="GT (k*Fx)")
+        ax.plot(t, lin_vx, color="tab:blue", linewidth=1.2, label="Linear (k*F_hat_x)")
+        ax.plot(t, learned_vx, color="tab:green", linewidth=1.2, label="Learned (a'_x)")
+        ax.set_ylabel("Velocity cmd (m/s)")
+        ax.legend(loc="upper right", fontsize=10)
+        ax.grid(True, alpha=0.3)
+        ax.set_title("X component", fontsize=11)
+
+        # Panel 2: Y component
+        ax = axes[1]
+        ax.plot(t, gt_vy, color="tab:red", linewidth=1.2, label="GT (k*Fy)")
+        ax.plot(t, lin_vy, color="tab:blue", linewidth=1.2, label="Linear (k*F_hat_y)")
+        ax.plot(t, learned_vy, color="tab:green", linewidth=1.2, label="Learned (a'_y)")
+        ax.set_ylabel("Velocity cmd (m/s)")
+        ax.set_xlabel("Time (s)")
+        ax.legend(loc="upper right", fontsize=10)
+        ax.grid(True, alpha=0.3)
+        ax.set_title("Y component", fontsize=11)
+
+        plt.tight_layout()
+
+        eval_dir = os.path.join(os.path.dirname(resume_path), "eval")
+        os.makedirs(eval_dir, exist_ok=True)
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        fig_path = os.path.join(eval_dir, f"stage2_static_eval_k{compliance_k:.4f}_{timestamp}.png")
+        fig.savefig(fig_path, dpi=150, bbox_inches="tight")
+        plt.close(fig)
+        print(f"[static_eval_stage2] Plot saved: {fig_path}")
+    else:
+        print("[static_eval_stage2] Too few steps, skipping plots.")
 
 
 if __name__ == "__main__":
