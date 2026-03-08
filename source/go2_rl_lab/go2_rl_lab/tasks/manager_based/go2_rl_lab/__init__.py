@@ -133,6 +133,18 @@ gym.register(
     },
 )
 
+# HAC-LOCO stage 2: high-level compliance on top of frozen low-level
+# Uses the SAME env as stage 1 (Go2-Compliant-NoFoot-XYZ) but with a different runner
+gym.register(
+    id="Go2-HAC-LOCO-Stage2-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_compliant_no_foot_xyz_env_cfg:UnitreeGo2CompliantNoFootXyzEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_hac_loco_stage2_cfg:HacLocoStage2RunnerCfg",
+    },
+)
+
 
 # force envs
 

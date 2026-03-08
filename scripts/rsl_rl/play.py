@@ -163,6 +163,12 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     elif agent_cfg.class_name == "CompliantForceRunner":
         from go2_rl_lab.estimator.compliant_force_runner import CompliantForceRunner
         runner = CompliantForceRunner(env, agent_cfg.to_dict(), log_dir=None, device=agent_cfg.device)
+    elif agent_cfg.class_name == "ComplianceOnPolicyRunner":
+        from go2_rl_lab.estimator.compliance_runner import ComplianceOnPolicyRunner
+        train_cfg = agent_cfg.to_dict()
+        if args_cli.estimator_checkpoint is not None:
+            train_cfg.setdefault("compliance", {})["stage1_checkpoint"] = args_cli.estimator_checkpoint
+        runner = ComplianceOnPolicyRunner(env, train_cfg, log_dir=None, device=agent_cfg.device)
     else:
         raise ValueError(f"Unsupported runner class: {agent_cfg.class_name}")
     runner.load(resume_path)

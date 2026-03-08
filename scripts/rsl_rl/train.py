@@ -35,6 +35,7 @@ parser.add_argument(
     "--ray-proc-id", "-rid", type=int, default=None, help="Automatically configured by Ray integration, otherwise None."
 )
 parser.add_argument("--estimator_checkpoint", type=str, default=None, help="Path to pre-trained estimator checkpoint for compliant training.")
+parser.add_argument("--stage1_checkpoint", type=str, default=None, help="Path to stage-1 checkpoint for HAC-LOCO stage 2 compliance training.")
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -225,6 +226,12 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         if args_cli.estimator_checkpoint is not None:
             train_cfg.setdefault("compliance", {})["estimator_checkpoint"] = args_cli.estimator_checkpoint
         runner = CompliantForceRunner(env, train_cfg, log_dir=log_dir, device=agent_cfg.device)
+    elif agent_cfg.class_name == "ComplianceOnPolicyRunner":
+        from go2_rl_lab.estimator.compliance_runner import ComplianceOnPolicyRunner
+        train_cfg = agent_cfg.to_dict()
+        if args_cli.stage1_checkpoint is not None:
+            train_cfg.setdefault("compliance", {})["stage1_checkpoint"] = args_cli.stage1_checkpoint
+        runner = ComplianceOnPolicyRunner(env, train_cfg, log_dir=log_dir, device=agent_cfg.device)
     else:
         raise ValueError(f"Unsupported runner class: {agent_cfg.class_name}")
     # write git state to logs
