@@ -1,0 +1,28 @@
+msg_type: "go"
+imu_type: "pelvis"
+
+lowcmd_topic: "rt/lowcmd"
+lowstate_topic: "rt/lowstate"
+
+# JIT-exported policy — J5: Baseline gains + R1 Baseline rewards
+policy_path: "deploy/pre_train/finetune_j5/policy.pt"
+
+leg_joint2motor_idx: [3,0,9,6,4,1,10,7,5,2,11,8]
+default_angles: [-0.1,  0.8, -1.5, 0.1, 0.8, -1.5, -0.1, 1, -1.5, 0.1, 1, -1.5]
+
+# BASELINE GAINS — must match training (Kp=25, Kd=0.5)
+kps: [25.0, 25.0, 25.0, 25.0, 25.0, 25.0, 25.0, 25.0, 25.0, 25.0, 25.0, 25.0]
+kds: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
+
+weak_motor: []
+arm_waist_joint2motor_idx: []
+arm_waist_kps: []
+arm_waist_kds: []
+arm_waist_target: []
+
+control_dt: 0.02
+action_scale: 0.25
+cmd_scale: [1.0, 1.0, 1.0]
+max_cmd: [1.0, 1.0, 1.0]
+num_actions: 12
+num_obs: 60

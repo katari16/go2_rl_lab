@@ -1,0 +1,33 @@
+msg_type: "go"
+imu_type: "pelvis"
+
+lowcmd_topic: "rt/lowcmd"
+lowstate_topic: "rt/lowstate"
+
+# JIT-exported policy (no estimator needed — just the walking policy)
+policy_path: "deploy/pre_train/finetune_j1/policy.pt"
+
+leg_joint2motor_idx: [3,0,9,6,4,1,10,7,5,2,11,8]
+default_angles: [-0.1,  0.8, -1.5, 0.1, 0.8, -1.5, -0.1, 1, -1.5, 0.1, 1, -1.5]
+
+# LOW GAINS — must match training (Kp=8, Kd=0.4)
+kps: [8.0, 8.0, 8.0, 8.0, 8.0, 8.0, 8.0, 8.0, 8.0, 8.0, 8.0, 8.0]
+kds: [0.4, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4, 0.4]
+
+weak_motor: []
+arm_waist_joint2motor_idx: []
+arm_waist_kps: []
+arm_waist_kds: []
+arm_waist_target: []
+
+# Must match training env (decimation=4, sim.dt=0.005)
+# Obs layout (60 dims):
+#   base_ang_vel(3), projected_gravity(3), velocity_commands(3),
+#   joint_pos_rel(12), joint_vel_rel(12), last_action(12),
+#   applied_torque*0.1(12), force_estimate(3) <- zeros on real robot
+control_dt: 0.02
+action_scale: 0.5
+cmd_scale: [1.0, 1.0, 1.0]
+max_cmd: [1.0, 1.0, 1.0]
+num_actions: 12
+num_obs: 60
