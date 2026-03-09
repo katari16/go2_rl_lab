@@ -22,7 +22,6 @@ import torch
 import sys
 import matplotlib.pyplot as plt
 from math import *
-import rclpy
 from pathlib import Path
 ####################################
 
@@ -49,8 +48,6 @@ from unitree_sdk2_python.unitree_sdk2py.idl.unitree_go.msg.dds_ import SportMode
 from common.command_helper import create_damping_cmd, create_zero_cmd, init_cmd_go
 from common.rotation_helper import get_gravity_orientation, transform_imu_data
 from common.remote_controller import RemoteController, KeyMap
-from deploy_real.configs.config import Config
-import deploy_real.node_kalman as node_kalman
 
 
 class FinetuneConfig:
@@ -130,16 +127,6 @@ class Controller():
 
         # Plot data
         self.L_base_vel_cmd = [[], [], []]
-        self.L_base_lin_vel_kalman = [[], [], []]
-
-        # ROS2 Kalman filter
-        from rclpy.executors import MultiThreadedExecutor
-        import threading
-        rclpy.init()
-        KOL = node_kalman.KalmanOdomListener()
-        executor = MultiThreadedExecutor()
-        executor.add_node(KOL)
-        threading.Thread(target=executor.spin, daemon=True).start()
 
         # Channels
         print("4] ----> INITIALIZING CHANNELS")
@@ -178,7 +165,6 @@ class Controller():
     def LowStateGoHandler(self, msg: LowStateGo):
         self.low_state = msg
         self.remote_controller.set(self.low_state.wireless_remote)
-        node_kalman.msg = msg
 
     def SportStateMessageHandler(self, sport_state_msg):
         self.velocity = sport_state_msg.velocity
@@ -370,9 +356,6 @@ class Controller():
         self.L_base_vel_cmd[0].append(self.obs[6])
         self.L_base_vel_cmd[1].append(self.obs[7])
         self.L_base_vel_cmd[2].append(self.obs[8])
-        self.L_base_lin_vel_kalman[0].append(node_kalman.base_lin_vel_input[0])
-        self.L_base_lin_vel_kalman[1].append(node_kalman.base_lin_vel_input[1])
-        self.L_base_lin_vel_kalman[2].append(node_kalman.base_lin_vel_input[2])
 
         return self.obs
 
@@ -426,7 +409,6 @@ if __name__ == "__main__":
     labels = ['Vx', 'Vy', 'Wz']
     for i, ax in enumerate(axes):
         ax.plot(controller.L_base_vel_cmd[i], label=f"cmd_{labels[i]}")
-        ax.plot(controller.L_base_lin_vel_kalman[i], label=f"kalman_{labels[i]}")
         ax.legend()
         ax.set_title(labels[i])
     plt.tight_layout()
