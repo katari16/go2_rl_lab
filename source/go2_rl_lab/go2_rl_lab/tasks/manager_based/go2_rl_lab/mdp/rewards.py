@@ -339,6 +339,46 @@ def follow_force_direction(env: ManagerBasedRLEnv,std: float,
     env.extras["force_reward_mean"] = reward.mean()
     return reward
 
+def standing_pose_penalty(
+    env: ManagerBasedRLEnv,
+    command_name: str = "base_velocity",
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    cmd_deadzone: float = 0.05,
+    cmd_ramp_end: float = 0.15,
+) -> torch.Tensor:
+    """Penalize joint deviation from default pose when velocity command is near zero.
+
+    Smooth blend:
+    - |cmd| < cmd_deadzone: full penalty (scale=1)
+    - cmd_deadzone < |cmd| < cmd_ramp_end: linear ramp from 1→0
+    - |cmd| > cmd_ramp_end: no penalty (scale=0)
+    """
+    asset: Articulation = env.scene[asset_cfg.name]
+    cmd = env.command_manager.get_command(command_name)
+    cmd_norm = torch.norm(cmd[:, :3], dim=1)  # [vx, vy, wz]
+
+    # Smooth blend: 1 → 0 over [deadzone, ramp_end]
+    scale = 1.0 - ((cmd_norm - cmd_deadzone) / (cmd_ramp_end - cmd_deadzone)).clamp(0.0, 1.0)
+
+    deviation = torch.sum(torch.square(asset.data.joint_pos - asset.data.default_joint_pos), dim=1)
+    return deviation * scale
+
+
+def hip_deviation_penalty(
+    env: ManagerBasedRLEnv,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", joint_names=[".*_hip_joint"]),
+) -> torch.Tensor:
+    """Penalize hip abduction joints deviating from default pose (always active).
+
+    Targets only the 4 hip joints to prevent leg splaying during lateral movement
+    and improve standing stability.
+    """
+    asset: Articulation = env.scene[asset_cfg.name]
+    hip_pos = asset.data.joint_pos[:, asset_cfg.joint_ids]
+    hip_default = asset.data.default_joint_pos[:, asset_cfg.joint_ids]
+    return torch.sum(torch.square(hip_pos - hip_default), dim=1)
+
+
 def action_smoothness_2(env: ManagerBasedRLEnv) -> torch.Tensor:
     """Penalize the second-order finite difference of actions: |a_t - 2*a_{t-1} + a_{t-2}|.
 

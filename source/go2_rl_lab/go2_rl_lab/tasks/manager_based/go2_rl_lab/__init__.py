@@ -172,6 +172,28 @@ for _j, _cls in _finetune_jobs.items():
     )
 
 
+# ── V2 finetuning experiments (4 jobs) ─────────────────────────────────────────
+# Based on J2 winner: Low gains (Kp=8) + R2, with standing pose / hip penalty / terrain
+
+_finetune_v2_jobs = {
+    1: "FinetuneV1EnvCfg",  # R2 + standing pose (flat)
+    2: "FinetuneV2EnvCfg",  # R2 + standing pose + hip penalty (flat)
+    3: "FinetuneV3EnvCfg",  # R2 + standing pose (rough)
+    4: "FinetuneV4EnvCfg",  # R2 + standing pose + hip penalty (rough)
+}
+
+for _v, _cls in _finetune_v2_jobs.items():
+    gym.register(
+        id=f"Go2-Finetune-V{_v}-v0",
+        entry_point="isaaclab.envs:ManagerBasedRLEnv",
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": f"{__name__}.go2_finetune_v2_env_cfgs:{_cls}",
+            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_finetune_v2_cfg:FinetuneV{_v}RunnerCfg",
+        },
+    )
+
+
 # force envs
 
 gym.register(
