@@ -5,7 +5,7 @@ lowcmd_topic: "rt/lowcmd"
 lowstate_topic: "rt/lowstate"
 
 # JIT-exported policy — J6: Baseline gains + R2 Enhanced Smoothness
-policy_path: "deploy/pre_train/finetune_j6/policy.pt"
+policy_path: "policy_finetune_j6.pt"
 
 leg_joint2motor_idx: [3,0,9,6,4,1,10,7,5,2,11,8]
 default_angles: [-0.1,  0.8, -1.5, 0.1, 0.8, -1.5, -0.1, 1, -1.5, 0.1, 1, -1.5]
