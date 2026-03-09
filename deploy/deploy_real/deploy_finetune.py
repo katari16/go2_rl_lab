@@ -86,7 +86,7 @@ class Controller():
 
         # Load JIT policy
         print("3] ---> LOADING POLICY")
-        policy_path = current_dir.parent / "pre_train" / config.policy_path
+        policy_path = current_dir.parent.parent / "pre_train" / config.policy_path
         self.policy = torch.jit.load(policy_path)
         print(f"         Policy loaded from: {policy_path}")
         print(f"         Obs dims: {config.num_obs}, Action scale: {config.action_scale}")
