@@ -310,21 +310,6 @@ if __name__ == "__main__":
         send_cmd()
         time.sleep(dt)
 
-    # Ramp from stiff gains to policy gains (robot can't hold weight at low Kp without policy)
-    print("    Ramping to policy gains...")
-    for step in range(1000):
-        alpha = min(step / 1000, 1.0)
-        ramp_kp = (1 - alpha) * 60.0 + alpha * kps[0]
-        ramp_kd = (1 - alpha) * 5.0 + alpha * kds[0]
-        for i in range(12):
-            low_cmd.motor_cmd[i].q = default_angles_sdk[i]
-            low_cmd.motor_cmd[i].kp = ramp_kp
-            low_cmd.motor_cmd[i].kd = ramp_kd
-            low_cmd.motor_cmd[i].dq = 0.0
-            low_cmd.motor_cmd[i].tau = 0.0
-        send_cmd()
-        time.sleep(dt)
-
     # ══════════════════════════════════════════════════════════════════════
     # FSM STATE 4: RUN POLICY (50 Hz)
     # ══════════════════════════════════════════════════════════════════════

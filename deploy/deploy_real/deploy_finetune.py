@@ -381,22 +381,7 @@ if __name__ == "__main__":
     controller.zero_torque_state()
     controller.move_to_default_pos()
 
-    # Ramp from stiff gains to policy gains
-    print("8] --------> RAMPING TO POLICY GAINS")
-    for step in range(1000):
-        alpha = min(step / 1000, 1.0)
-        ramp_kp = (1 - alpha) * 60.0 + alpha * config.kps[0]
-        ramp_kd = (1 - alpha) * 5.0 + alpha * config.kds[0]
-        for i in range(12):
-            controller.low_cmd.motor_cmd[i].q = config.default_angles[i]
-            controller.low_cmd.motor_cmd[i].dq = 0
-            controller.low_cmd.motor_cmd[i].kp = ramp_kp
-            controller.low_cmd.motor_cmd[i].kd = ramp_kd
-            controller.low_cmd.motor_cmd[i].tau = 0
-        controller.send_cmd(controller.low_cmd)
-        time.sleep(0.002)
-
-    print("9] ---------> MODEL IS RUNNING")
+    print("8] --------> MODEL IS RUNNING")
     print("             ###############################################")
     print("             # PRESS 'SELECT' TO STOP THE MODEL            #")
     print("             ###############################################")
