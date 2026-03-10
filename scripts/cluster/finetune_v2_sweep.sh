@@ -5,7 +5,7 @@
 #SBATCH --time=12:00:00
 #SBATCH --cpus-per-task=8
 #SBATCH --mem-per-cpu=4G
-#SBATCH --gpus=1
+#SBATCH --gpus=quadro_rtx_6000:1
 #SBATCH --tmp=10G
 #SBATCH --array=1-4
 
