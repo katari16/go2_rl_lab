@@ -290,26 +290,11 @@ if __name__ == "__main__":
         send_cmd()
         time.sleep(dt)
 
-    # Phase 4: ramp to policy gains
-    print("    Ramping to policy gains...")
-    for step in range(1000):
-        alpha = min(step / 1000, 1.0)
-        test_kp = (1 - alpha) * 60.0 + alpha * kps[0]
-        test_kd = (1 - alpha) * 5.0 + alpha * kds[0]
-        for i in range(12):
-            low_cmd.motor_cmd[i].q = default_angles_sdk[i]
-            low_cmd.motor_cmd[i].kp = test_kp
-            low_cmd.motor_cmd[i].kd = test_kd
-            low_cmd.motor_cmd[i].dq = 0.0
-            low_cmd.motor_cmd[i].tau = 0.0
-        send_cmd()
-        time.sleep(dt)
-
     gravity_check = get_gravity_orientation(low_state.imu_state.quaternion)
-    print(f"    Standing. Gravity={gravity_check.round(3)}, Kp={kps[0]}, Kd={kds[0]}")
+    print(f"    Standing. Gravity={gravity_check.round(3)}, Policy Kp={kps[0]}, Kd={kds[0]}")
 
     # ══════════════════════════════════════════════════════════════════════
-    # FSM STATE 3: WAIT FOR A
+    # FSM STATE 3: WAIT FOR A (hold at stiff gains so robot doesn't collapse)
     # ══════════════════════════════════════════════════════════════════════
     print("\n" + "=" * 60)
     print("  STANDING — Press A to start policy")
@@ -318,8 +303,23 @@ if __name__ == "__main__":
     while remote_controller.button[KeyMap.A] != 1:
         for i in range(12):
             low_cmd.motor_cmd[i].q = default_angles_sdk[i]
-            low_cmd.motor_cmd[i].kp = kps[0]
-            low_cmd.motor_cmd[i].kd = kds[0]
+            low_cmd.motor_cmd[i].kp = 60.0
+            low_cmd.motor_cmd[i].kd = 5.0
+            low_cmd.motor_cmd[i].dq = 0.0
+            low_cmd.motor_cmd[i].tau = 0.0
+        send_cmd()
+        time.sleep(dt)
+
+    # Ramp from stiff gains to policy gains (robot can't hold weight at low Kp without policy)
+    print("    Ramping to policy gains...")
+    for step in range(1000):
+        alpha = min(step / 1000, 1.0)
+        ramp_kp = (1 - alpha) * 60.0 + alpha * kps[0]
+        ramp_kd = (1 - alpha) * 5.0 + alpha * kds[0]
+        for i in range(12):
+            low_cmd.motor_cmd[i].q = default_angles_sdk[i]
+            low_cmd.motor_cmd[i].kp = ramp_kp
+            low_cmd.motor_cmd[i].kd = ramp_kd
             low_cmd.motor_cmd[i].dq = 0.0
             low_cmd.motor_cmd[i].tau = 0.0
         send_cmd()
