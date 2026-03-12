@@ -38,7 +38,7 @@ from .mdp.rewards import (
     standing_pose_penalty,
     hip_deviation_penalty,
 )
-from go2_rl_lab.assets.unitree import UNITREE_GO2_LOW_GAIN_CFG
+from go2_rl_lab.assets.unitree import UNITREE_GO2_LOW_GAIN_CFG, UNITREE_GO2_LOW_GAIN_PACE_CFG
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -177,6 +177,49 @@ class FinetuneV4EnvCfg(UnitreeGo2CompliantNoFootXyzEnvCfg):
     def __post_init__(self):
         super().__post_init__()
         self.scene.robot = UNITREE_GO2_LOW_GAIN_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+        self.actions.joint_pos.scale = 0.5
+        # Enable generated terrain
+        self.scene.terrain.terrain_type = "generator"
+        # Remove stairs, keep only mild roughness and gentle slopes
+        tg = self.scene.terrain.terrain_generator
+        if tg is not None:
+            for stair_key in ["pyramid_stairs", "pyramid_stairs_inv"]:
+                if stair_key in tg.sub_terrains:
+                    del tg.sub_terrains[stair_key]
+            if "boxes" in tg.sub_terrains:
+                tg.sub_terrains["boxes"].proportion = 0.3
+                tg.sub_terrains["boxes"].grid_height_range = (0.02, 0.08)
+            if "random_rough" in tg.sub_terrains:
+                tg.sub_terrains["random_rough"].proportion = 0.4
+                tg.sub_terrains["random_rough"].noise_range = (0.01, 0.05)
+                tg.sub_terrains["random_rough"].noise_step = 0.01
+            if "hf_pyramid_slope" in tg.sub_terrains:
+                tg.sub_terrains["hf_pyramid_slope"].proportion = 0.15
+                tg.sub_terrains["hf_pyramid_slope"].slope_range = (0.0, 0.3)
+            if "hf_pyramid_slope_inv" in tg.sub_terrains:
+                tg.sub_terrains["hf_pyramid_slope_inv"].proportion = 0.15
+                tg.sub_terrains["hf_pyramid_slope_inv"].slope_range = (0.0, 0.3)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PACE actuator: same as V3 but with PACE-identified motor parameters
+# ═══════════════════════════════════════════════════════════════════════════════
+
+
+@configclass
+class FinetunePaceEnvCfg(UnitreeGo2CompliantNoFootXyzEnvCfg):
+    """PACE: Low gains (Kp=8, Kd=0.4) + PACE actuator + R2 + standing pose (rough terrain).
+
+    Identical to FinetuneV3EnvCfg except uses PACE-identified per-joint armature,
+    viscous friction, static friction, encoder bias, and delay parameters.
+    """
+
+    rewards: RewardsV1Cfg = RewardsV1Cfg()
+    curriculum: TerrainCurriculumCfg = TerrainCurriculumCfg()
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.scene.robot = UNITREE_GO2_LOW_GAIN_PACE_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
         self.actions.joint_pos.scale = 0.5
         # Enable generated terrain
         self.scene.terrain.terrain_type = "generator"

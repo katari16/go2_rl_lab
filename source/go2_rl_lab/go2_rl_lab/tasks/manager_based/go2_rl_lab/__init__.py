@@ -145,6 +145,20 @@ gym.register(
     },
 )
 
+# ── HAC-LOCO stage 2 sweep: 8 variations (R1-R8) ─────────────────────────
+# 2x2x2: reward type (penalty/positive) x gravity correction x tracking reward
+# All use rough terrain (same distribution as V3 low-level training)
+for _r in range(1, 9):
+    gym.register(
+        id=f"Go2-HAC-LOCO-Stage2-R{_r}-v0",
+        entry_point="isaaclab.envs:ManagerBasedRLEnv",
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": f"{__name__}.go2_hac_loco_stage2_env_cfg:HacLocoStage2EnvCfg",
+            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_hac_loco_stage2_sweep_cfg:HacLocoStage2R{_r}Cfg",
+        },
+    )
+
 
 # ── Low-level locomotion finetuning experiments (8 jobs) ──────────────────────
 # 2 gain presets (Low Kp=8, Baseline Kp=25) x 4 reward presets (R1-R4)
@@ -192,6 +206,19 @@ for _v, _cls in _finetune_v2_jobs.items():
             "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_finetune_v2_cfg:FinetuneV{_v}RunnerCfg",
         },
     )
+
+
+# ── PACE actuator finetuning (same as V3 but with PACE-identified motor params) ──
+
+gym.register(
+    id="Go2-Finetune-PACE-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_finetune_v2_env_cfgs:FinetunePaceEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_finetune_v2_cfg:FinetunePaceRunnerCfg",
+    },
+)
 
 
 # force envs

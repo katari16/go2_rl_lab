@@ -181,6 +181,10 @@ class ComplianceOnPolicyRunner(OnPolicyRunner):
             gt_force_start=gt_force_start,
             gt_force_dim=gt_force_dim,
             device=device,
+            reward_type=comp_cfg.get("reward_type", "penalty"),
+            gravity_correction=comp_cfg.get("gravity_correction", False),
+            use_tracking_reward=comp_cfg.get("use_tracking_reward", True),
+            robot_mass=comp_cfg.get("robot_mass", 15.0),
         )
 
         self._stage1_checkpoint = stage1_path
@@ -202,7 +206,10 @@ class ComplianceOnPolicyRunner(OnPolicyRunner):
         print(
             f"[ComplianceRunner] Compliance: alpha={comp_cfg.get('alpha', 10.0):.1f}  "
             f"beta={comp_cfg.get('beta', 10.0):.1f}  "
-            f"w_comp={comp_cfg.get('compliance_reward_weight', 0.5):.2f}"
+            f"w_comp={comp_cfg.get('compliance_reward_weight', 0.5):.2f}  "
+            f"reward={comp_cfg.get('reward_type', 'penalty')}  "
+            f"gravity_corr={comp_cfg.get('gravity_correction', False)}  "
+            f"tracking_rew={comp_cfg.get('use_tracking_reward', True)}"
         )
 
     # ── Freeze verification ───────────────────────────────────────────────

@@ -21,7 +21,7 @@ class HacLocoStage2RunnerCfg(RslRlOnPolicyRunnerCfg):
     class_name: str = "ComplianceOnPolicyRunner"
 
     num_steps_per_env: int = 24
-    max_iterations: int = 5000
+    max_iterations: int = 10000
     save_interval: int = 100
     experiment_name: str = "go2_hac_loco_stage2"
 
@@ -33,8 +33,12 @@ class HacLocoStage2RunnerCfg(RslRlOnPolicyRunnerCfg):
         "stage1_checkpoint": "",  # MUST be set via CLI or override
         "alpha": 10.0,           # Force threshold (N)
         "beta": 10.0,            # Virtual impedance
-        "compliance_reward_weight": 0.5,
+        "compliance_reward_weight": 2.0,
         "max_force": 20.0,
+        "reward_type": "penalty",       # "penalty" or "positive"
+        "gravity_correction": False,    # subtract m*g_xy from force estimate
+        "use_tracking_reward": True,    # include velocity tracking in total reward
+        "robot_mass": 15.0,             # Go2 mass for gravity correction
     }
 
     # Force estimator architecture (must match stage-1)

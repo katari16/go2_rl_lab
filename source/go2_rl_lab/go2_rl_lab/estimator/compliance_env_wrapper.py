@@ -88,6 +88,10 @@ class ComplianceEnvWrapper:
         gt_force_start: int = 64,
         gt_force_dim: int = 3,
         device: str | torch.device = "cpu",
+        reward_type: str = "penalty",
+        gravity_correction: bool = False,
+        use_tracking_reward: bool = True,
+        robot_mass: float = 15.0,
     ) -> None:
         self._env = env
         self.frozen_policy = frozen_policy
@@ -97,12 +101,16 @@ class ComplianceEnvWrapper:
         self.beta = beta
         self.compliance_reward_weight = compliance_reward_weight
         self.device = device
+        self._reward_type = reward_type
+        self._gravity_correction = gravity_correction
+        self._use_tracking_reward = use_tracking_reward
+        self._robot_mass = robot_mass
 
         num_envs = env.num_envs
 
         self._underlying = env.unwrapped if hasattr(env, "unwrapped") else env
 
-        self._action_clip = 0.5
+        self._action_clip = 3.0
 
         # Tracking reward weights (must match env cfg)
         self._track_lin_weight = 1.5
@@ -185,8 +193,13 @@ class ComplianceEnvWrapper:
     ) -> torch.Tensor:
         """HAC-LOCO compliance reward (eq. 7).
 
-        When |f| <= alpha: r = -||a'||^2 (minimize adjustments)
-        When |f| > alpha:  r = -||a'_xy - f_xy/beta * (1 + alpha/|f_xy|)||^2 - ||a'_z||^2
+        Penalty mode:
+            When |f| <= alpha: r = -||a'||^2 (minimize adjustments)
+            When |f| > alpha:  r = -||a'_xy - target||^2 - ||a'_z||^2
+
+        Positive mode:
+            When |f| <= alpha: r = exp(-||a'||^2)
+            When |f| > alpha:  r = exp(-||a'_xy - target||^2 - ||a'_z||^2)
 
         Args:
             a_prime:  [num_envs, 3] -- high-level action [Dvx, Dvy, Dwz]
@@ -194,20 +207,22 @@ class ComplianceEnvWrapper:
         """
         f_norm = gt_force.norm(dim=-1)  # [num_envs]
 
-        # Small force: minimize all adjustments
-        r_small = -(a_prime ** 2).sum(dim=-1)
-
         # Large force: comply in XY, minimize yaw adjustment
         f_xy = gt_force[:, :2]
         f_xy_norm = f_xy.norm(dim=-1, keepdim=True).clamp(min=1e-6)
         target_a_xy = (f_xy / self.beta) * (1.0 + self.alpha / f_xy_norm)
         target_a_xy = target_a_xy.clamp(-self._action_clip, self._action_clip)
 
-        r_large_xy = -((a_prime[:, :2] - target_a_xy) ** 2).sum(dim=-1)
-        r_large_z = -(a_prime[:, 2] ** 2)
-        r_large = r_large_xy + r_large_z
+        # Squared errors
+        err_small = (a_prime ** 2).sum(dim=-1)
+        err_large = ((a_prime[:, :2] - target_a_xy) ** 2).sum(dim=-1) + a_prime[:, 2] ** 2
 
-        return torch.where(f_norm <= self.alpha, r_small, r_large)
+        err = torch.where(f_norm <= self.alpha, err_small, err_large)
+
+        if self._reward_type == "positive":
+            return torch.exp(-err)
+        else:
+            return -err
 
     # ── VecEnv interface ──────────────────────────────────────────────────
 
@@ -305,7 +320,10 @@ class ComplianceEnvWrapper:
             + self._track_ang_weight * r_ang_mod
         )
 
-        total_reward = r_tracking + self.compliance_reward_weight * compliance_rew
+        if self._use_tracking_reward:
+            total_reward = r_tracking + self.compliance_reward_weight * compliance_rew
+        else:
+            total_reward = self.compliance_reward_weight * compliance_rew
 
         # 13. Stats
         self.last_compliance_reward = compliance_rew.detach()
@@ -319,7 +337,17 @@ class ComplianceEnvWrapper:
         self._ep_steps += 1
 
         # 14. Update state buffers
-        self._last_latent = latent.detach()
+        latent_for_obs = latent.detach()
+        if self._gravity_correction:
+            # Subtract gravity component from force estimate (first 3 dims of latent)
+            # Projected gravity in body frame is raw_obs[3:6] = [g_Bx, g_By, g_Bz]
+            # F_gravity_B = m * [g_Bx, g_By, 0]
+            gravity_body = raw_57[:, 3:6].detach()
+            f_gravity = self._robot_mass * gravity_body
+            f_gravity[:, 2] = 0.0  # only correct XY
+            latent_for_obs = latent_for_obs.clone()
+            latent_for_obs[:, :self.FORCE_DIM] -= f_gravity
+        self._last_latent = latent_for_obs
         self._last_high_action = high_level_action.detach()
         self._last_low_action = low_level_action.detach()
 

@@ -83,9 +83,21 @@ UNITREE_GO2_PACE_CFG = UNITREE_GO2_CFG.replace(
     actuators={
         "GO2HV": unitree_actuators.UnitreeActuatorCfg_Go2PACE(
             joint_names_expr=[".*"],
-            stiffness=25.0, 
-            damping=0.5,     
+            stiffness=25.0,
+            damping=0.5,
         ),
     },
 )
+
+# ----- LOW GAIN PACE GO2 CFG (Kp=8, Kd=0.4) -----
+UNITREE_GO2_LOW_GAIN_PACE_CFG = UNITREE_GO2_CFG.replace(
+    actuators={
+        "GO2HV": unitree_actuators.UnitreeActuatorCfg_Go2PACE_LowGain(
+            joint_names_expr=[".*"],
+            stiffness=8.0,
+            damping=0.4,
+        ),
+    },
+)
+"""Unitree Go2 with low PD gains (Kp=8, Kd=0.4) and PACE-identified actuator parameters."""
 
