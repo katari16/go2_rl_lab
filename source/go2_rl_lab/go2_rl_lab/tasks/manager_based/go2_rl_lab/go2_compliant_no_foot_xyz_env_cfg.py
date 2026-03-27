@@ -1,18 +1,11 @@
 """Compliant locomotion env — NO foot contacts, 3D (XYZ) force estimation.
 
-Based on ``go2_compliant_no_foot_env_cfg.py`` with these changes:
-- Force estimator predicts 3 components (fx, fy, fz) instead of 2
-- External forces applied in XYZ (fz range = 0.6 * xy range for stability)
-- Critic obs include GT XYZ force (3 dims instead of 2)
-- Policy obs: 60 dims = 57 raw + 3 force estimate
-- Compliance mapping still only affects XY velocity commands
-
-Three training phases (managed by CompliantOnPolicyRunner):
+ training phases:
 - Phase 1: Walking (forces=0, estimator trains from scratch)
 - Phase 2 (reward>30): Forces activate (XYZ), estimator keeps training
 - Phase 3 (angular error<6 deg): Linear mapping activates with piecewise k
 
-Policy obs layout (60 dims)::
+Policy obs (60 dims)::
 
     [0:3]   base_ang_vel                           (noisy)
     [3:6]   projected_gravity                      (noisy)
@@ -23,7 +16,7 @@ Policy obs layout (60 dims)::
     [45:57] applied_torque (scale=0.1)             (noisy)
     [57:60] force_estimate (fx, fy, fz from runner)
 
-Critic obs layout (70 dims)::
+Critic obs (70 dims)::
 
     [0:3]   base_lin_vel                           <- privileged
     [3:6]   base_ang_vel
