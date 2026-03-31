@@ -6,8 +6,12 @@
 """Configuration for Unitree robots.
 """
 
+import os
+
 from isaaclab.assets.articulation import ArticulationCfg
 from isaaclab.utils import configclass
+
+_ASSETS_DIR = os.path.dirname(os.path.abspath(__file__))
 
 from go2_rl_lab.assets import unitree_actuators
 
@@ -105,7 +109,7 @@ UNITREE_GO2_LOW_GAIN_PACE_CFG = UNITREE_GO2_CFG.replace(
 # ----- PAYLOAD CFG (Kp=8, Kd=0.4 + 3kg payload link on base) -----
 UNITREE_GO2_PAYLOAD_CFG = ArticulationCfg(
     spawn=sim_utils.UsdFileCfg(
-        usd_path="/home/ubuntu/go2_rl_lab/source/go2_rl_lab/go2_rl_lab/assets/go2_payload_link.usd",
+        usd_path=os.path.join(_ASSETS_DIR, "go2_payload_link.usd"),
         activate_contact_sensors=True,
         rigid_props=sim_utils.RigidBodyPropertiesCfg(
             disable_gravity=False,
