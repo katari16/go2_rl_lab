@@ -101,3 +101,48 @@ UNITREE_GO2_LOW_GAIN_PACE_CFG = UNITREE_GO2_CFG.replace(
 )
 """Unitree Go2 with low PD gains (Kp=8, Kd=0.4) and PACE-identified actuator parameters."""
 
+
+# ----- PAYLOAD CFG (Kp=8, Kd=0.4 + 3kg payload link on base) -----
+UNITREE_GO2_PAYLOAD_CFG = ArticulationCfg(
+    spawn=sim_utils.UsdFileCfg(
+        usd_path="/home/ubuntu/go2_rl_lab/source/go2_rl_lab/go2_rl_lab/assets/go2_payload_link.usd",
+        activate_contact_sensors=True,
+        rigid_props=sim_utils.RigidBodyPropertiesCfg(
+            disable_gravity=False,
+            retain_accelerations=False,
+            linear_damping=0.0,
+            angular_damping=0.0,
+            max_linear_velocity=1000.0,
+            max_angular_velocity=1000.0,
+            max_depenetration_velocity=1.0,
+        ),
+        articulation_props=sim_utils.ArticulationRootPropertiesCfg(
+            enabled_self_collisions=False, solver_position_iteration_count=4, solver_velocity_iteration_count=0
+        ),
+    ),
+    init_state=ArticulationCfg.InitialStateCfg(
+        pos=(0.0, 0.0, 0.4),
+        joint_pos={
+            ".*L_hip_joint": 0.1,
+            ".*R_hip_joint": -0.1,
+            "F[L,R]_thigh_joint": 0.8,
+            "R[L,R]_thigh_joint": 1.0,
+            ".*_calf_joint": -1.5,
+        },
+        joint_vel={".*": 0.0},
+    ),
+    soft_joint_pos_limit_factor=0.9,
+    actuators={
+        "base_legs": DCMotorCfg(
+            joint_names_expr=[".*_hip_joint", ".*_thigh_joint", ".*_calf_joint"],
+            effort_limit=23.5,
+            saturation_effort=23.5,
+            velocity_limit=30.0,
+            stiffness=8.0,
+            damping=0.4,
+            friction=0.0,
+        ),
+    },
+)
+"""Unitree Go2 with 3kg payload link + low PD gains (Kp=8, Kd=0.4)."""
+
