@@ -7,7 +7,7 @@ Loads a CompliantOnPolicyRunner checkpoint and exports:
 Both are saved to `exported_policy/` inside the checkpoint's log directory.
 
 Usage:
-    python scripts/rsl_rl/play_export.py --task Go2-Compliant-NoFoot-XYZ-v0 --num_envs 1 \
+    python scripts/rsl_rl/play_export.py --task Go2-LowLevel-v0 --num_envs 1 \
         --checkpoint logs/rsl_rl/go2_compliant_no_foot_xyz/2026-03-05_07-58-04/model_16200.pt
 """
 

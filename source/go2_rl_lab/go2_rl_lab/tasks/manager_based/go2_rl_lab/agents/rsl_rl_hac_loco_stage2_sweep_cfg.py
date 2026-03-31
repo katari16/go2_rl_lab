@@ -8,7 +8,7 @@
 All share: w_comp=2.0, action_clip=3.0, rough terrain, 5k iterations.
 
 Usage:
-    python train.py --task Go2-HAC-LOCO-Stage2-R1-v0 \
+    python train.py --task Go2-HighLevel-NonLinear-R1-v0 \
         --stage1_checkpoint /path/to/stage1/model_XXXX.pt --headless
 """
 

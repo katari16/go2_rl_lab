@@ -13,7 +13,7 @@ Arrows:
   YELLOW    = learned high-level policy a'
 
 Usage:
-    python scripts/rsl_rl/slope_eval_stage2.py --task Go2-HAC-LOCO-Stage2-R5-v0 \\
+    python scripts/rsl_rl/slope_eval_stage2.py --task Go2-HighLevel-NonLinear-R5-v0 \\
         --stage1_checkpoint /path/to/stage1/model.pt \\
         --checkpoint /path/to/stage2/model.pt \\
         --slope_deg 12 --walk_duration 8 --hold_duration 20 --real-time

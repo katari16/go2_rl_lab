@@ -1,13 +1,13 @@
-"""Agent configuration for compliant locomotion — CompliantOnPolicyRunner.
+"""Agent config for the low-level locomotion policy.
 
-Three-phase training:
-  Phase 1: Walking (forces=0, estimator trains from checkpoint)
-  Phase 2: Forces active (estimator keeps training)
-  Phase 3: Linear mapping active (estimator angular error < threshold)
+Uses CompliantOnPolicyRunner with 3-phase training:
+  Phase 1: Walking (forces=0, estimator trains from scratch)
+  Phase 2 (reward>30): Forces activate (XYZ), estimator keeps training
+  Phase 3 (angular error<6 deg): Linear mapping activates
 
 Usage:
-    python train.py --task Go2-Compliant-v0 \
-        --estimator_checkpoint /path/to/model_XXXX.pt
+    python train.py --task Go2-LowLevel-v0
+    python train.py --task Go2-LowLevel-PACE-v0
 """
 
 from isaaclab.utils import configclass
@@ -15,37 +15,37 @@ from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlPpoActorCriticCfg, R
 
 
 @configclass
-class CompliantRunnerCfg(RslRlOnPolicyRunnerCfg):
-    """CompliantOnPolicyRunner config."""
+class LowLevelRunnerCfg(RslRlOnPolicyRunnerCfg):
+    """Low-level locomotion runner — standard actuator."""
 
     class_name: str = "CompliantOnPolicyRunner"
 
     num_steps_per_env: int = 24
-    max_iterations: int = 10000
-    save_interval: int = 200
-    experiment_name: str = "go2_compliant"
+    max_iterations: int = 20000
+    save_interval: int = 500
+    experiment_name: str = "go2_lowlevel"
 
     # Phase gates
     force_activation_reward_threshold: float = 30.0
-    estimator_angular_threshold: float = 7.0
-    force_event_term_name: str = "persistent_xy_force"
+    estimator_angular_threshold: float = 6.0
+    force_event_term_name: str = "persistent_xyz_force"
     max_force: float = 20.0
 
-    # Compliance parameters
-    compliance_alpha: float = 5.0   # Force threshold (N) — below: resist, above: comply
-    compliance_beta: float = 50.0   # Virtual impedance — k = 1/beta when |f| > alpha
+    # Compliance parameters (XY only — fz does not modulate velocity)
+    compliance_alpha: float = 5.0
+    compliance_beta: float = 50.0
 
-    # Force estimator architecture (must match checkpoint)
+    # Force estimator architecture — 3D force output
     estimator: dict = {
         "temporal_steps": 20,
         "enc_hidden_dims": [128, 64],
         "f_head_dims": [32, 16],
-        "force_dim": 2,
+        "force_dim": 3,
         "dec_hidden_dims": [256, 128],
         "activation": "elu",
         "learning_rate": 1e-3,
         "force_loss_weight": 1.0,
-        "angle_loss_weight": 1.0,
+        "angle_loss_weight": 3.0,
         "rec_loss_weight": 1.0,
         "angle_min_force": 1.0,
         "max_grad_norm": 10.0,
@@ -74,3 +74,9 @@ class CompliantRunnerCfg(RslRlOnPolicyRunnerCfg):
         desired_kl=0.01,
         max_grad_norm=1.0,
     )
+
+
+@configclass
+class LowLevelPaceRunnerCfg(LowLevelRunnerCfg):
+    """Low-level locomotion runner — PACE actuator model."""
+    experiment_name: str = "go2_lowlevel_pace"

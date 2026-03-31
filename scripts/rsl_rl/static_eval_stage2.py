@@ -9,7 +9,7 @@ Arrows:
   YELLOW = adjusted velocity command c* = c + a' (from high-level policy)
 
 Usage:
-    python scripts/rsl_rl/static_eval_stage2.py --task Go2-HAC-LOCO-Stage2-v0 --num_envs 1 \
+    python scripts/rsl_rl/static_eval_stage2.py --task Go2-HighLevel-NonLinear-v0 --num_envs 1 \
         --stage1_checkpoint /path/to/stage1/model.pt \
         --checkpoint /path/to/stage2/model.pt \
         --duration 20 --real-time

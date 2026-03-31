@@ -6,7 +6,7 @@ on top of a frozen low-level locomotion policy from stage 1.
 The force estimator is TRAINABLE (continues learning from stage-1 checkpoint).
 
 Usage:
-    python train.py --task Go2-HAC-LOCO-Stage2-v0 \
+    python train.py --task Go2-HighLevel-NonLinear-v0 \
         --compliance_stage1_checkpoint /path/to/stage1/model_XXXX.pt
 """
 

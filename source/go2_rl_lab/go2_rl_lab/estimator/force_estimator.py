@@ -24,7 +24,29 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
-from .velocity_estimator import _build_mlp, _get_activation
+def _get_activation(name: str) -> nn.Module:
+    activations = {
+        "elu": nn.ELU(),
+        "selu": nn.SELU(),
+        "relu": nn.ReLU(),
+        "silu": nn.SiLU(),
+        "lrelu": nn.LeakyReLU(),
+        "tanh": nn.Tanh(),
+        "sigmoid": nn.Sigmoid(),
+    }
+    if name not in activations:
+        raise ValueError(f"Unknown activation '{name}'. Choose from {list(activations.keys())}")
+    return activations[name]
+
+
+def _build_mlp(layer_dims: list[int], act_fn: nn.Module, output_activation: bool = False) -> nn.Sequential:
+    """Build a fully-connected MLP from a list of layer widths."""
+    layers: list[nn.Module] = []
+    for i in range(len(layer_dims) - 1):
+        layers.append(nn.Linear(layer_dims[i], layer_dims[i + 1]))
+        if i < len(layer_dims) - 2 or output_activation:
+            layers.append(act_fn)
+    return nn.Sequential(*layers)
 
 
 class ForceEstimator(nn.Module):

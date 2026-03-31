@@ -1,8 +1,43 @@
-# Copyright (c) 2022-2026, The Isaac Lab Project Developers                                                         
-#   (https://github.com/isaac-sim/IsaacLab/blob/main/CONTRIBUTORS.md).                                                  
-# All rights reserved.
-#
-# SPDX-License-Identifier: BSD-3-Clause
+"""Self-contained low-level locomotion env config.
+
+This is THE env config for training the deployed low-level policy (V3).
+It combines the base compliant-no-foot-XYZ observations/events with
+the V3 reward and terrain settings that won the finetuning sweep.
+
+Key settings (must match deployment config):
+- Policy obs: 60 dims (57 raw + 3 force estimate XYZ)
+- Critic obs: 70 dims (privileged)
+- PD gains: Kp=8, Kd=0.4, action_scale=0.5
+- Terrain: rough (boxes, random rough, slopes — no stairs)
+- Rewards: R2 Enhanced Smoothness + standing pose penalty
+- Runner: CompliantOnPolicyRunner (3-phase: walk → forces → linear mapping)
+- decimation=4, dt=0.005, control_dt=0.02 (50Hz)
+
+Policy obs layout::
+
+    [0:3]   base_ang_vel                           (noisy)
+    [3:6]   projected_gravity                      (noisy)
+    [6:9]   velocity_commands
+    [9:21]  joint_pos_rel                          (noisy)
+    [21:33] joint_vel_rel                          (noisy)
+    [33:45] last_action
+    [45:57] applied_torque (scale=0.1)             (noisy)
+    [57:60] force_estimate (fx, fy, fz from runner)
+
+Critic obs layout::
+
+    [0:3]   base_lin_vel                           <- privileged
+    [3:6]   base_ang_vel
+    [6:9]   projected_gravity
+    [9:12]  velocity_commands
+    [12:24] joint_pos_rel
+    [24:36] joint_vel_rel
+    [36:48] last_action
+    [48:60] applied_torque (scale=0.1)
+    [60:64] foot_contact_force_norms (scale=0.01)  <- critic only
+    [64:67] base_applied_force_xyz                 <- gt for critic (3D)
+    [67:70] force_estimate (fx, fy, fz from runner)
+"""
 
 import math
 
@@ -17,14 +52,25 @@ from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.managers import TerminationTermCfg as DoneTerm
 from isaaclab.scene import InteractiveSceneCfg
-from isaaclab.sensors import ContactSensorCfg, RayCasterCfg, patterns
+from isaaclab.sensors import ContactSensorCfg
 from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.utils import configclass
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR, ISAACLAB_NUCLEUS_DIR
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
 from . import mdp
-from go2_rl_lab.assets.unitree import UNITREE_GO2_PACE_CFG as ROBOT_CFG
+from .mdp.events import apply_persistent_xyz_force
+from .mdp.observations import (
+    ForceEstimateObsTerm,
+    applied_torque,
+    base_applied_force_xyz,
+    foot_contact_force_norms,
+)
+from .mdp.rewards import (
+    compliant_track_lin_vel_xy_exp,
+    standing_pose_penalty,
+)
+from go2_rl_lab.assets.unitree import UNITREE_GO2_LOW_GAIN_CFG, UNITREE_GO2_LOW_GAIN_PACE_CFG
 from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG
 
 
@@ -37,10 +83,9 @@ from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG
 class RobotSceneCfg(InteractiveSceneCfg):
     """Configuration for the terrain scene with Go2."""
 
-    # ground terrain
     terrain = TerrainImporterCfg(
         prim_path="/World/ground",
-        terrain_type="plane",
+        terrain_type="generator",
         terrain_generator=ROUGH_TERRAINS_CFG,
         max_init_terrain_level=5,
         collision_group=-1,
@@ -57,18 +102,14 @@ class RobotSceneCfg(InteractiveSceneCfg):
         ),
         debug_vis=False,
     )
-    # robot
-    robot: ArticulationCfg = ROBOT_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
-
+    robot: ArticulationCfg = UNITREE_GO2_LOW_GAIN_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
     height_scanner = None
     contact_forces = ContactSensorCfg(prim_path="{ENV_REGEX_NS}/Robot/.*", history_length=3, track_air_time=True)
-    # lights
     sky_light = AssetBaseCfg(
         prim_path="/World/skyLight",
         spawn=sim_utils.DomeLightCfg(
             intensity=750.0,
-
-texture_file=f"{ISAAC_NUCLEUS_DIR}/Materials/Textures/Skies/PolyHaven/kloofendal_43d_clear_puresky_4k.hdr",
+            texture_file=f"{ISAAC_NUCLEUS_DIR}/Materials/Textures/Skies/PolyHaven/kloofendal_43d_clear_puresky_4k.hdr",
         ),
     )
 
@@ -80,8 +121,6 @@ texture_file=f"{ISAAC_NUCLEUS_DIR}/Materials/Textures/Skies/PolyHaven/kloofendal
 
 @configclass
 class CommandsCfg:
-    """Command specifications for the MDP."""
-
     base_velocity = mdp.UniformVelocityCommandCfg(
         asset_name="robot",
         resampling_time_range=(10.0, 10.0),
@@ -98,56 +137,85 @@ class CommandsCfg:
 
 @configclass
 class ActionsCfg:
-    """Action specifications for the MDP."""
-
     joint_pos = mdp.mdp.JointPositionActionCfg(
-        asset_name="robot", joint_names=[".*"], scale=0.25, use_default_offset=True, clip={".*": (-100.0, 100.0)}
+        asset_name="robot", joint_names=[".*"], scale=0.5, use_default_offset=True, clip={".*": (-100.0, 100.0)}
     )
 
 
 @configclass
 class ObservationsCfg:
-    """Observation specifications for the MDP."""
+    """Observation specifications — policy 60 dims (no foot contacts, 3D force), critic 70 dims."""
 
     @configclass
     class PolicyCfg(ObsGroup):
-        """Observations for policy group — proprioceptive only."""
+        """Policy observations: proprioceptive + dynamics + 3D force estimate (60 dims).
 
-        base_ang_vel = ObsTerm(func=mdp.base_ang_vel, scale=0.25, clip=(-100, 100), noise=Unoise(n_min=-0.2, n_max=0.2))
+        NO foot contact forces — not available on real robot.
+        Force estimate is 3D (fx, fy, fz).
+        """
+
+        base_ang_vel = ObsTerm(func=mdp.base_ang_vel, clip=(-100, 100), noise=Unoise(n_min=-0.2, n_max=0.2))
         projected_gravity = ObsTerm(func=mdp.projected_gravity, clip=(-100, 100), noise=Unoise(n_min=-0.05, n_max=0.05))
         velocity_commands = ObsTerm(func=mdp.generated_commands, clip=(-100, 100), params={"command_name": "base_velocity"})
         joint_pos = ObsTerm(func=mdp.joint_pos_rel, clip=(-100, 100), noise=Unoise(n_min=-0.01, n_max=0.01))
-        joint_vel = ObsTerm(func=mdp.joint_vel_rel, scale=0.05, clip=(-100, 100), noise=Unoise(n_min=-1.5, n_max=1.5))
+        joint_vel = ObsTerm(func=mdp.joint_vel_rel, clip=(-100, 100), noise=Unoise(n_min=-1.5, n_max=1.5))
         actions = ObsTerm(func=mdp.last_action, clip=(-100, 100))
+        applied_torque_obs = ObsTerm(
+            func=applied_torque,
+            clip=(-100, 100),
+            noise=Unoise(n_min=-0.05, n_max=0.05),
+            params={"asset_cfg": SceneEntityCfg("robot"), "scale": 0.1},
+        )
+        # Frozen force estimator output: [num_envs, 3] (XYZ)
+        force_estimate = ObsTerm(func=ForceEstimateObsTerm)
 
         def __post_init__(self):
-            self.history_length = 5
             self.enable_corruption = True
             self.concatenate_terms = True
-    policy: PolicyCfg = PolicyCfg()
 
     @configclass
     class CriticCfg(ObsGroup):
-        """Privileged critic observations."""
+        """Privileged critic observations (70 dims) — clean + GT XYZ force + force estimate.
+
+        Critic KEEPS foot contact forces (privileged info).
+        """
 
         base_lin_vel = ObsTerm(func=mdp.base_lin_vel, clip=(-100, 100))
-        base_ang_vel = ObsTerm(func=mdp.base_ang_vel, scale=0.2, clip=(-100, 100))
+        base_ang_vel = ObsTerm(func=mdp.base_ang_vel, clip=(-100, 100))
         projected_gravity = ObsTerm(func=mdp.projected_gravity, clip=(-100, 100))
         velocity_commands = ObsTerm(func=mdp.generated_commands, clip=(-100, 100), params={"command_name": "base_velocity"})
         joint_pos = ObsTerm(func=mdp.joint_pos_rel, clip=(-100, 100))
-        joint_vel = ObsTerm(func=mdp.joint_vel_rel, scale=0.05, clip=(-100, 100))
+        joint_vel = ObsTerm(func=mdp.joint_vel_rel, clip=(-100, 100))
         actions = ObsTerm(func=mdp.last_action, clip=(-100, 100))
+        applied_torque_obs = ObsTerm(
+            func=applied_torque,
+            clip=(-100, 100),
+            params={"asset_cfg": SceneEntityCfg("robot"), "scale": 0.1},
+        )
+        foot_contact_forces = ObsTerm(
+            func=foot_contact_force_norms,
+            clip=(-100, 100),
+            params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"), "scale": 0.01},
+        )
+        # Ground truth XYZ force for critic (3D)
+        base_applied_force_xyz = ObsTerm(
+            func=base_applied_force_xyz,
+            params={"asset_cfg": SceneEntityCfg("robot", body_names="base")},
+        )
+        # Frozen force estimator output (critic also sees the 3D estimate)
+        force_estimate = ObsTerm(func=ForceEstimateObsTerm)
 
         def __post_init__(self):
-            self.history_length = 5
             self.enable_corruption = False
             self.concatenate_terms = True
 
+    policy: PolicyCfg = PolicyCfg()
     critic: CriticCfg = CriticCfg()
+
 
 @configclass
 class EventCfg:
-    """Configuration for events."""
+    """Events — persistent XYZ force starts at 0, activated by curriculum."""
 
     # startup
     physics_material = EventTerm(
@@ -189,12 +257,8 @@ class EventCfg:
         params={
             "pose_range": {"x": (-0.5, 0.5), "y": (-0.5, 0.5), "yaw": (-3.14, 3.14)},
             "velocity_range": {
-                "x": (0.0, 0.0),
-                "y": (0.0, 0.0),
-                "z": (0.0, 0.0),
-                "roll": (0.0, 0.0),
-                "pitch": (0.0, 0.0),
-                "yaw": (0.0, 0.0),
+                "x": (0.0, 0.0), "y": (0.0, 0.0), "z": (0.0, 0.0),
+                "roll": (0.0, 0.0), "pitch": (0.0, 0.0), "yaw": (0.0, 0.0),
             },
         },
     )
@@ -208,7 +272,20 @@ class EventCfg:
         },
     )
 
-    # interval
+    # interval — persistent XYZ force (starts at 0, curriculum activates)
+    # fz_scale=0.6 means Z force range is 60% of XY range for stability
+    persistent_xyz_force = EventTerm(
+        func=apply_persistent_xyz_force,
+        mode="interval",
+        interval_range_s=(3.0, 5.0),
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names="base"),
+            "force_range": (0.0, 0.0),  # curriculum sets to (0, max_force)
+            "fz_scale": 0.6,
+        },
+    )
+
+    # interval — velocity pushes
     push_robot = EventTerm(
         func=mdp.push_by_setting_velocity,
         mode="interval",
@@ -219,22 +296,33 @@ class EventCfg:
 
 @configclass
 class RewardsCfg:
-    """Reward terms for the MDP."""
+    """Reward terms — R2 Enhanced Smoothness + standing pose (V3 config).
 
-    # -- task
+    Built on top of the base compliant rewards with:
+    - trunk height penalty (target 0.34m)
+    - 1st-order action smoothness
+    - explicit torque penalty
+    - higher feet air time weight (0.75 vs 0.25)
+    - standing pose penalty (conditional on near-zero command)
+    """
+
+    # ── Tracking rewards ──────────────────────────────────────────────
     track_lin_vel_xy_exp = RewTerm(
-        func=mdp.track_lin_vel_xy_exp, weight=1.5, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
+        func=compliant_track_lin_vel_xy_exp,
+        weight=1.5,
+        params={"command_name": "base_velocity", "std": math.sqrt(0.25)},
     )
     track_ang_vel_z_exp = RewTerm(
         func=mdp.track_ang_vel_z_exp, weight=0.75, params={"command_name": "base_velocity", "std": math.sqrt(0.25)}
     )
-    # -- penalties
+
+    # ── Auxiliary rewards ──────────────────────────────────────────────
     lin_vel_z_l2 = RewTerm(func=mdp.lin_vel_z_l2, weight=-2.0)
     ang_vel_xy_l2 = RewTerm(func=mdp.ang_vel_xy_l2, weight=-0.05)
     dof_acc_l2 = RewTerm(func=mdp.joint_acc_l2, weight=-2.5e-7)
     feet_air_time = RewTerm(
         func=mdp.feet_air_time,
-        weight=0.25,
+        weight=0.75,
         params={
             "sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"),
             "command_name": "base_velocity",
@@ -289,11 +377,30 @@ class RewardsCfg:
         params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot")},
     )
 
+    # ── R2 additions: smoothness ──────────────────────────────────────
+    base_height_l2 = RewTerm(
+        func=mdp.base_height_l2,
+        weight=-0.5,
+        params={"target_height": 0.34},
+    )
+    action_rate_l2 = RewTerm(func=mdp.action_rate_l2, weight=-0.01)
+    joint_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-1e-4)
+
+    # ── Standing pose penalty (V3 addition) ───────────────────────────
+    standing_pose = RewTerm(
+        func=standing_pose_penalty,
+        weight=-0.5,
+        params={
+            "command_name": "base_velocity",
+            "asset_cfg": SceneEntityCfg("robot"),
+            "cmd_deadzone": 0.05,
+            "cmd_ramp_end": 0.15,
+        },
+    )
+
 
 @configclass
 class TerminationsCfg:
-    """Termination terms for the MDP."""
-
     time_out = DoneTerm(func=mdp.time_out, time_out=True)
     base_contact = DoneTerm(
         func=mdp.illegal_contact,
@@ -304,10 +411,9 @@ class TerminationsCfg:
 
 @configclass
 class CurriculumCfg:
-    """Curriculum terms for the MDP."""
+    """Terrain curriculum — progress to harder terrain when walking well."""
+    terrain_levels = CurrTerm(func=mdp.terrain_levels_vel)
 
-    # terrain_levels = CurrTerm(func=mdp.terrain_levels_vel)
-    terrain_levels = None
 
 ##
 # Environment configuration
@@ -315,63 +421,64 @@ class CurriculumCfg:
 
 
 @configclass
-class UnitreeGo2EnvCfg(ManagerBasedRLEnvCfg):
-    """Self-contained Go2 locomotion environment configuration."""
+class LowLevelEnvCfg(ManagerBasedRLEnvCfg):
+    """Go2 low-level locomotion env — the V3 config that is deployed on the real robot.
 
-    # Scene settings
+    Low PD gains (Kp=8, Kd=0.4), rough terrain (no stairs), R2 + standing pose rewards.
+    Trained with CompliantOnPolicyRunner for 3-phase force estimation pipeline.
+    """
+
     scene: RobotSceneCfg = RobotSceneCfg(num_envs=4096, env_spacing=2.5)
-    # Basic settings
     observations: ObservationsCfg = ObservationsCfg()
     actions: ActionsCfg = ActionsCfg()
     commands: CommandsCfg = CommandsCfg()
-    # MDP settings
     rewards: RewardsCfg = RewardsCfg()
     terminations: TerminationsCfg = TerminationsCfg()
     events: EventCfg = EventCfg()
     curriculum: CurriculumCfg = CurriculumCfg()
 
     def __post_init__(self):
-        """Post initialization."""
-        # general settings
         self.decimation = 4
         self.episode_length_s = 20.0
-        # simulation settings
         self.sim.dt = 0.005
         self.sim.render_interval = self.decimation
         self.sim.physics_material = self.scene.terrain.physics_material
         self.sim.physx.gpu_max_rigid_patch_count = 10 * 2**15
-        # sensor update periods
         if self.scene.height_scanner is not None:
             self.scene.height_scanner.update_period = self.decimation * self.sim.dt
         if self.scene.contact_forces is not None:
             self.scene.contact_forces.update_period = self.sim.dt
-        # terrain curriculum
-        if getattr(self.curriculum, "terrain_levels", None) is not None:
-            if self.scene.terrain.terrain_generator is not None:
-                self.scene.terrain.terrain_generator.curriculum = True
-        else:
-            if self.scene.terrain.terrain_generator is not None:
-                self.scene.terrain.terrain_generator.curriculum = False
-        # scale down terrains for Go2
+        # Terrain curriculum
         if self.scene.terrain.terrain_generator is not None:
-            self.scene.terrain.terrain_generator.sub_terrains["boxes"].grid_height_range = (0.025, 0.1)
-            self.scene.terrain.terrain_generator.sub_terrains["random_rough"].noise_range = (0.01, 0.06)
-            self.scene.terrain.terrain_generator.sub_terrains["random_rough"].noise_step = 0.01
+            self.scene.terrain.terrain_generator.curriculum = True
+            # Remove stairs, keep only mild roughness and gentle slopes
+            tg = self.scene.terrain.terrain_generator
+            for stair_key in ["pyramid_stairs", "pyramid_stairs_inv"]:
+                if stair_key in tg.sub_terrains:
+                    del tg.sub_terrains[stair_key]
+            if "boxes" in tg.sub_terrains:
+                tg.sub_terrains["boxes"].proportion = 0.3
+                tg.sub_terrains["boxes"].grid_height_range = (0.02, 0.08)
+            if "random_rough" in tg.sub_terrains:
+                tg.sub_terrains["random_rough"].proportion = 0.4
+                tg.sub_terrains["random_rough"].noise_range = (0.01, 0.05)
+                tg.sub_terrains["random_rough"].noise_step = 0.01
+            if "hf_pyramid_slope" in tg.sub_terrains:
+                tg.sub_terrains["hf_pyramid_slope"].proportion = 0.15
+                tg.sub_terrains["hf_pyramid_slope"].slope_range = (0.0, 0.3)
+            if "hf_pyramid_slope_inv" in tg.sub_terrains:
+                tg.sub_terrains["hf_pyramid_slope_inv"].proportion = 0.15
+                tg.sub_terrains["hf_pyramid_slope_inv"].slope_range = (0.0, 0.3)
 
 
 @configclass
-class UnitreeGo2EnvCfg_PLAY(UnitreeGo2EnvCfg):
+class LowLevelPaceEnvCfg(LowLevelEnvCfg):
+    """Same as LowLevelEnvCfg but with PACE-identified actuator parameters.
+
+    Uses per-joint armature, viscous friction, static friction, encoder bias,
+    and delay parameters identified from the real robot.
+    """
+
     def __post_init__(self):
         super().__post_init__()
-        # smaller scene for play
-        self.scene.num_envs = 12
-        self.scene.env_spacing = 2.5
-        self.scene.terrain.max_init_terrain_level = None
-        if self.scene.terrain.terrain_generator is not None:
-            self.scene.terrain.terrain_generator.num_rows = 5
-            self.scene.terrain.terrain_generator.num_cols = 5
-            self.scene.terrain.terrain_generator.curriculum = False
-        # disable randomization for play
-        self.observations.policy.enable_corruption = False
-        self.events.base_external_force_torque = None
-        self.events.push_robot = None
+        self.scene.robot = UNITREE_GO2_LOW_GAIN_PACE_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")

@@ -11,11 +11,11 @@ Supports both stage-1 (CompliantOnPolicyRunner) and stage-2 (ComplianceOnPolicyR
 
 Usage:
     # Stage 1:
-    python scripts/rsl_rl/eval/sustained_force.py --task Go2-Compliant-NoFoot-XYZ-v0 --num_envs 1 \
+    python scripts/rsl_rl/eval/sustained_force.py --task Go2-LowLevel-v0 --num_envs 1 \
         --checkpoint logs/rsl_rl/.../model_XXXX.pt --force_magnitude 15
 
     # Stage 2:
-    python scripts/rsl_rl/eval/sustained_force.py --task Go2-HAC-LOCO-Stage2-v0 --num_envs 1 \
+    python scripts/rsl_rl/eval/sustained_force.py --task Go2-HighLevel-NonLinear-v0 --num_envs 1 \
         --stage1_checkpoint /path/to/stage1.pt \
         --checkpoint /path/to/stage2.pt --force_magnitude 15
 """

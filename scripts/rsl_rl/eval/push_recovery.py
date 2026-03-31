@@ -18,7 +18,7 @@ Metrics per direction:
 Generates PDF with: path deviation plots, polar plots, summary table.
 
 Usage:
-    python scripts/rsl_rl/eval/push_recovery.py --task Go2-Compliant-NoFoot-XYZ-v0 --num_envs 1 \
+    python scripts/rsl_rl/eval/push_recovery.py --task Go2-LowLevel-v0 --num_envs 1 \
         --checkpoint logs/rsl_rl/.../model_XXXX.pt --impulse_magnitude 0.5 --real-time
 """
 

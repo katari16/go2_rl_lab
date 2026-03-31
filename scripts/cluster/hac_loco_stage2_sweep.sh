@@ -29,7 +29,7 @@ echo "Array Task ID: $SLURM_ARRAY_TASK_ID"
 echo "Running on: $(hostname)"
 echo "Starting at: $(date)"
 echo "GPU allocation: $CUDA_VISIBLE_DEVICES"
-echo "Task: Go2-HAC-LOCO-Stage2-R${SLURM_ARRAY_TASK_ID}-v0"
+echo "Task: Go2-HighLevel-NonLinear-R${SLURM_ARRAY_TASK_ID}-v0"
 echo "========================================="
 
 nvidia-smi
@@ -43,7 +43,7 @@ STAGE1_CKPT="/cluster/home/habaumann/go2_rl_lab/logs/rsl_rl/go2_finetune_v3/2026
 
 cd /cluster/home/habaumann/go2_rl_lab
 python scripts/rsl_rl/train.py \
-    --task Go2-HAC-LOCO-Stage2-R${SLURM_ARRAY_TASK_ID}-v0 \
+    --task Go2-HighLevel-NonLinear-R${SLURM_ARRAY_TASK_ID}-v0 \
     --num_envs 4096 \
     --stage1_checkpoint ${STAGE1_CKPT} \
     --headless
