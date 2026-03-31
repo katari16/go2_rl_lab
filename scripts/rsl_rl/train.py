@@ -34,6 +34,8 @@ parser.add_argument("--export_io_descriptors", action="store_true", default=Fals
 parser.add_argument(
     "--ray-proc-id", "-rid", type=int, default=None, help="Automatically configured by Ray integration, otherwise None."
 )
+parser.add_argument("--estimator_checkpoint", type=str, default=None, help="Path to pre-trained estimator checkpoint for compliant training.")
+parser.add_argument("--stage1_checkpoint", type=str, default=None, help="Path to stage-1 checkpoint for HAC-LOCO stage 2 compliance training.")
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -143,7 +145,9 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         agent_cfg.seed = seed
 
     # specify directory for logging experiments
-    log_root_path = os.path.join("logs", "rsl_rl", agent_cfg.experiment_name)
+    # Resolve to <repo_root>/logs/rsl_rl/ regardless of working directory
+    _repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    log_root_path = os.path.join(_repo_root, "logs", "rsl_rl", agent_cfg.experiment_name)
     log_root_path = os.path.abspath(log_root_path)
     print(f"[INFO] Logging experiment in directory: {log_root_path}")
     # specify directory for logging runs: {time-stamp}_{run_name}
@@ -165,6 +169,11 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     # set the log directory for the environment (works for all environment types)
     env_cfg.log_dir = log_dir
+
+    # Set force estimator checkpoint on env config (for compliant training)
+    if args_cli.estimator_checkpoint and hasattr(env_cfg, "force_estimator_checkpoint"):
+        env_cfg.force_estimator_checkpoint = args_cli.estimator_checkpoint
+        print(f"[INFO] Force estimator checkpoint: {args_cli.estimator_checkpoint}")
 
     # create isaac environment
     env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
@@ -197,8 +206,32 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # create runner from rsl-rl
     if agent_cfg.class_name == "OnPolicyRunner":
         runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=log_dir, device=agent_cfg.device)
+    elif agent_cfg.class_name == "CompliantOnPolicyRunner":
+        from go2_rl_lab.estimator.compliant_on_policy_runner import CompliantOnPolicyRunner
+        train_cfg = agent_cfg.to_dict()
+        if args_cli.estimator_checkpoint is not None:
+            train_cfg["estimator_checkpoint"] = args_cli.estimator_checkpoint
+        runner = CompliantOnPolicyRunner(env, train_cfg, log_dir=log_dir, device=agent_cfg.device)
     elif agent_cfg.class_name == "DistillationRunner":
         runner = DistillationRunner(env, agent_cfg.to_dict(), log_dir=log_dir, device=agent_cfg.device)
+    elif agent_cfg.class_name == "EstimatorOnPolicyRunner":
+        from go2_rl_lab.estimator import EstimatorOnPolicyRunner
+        runner = EstimatorOnPolicyRunner(env, agent_cfg.to_dict(), log_dir=log_dir, device=agent_cfg.device)
+    elif agent_cfg.class_name == "ForceOnPolicyRunner":
+        from go2_rl_lab.estimator import ForceOnPolicyRunner
+        runner = ForceOnPolicyRunner(env, agent_cfg.to_dict(), log_dir=log_dir, device=agent_cfg.device)
+    elif agent_cfg.class_name == "CompliantForceRunner":
+        from go2_rl_lab.estimator.compliant_force_runner import CompliantForceRunner
+        train_cfg = agent_cfg.to_dict()
+        if args_cli.estimator_checkpoint is not None:
+            train_cfg.setdefault("compliance", {})["estimator_checkpoint"] = args_cli.estimator_checkpoint
+        runner = CompliantForceRunner(env, train_cfg, log_dir=log_dir, device=agent_cfg.device)
+    elif agent_cfg.class_name == "ComplianceOnPolicyRunner":
+        from go2_rl_lab.estimator.compliance_runner import ComplianceOnPolicyRunner
+        train_cfg = agent_cfg.to_dict()
+        if args_cli.stage1_checkpoint is not None:
+            train_cfg.setdefault("compliance", {})["stage1_checkpoint"] = args_cli.stage1_checkpoint
+        runner = ComplianceOnPolicyRunner(env, train_cfg, log_dir=log_dir, device=agent_cfg.device)
     else:
         raise ValueError(f"Unsupported runner class: {agent_cfg.class_name}")
     # write git state to logs

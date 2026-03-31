@@ -1,0 +1,42 @@
+msg_type: "go"
+imu_type: "pelvis"
+
+lowcmd_topic: "rt/lowcmd"
+lowstate_topic: "rt/lowstate"
+
+# Exported JIT models (from play_export.py)
+policy_path: "deploy/pre_train/estimator_policy_5_march_26/policy.pt"
+estimator_path: "deploy/pre_train/estimator_policy_5_march_26/estimator.pt"
+
+leg_joint2motor_idx: [3,0,9,6,4,1,10,7,5,2,11,8]                                # Isaac-to-SDK motor index mapping
+default_angles: [-0.1,  0.8, -1.5, 0.1, 0.8, -1.5, -0.1, 1, -1.5, 0.1, 1, -1.5] # SDK ordering: FR(hip,thigh,calf), FL, RR, RL
+
+kps: [ 25.0, 25.0,  25.0,  25.0,  25.0,  25.0,  25.0,  25.0, 25.0,  25.0,  25.0,  25.0]
+kds: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
+
+weak_motor: []
+arm_waist_joint2motor_idx: []
+arm_waist_kps: []
+arm_waist_kds: []
+arm_waist_target: [ ]
+
+# MUST MATCH TRAINING ENVIRONMENT (decimation=4, sim.dt=0.005)
+# Raw obs (57 dims, NO foot contacts):
+#   base_ang_vel(3), projected_gravity(3), velocity_commands(3),
+#   joint_pos_rel(12), joint_vel_rel(12), last_action(12), applied_torque*0.1(12)
+# Force estimator adds 3 dims (XYZ) -> policy input = 60 dims
+control_dt: 0.02
+action_scale: 0.25
+cmd_scale: [1.0, 1.0, 1.0]
+max_cmd: [1.0, 1.0, 1.0]
+num_actions: 12
+raw_obs_dim: 57          # obs without force estimate
+force_dim: 3             # XYZ force estimate from estimator
+policy_obs_dim: 60       # raw_obs_dim + force_dim = policy input
+
+# Force estimator config (must match training)
+estimator_temporal_steps: 20
+
+# Compliance modulation (v* = v_cmd + k * EMA(F_hat_xy))
+compliance_k: 0.06       # v* = v_cmd + k * EMA(F_hat_xy)
+ema_alpha: 0.1            # EMA smoothing for force estimate

@@ -33,7 +33,10 @@ parser.add_argument(
     action="store_true",
     help="Use the pre-trained checkpoint from Nucleus.",
 )
+parser.add_argument("--compliance_k", type=float, default=0.0, help="Compliance gain k for v*=v+k*F (0=disabled).")
+parser.add_argument("--ema_alpha", type=float, default=0.1, help="EMA smoothing factor for force estimate.")
 parser.add_argument("--real-time", action="store_true", default=False, help="Run in real-time, if possible.")
+parser.add_argument("--estimator_checkpoint", type=str, default=None, help="Path to pre-trained estimator checkpoint for compliant env.")
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -115,6 +118,11 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # set the log directory for the environment (works for all environment types)
     env_cfg.log_dir = log_dir
 
+    # Set force estimator checkpoint on env config (for compliant env)
+    if args_cli.estimator_checkpoint and hasattr(env_cfg, "force_estimator_checkpoint"):
+        env_cfg.force_estimator_checkpoint = args_cli.estimator_checkpoint
+        print(f"[INFO] Force estimator checkpoint: {args_cli.estimator_checkpoint}")
+
     # create isaac environment
     env = gym.make(args_cli.task, cfg=env_cfg, render_mode="rgb_array" if args_cli.video else None)
 
@@ -141,11 +149,43 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # load previously trained model
     if agent_cfg.class_name == "OnPolicyRunner":
         runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=None, device=agent_cfg.device)
+    elif agent_cfg.class_name == "CompliantOnPolicyRunner":
+        from go2_rl_lab.estimator.compliant_on_policy_runner import CompliantOnPolicyRunner
+        train_cfg = agent_cfg.to_dict()
+        if args_cli.estimator_checkpoint is not None:
+            train_cfg["estimator_checkpoint"] = args_cli.estimator_checkpoint
+        runner = CompliantOnPolicyRunner(env, train_cfg, log_dir=None, device=agent_cfg.device)
     elif agent_cfg.class_name == "DistillationRunner":
         runner = DistillationRunner(env, agent_cfg.to_dict(), log_dir=None, device=agent_cfg.device)
+    elif agent_cfg.class_name == "ForceOnPolicyRunner":
+        from go2_rl_lab.estimator.force_runner import ForceOnPolicyRunner
+        runner = ForceOnPolicyRunner(env, agent_cfg.to_dict(), log_dir=None, device=agent_cfg.device)
+    elif agent_cfg.class_name == "CompliantForceRunner":
+        from go2_rl_lab.estimator.compliant_force_runner import CompliantForceRunner
+        runner = CompliantForceRunner(env, agent_cfg.to_dict(), log_dir=None, device=agent_cfg.device)
+    elif agent_cfg.class_name == "ComplianceOnPolicyRunner":
+        from go2_rl_lab.estimator.compliance_runner import ComplianceOnPolicyRunner
+        train_cfg = agent_cfg.to_dict()
+        if args_cli.estimator_checkpoint is not None:
+            train_cfg.setdefault("compliance", {})["stage1_checkpoint"] = args_cli.estimator_checkpoint
+        runner = ComplianceOnPolicyRunner(env, train_cfg, log_dir=None, device=agent_cfg.device)
     else:
         raise ValueError(f"Unsupported runner class: {agent_cfg.class_name}")
     runner.load(resume_path)
+
+    # For estimator-based runners, use the wrapped env that augments
+    # observations with the estimator latent (the actor expects augmented obs).
+    if hasattr(runner, "_wrapped_env"):
+        env = runner._wrapped_env
+
+    # ── Compliance modulation (inference-time, SAC-Loco) ─────────────
+    if args_cli.compliance_k > 0.0 and hasattr(env, "compliance_k"):
+        env.compliance_k = args_cli.compliance_k
+        env.ema_alpha = args_cli.ema_alpha
+        print(
+            f"[INFO] Compliance modulation: k={args_cli.compliance_k:.4f}  "
+            f"EMA α={args_cli.ema_alpha}  (v* = v + k*F̂)"
+        )
 
     # obtain the trained policy for inference
     policy = runner.get_inference_policy(device=env.unwrapped.device)

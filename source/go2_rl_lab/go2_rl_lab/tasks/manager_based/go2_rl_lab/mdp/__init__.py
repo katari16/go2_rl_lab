@@ -10,3 +10,4 @@ from isaaclab_tasks.manager_based.locomotion.velocity.mdp import *  # noqa: F401
 from isaaclab.envs.mdp import *  # noqa: F401, F403
 
 from .rewards import *  # noqa: F401, F403
+from .curriculums import force_activation_curriculum  # noqa: F401
