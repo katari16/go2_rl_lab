@@ -9,15 +9,15 @@ from .compliance_runner import ComplianceOnPolicyRunner
 from .compliant_on_policy_runner import CompliantOnPolicyRunner
 from .force_estimator import ForceEstimator
 from .obs_history_buffer import ObsHistoryBuffer
-from .teacher_student_estimator import TeacherStudentEstimator
-from .teacher_student_runner import TeacherStudentRunner
+from .teacher_student_estimator import IntentEstimator
+from .teacher_student_runner import PaintRunner
 
 __all__ = [
     "ComplianceEnvWrapper",
     "ComplianceOnPolicyRunner",
     "CompliantOnPolicyRunner",
     "ForceEstimator",
+    "IntentEstimator",
     "ObsHistoryBuffer",
-    "TeacherStudentEstimator",
-    "TeacherStudentRunner",
+    "PaintRunner",
 ]

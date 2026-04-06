@@ -232,6 +232,9 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         if args_cli.stage1_checkpoint is not None:
             train_cfg.setdefault("compliance", {})["stage1_checkpoint"] = args_cli.stage1_checkpoint
         runner = ComplianceOnPolicyRunner(env, train_cfg, log_dir=log_dir, device=agent_cfg.device)
+    elif agent_cfg.class_name == "PaintRunner":
+        from go2_rl_lab.estimator.teacher_student_runner import PaintRunner
+        runner = PaintRunner(env, agent_cfg.to_dict(), log_dir=log_dir, device=agent_cfg.device)
     else:
         raise ValueError(f"Unsupported runner class: {agent_cfg.class_name}")
     # write git state to logs
