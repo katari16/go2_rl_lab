@@ -107,24 +107,51 @@ gym.register(
 )
 
 
-# ── Group D: Teacher-student distillation (D1, D2) ──────────────────────────
+# ── Group D: PAINT-style teacher-student distillation (D1, D2) ───────────────
+# D1/D2 use compliance reward envs so the teacher genuinely benefits from GT force.
+# Stage 1 (teacher): train with CompliantOnPolicyRunner on the same env.
+# Stage 2 (student): train with PaintRunner, loading teacher checkpoint.
 
+# D1 teacher: 3D force + compliance reward (same env as E1)
+gym.register(
+    id="Go2-Ablation-D1-Teacher-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:LowLevelComplianceRewardEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_teacher_student_cfg:AblationD1TeacherCfg",
+    },
+)
+
+# D1 student: PAINT distillation on same env
 gym.register(
     id="Go2-Ablation-D1-v0",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
-        "env_cfg_entry_point": f"{__name__}.go2_lowlevel_env_cfg:LowLevelEnvCfg",
+        "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:LowLevelComplianceRewardEnvCfg",
         "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_teacher_student_cfg:AblationD1Cfg",
     },
 )
 
+# D2 teacher: 4D wrench + compliance rewards (same env as E2)
+gym.register(
+    id="Go2-Ablation-D2-Teacher-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:LowLevelWrenchComplianceRewardEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_teacher_student_cfg:AblationD2TeacherCfg",
+    },
+)
+
+# D2 student: PAINT distillation on same env
 gym.register(
     id="Go2-Ablation-D2-v0",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
-        "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:LowLevelWrenchEnvCfg",
+        "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:LowLevelWrenchComplianceRewardEnvCfg",
         "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_teacher_student_cfg:AblationD2Cfg",
     },
 )
