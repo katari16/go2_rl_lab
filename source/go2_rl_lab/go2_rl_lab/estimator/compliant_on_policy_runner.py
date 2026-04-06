@@ -248,9 +248,20 @@ class CompliantOnPolicyRunner(OnPolicyRunner):
         """Train the estimator on collected rollout data (same as ForceOnPolicyRunner)."""
         isaac_env = self.env.unwrapped
 
-        # Get GT force from wrench composer (supports both 2D and 3D)
+        # Get GT force/wrench from wrench composer
         asset = isaac_env.scene["robot"]
-        gt_force = asset.permanent_wrench_composer.composed_force_as_torch[:, 0, :self._force_dim]
+        if self._force_dim <= 3:
+            gt_force = asset.permanent_wrench_composer.composed_force_as_torch[:, 0, :self._force_dim]
+        elif self._force_dim == 4:
+            # [Fx, Fy, Fz, tau_yaw]
+            gt_f = asset.permanent_wrench_composer.composed_force_as_torch[:, 0, :3]
+            gt_t = asset.permanent_wrench_composer.composed_torque_as_torch[:, 0, 2:3]
+            gt_force = torch.cat([gt_f, gt_t], dim=-1)
+        else:
+            # [Fx, Fy, Fz, tau_roll, tau_pitch, tau_yaw]
+            gt_f = asset.permanent_wrench_composer.composed_force_as_torch[:, 0, :3]
+            gt_t = asset.permanent_wrench_composer.composed_torque_as_torch[:, 0, :3]
+            gt_force = torch.cat([gt_f, gt_t], dim=-1)
 
         # Use stored rollout data
         num_steps = self.num_steps_per_env
@@ -353,7 +364,9 @@ class CompliantOnPolicyRunner(OnPolicyRunner):
         est = self._last_est_stats
         if est:
             for key in ["force_loss", "angle_loss", "rec_loss", "mae_total",
-                        "mae_x", "mae_y", "mae_z", "angle_err_mean_deg", "angle_err_median_deg",
+                        "mae_x", "mae_y", "mae_z",
+                        "mae_tau_roll", "mae_tau_pitch", "mae_tau_yaw",
+                        "angle_err_mean_deg", "angle_err_median_deg",
                         "gt_force_mean_mag", "pred_force_mean_mag"]:
                 if key in est:
                     self.writer.add_scalar(f"Estimator/{key}", est[key], it)
@@ -362,10 +375,10 @@ class CompliantOnPolicyRunner(OnPolicyRunner):
                     "Estimator/force_loss_smooth", statistics.mean(self._est_loss_buf), it
                 )
 
-        # ── Force magnitude ──────────────────────────────────────────────
+        # ── Force magnitude (always use force components, not torque) ────
         if self._force_active:
             asset = isaac_env.scene["robot"]
-            f = asset.permanent_wrench_composer.composed_force_as_torch[:, 0, :self._force_dim]
+            f = asset.permanent_wrench_composer.composed_force_as_torch[:, 0, :3]
             f_mags = f.norm(dim=1)
             self.writer.add_scalar("Compliant/force_magnitude_mean", f_mags.mean().item(), it)
 
@@ -388,7 +401,7 @@ class CompliantOnPolicyRunner(OnPolicyRunner):
 
         if self._mapping_active:
             asset = isaac_env.scene["robot"]
-            f = asset.permanent_wrench_composer.composed_force_as_torch[:, 0, :self._force_dim]
+            f = asset.permanent_wrench_composer.composed_force_as_torch[:, 0, :3]
             f_mean = f.norm(dim=1).mean().item()
             term_str += f"  |f|={f_mean:.1f}N  alpha={self._compliance_alpha:.1f} beta={self._compliance_beta:.1f}"
 

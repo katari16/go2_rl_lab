@@ -209,6 +209,20 @@ def base_applied_force_xyz(
     return forces[:, asset_cfg.body_ids, :3].squeeze(1)
 
 
+def base_applied_wrench(
+    env: ManagerBasedRLEnv,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names="base"),
+) -> torch.Tensor:
+    """Full 6D wrench [Fx, Fy, Fz, tau_roll, tau_pitch, tau_yaw] from permanent wrench composer.
+
+    Returns [num_envs, 6] — ground truth for 6D wrench estimation.
+    """
+    asset: Articulation = env.scene[asset_cfg.name]
+    forces = asset.permanent_wrench_composer.composed_force_as_torch[:, asset_cfg.body_ids, :3].squeeze(1)
+    torques = asset.permanent_wrench_composer.composed_torque_as_torch[:, asset_cfg.body_ids, :3].squeeze(1)
+    return torch.cat([forces, torques], dim=-1)
+
+
 def base_external_force(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names="base")) -> torch.Tensor:
     """External forces applied to the base body."""
     asset: Articulation = env.scene[asset_cfg.name]

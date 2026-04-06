@@ -47,6 +47,66 @@ gym.register(
     },
 )
 
+# ── Force estimator ablation study (A1, A2, B1-B3, C1, C2, E1, E2) ─────────
+
+# Group A: History length (3D, with reconstruction) — use baseline env
+for _id, _cfg in [("A1", "AblationA1Cfg"), ("A2", "AblationA2Cfg")]:
+    gym.register(
+        id=f"Go2-Ablation-{_id}-v0",
+        entry_point="isaaclab.envs:ManagerBasedRLEnv",
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": f"{__name__}.go2_lowlevel_env_cfg:LowLevelEnvCfg",
+            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:{_cfg}",
+        },
+    )
+
+# Group B: 6D wrench estimation — use wrench env
+for _id, _cfg in [("B1", "AblationB1Cfg"), ("B2", "AblationB2Cfg"), ("B3", "AblationB3Cfg")]:
+    gym.register(
+        id=f"Go2-Ablation-{_id}-v0",
+        entry_point="isaaclab.envs:ManagerBasedRLEnv",
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:LowLevelWrenchEnvCfg",
+            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:{_cfg}",
+        },
+    )
+
+# Group C: No reconstruction loss — use baseline env
+for _id, _cfg in [("C1", "AblationC1Cfg"), ("C2", "AblationC2Cfg")]:
+    gym.register(
+        id=f"Go2-Ablation-{_id}-v0",
+        entry_point="isaaclab.envs:ManagerBasedRLEnv",
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": f"{__name__}.go2_lowlevel_env_cfg:LowLevelEnvCfg",
+            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:{_cfg}",
+        },
+    )
+
+# Group E: Compliance rewards
+gym.register(
+    id="Go2-Ablation-E1-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:LowLevelComplianceRewardEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:AblationE1Cfg",
+    },
+)
+
+gym.register(
+    id="Go2-Ablation-E2-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:LowLevelWrenchComplianceRewardEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:AblationE2Cfg",
+    },
+)
+
+
 # ── High-level non-linear sweep: 8 variations (R1-R8) ───────────────────────
 # 2x2x2: reward type (penalty/positive) x gravity correction x tracking reward
 for _r in range(1, 9):

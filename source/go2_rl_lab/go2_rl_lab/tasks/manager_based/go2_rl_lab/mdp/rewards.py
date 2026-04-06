@@ -569,3 +569,81 @@ def track_ang_vel_z_exp_staged(
         return (1.0 - mask) * normal_reward + mask * frozen
 
     return normal_reward
+
+
+def compliance_force_tracking(
+    env: ManagerBasedRLEnv,
+    B_force: float = 20.0,
+    sigma: float = 0.25,
+    alpha: float = 2.0,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names="base"),
+) -> torch.Tensor:
+    """PAINT-style compliance reward using GT force.
+
+    When ``||F_gt|| > alpha``: reward = exp(-||F_xy_gt / B_f - v_xy_base||² / σ)
+    When ``||F_gt|| <= alpha``: reward = 0 (no compliance expected)
+
+    Args:
+        B_force: Virtual impedance for force-to-velocity mapping (N·s/m).
+        sigma: Exponential kernel width.
+        alpha: Force activation threshold (N).
+        asset_cfg: Robot asset with body_names="base".
+    """
+    asset: Articulation = env.scene[asset_cfg.name]
+
+    # GT force from permanent wrench composer (body frame)
+    gt_force = asset.permanent_wrench_composer.composed_force_as_torch[
+        :, asset_cfg.body_ids, :2
+    ].squeeze(1)  # [N, 2]
+
+    gt_mag = gt_force.norm(dim=1)  # [N]
+    v_base_xy = asset.data.root_lin_vel_b[:, :2]  # [N, 2]
+
+    # Target velocity from impedance model
+    v_target = gt_force / B_force  # [N, 2]
+    error = torch.sum(torch.square(v_target - v_base_xy), dim=1)
+    reward = torch.exp(-error / sigma)
+
+    # Gate: only active when force exceeds threshold
+    reward = reward * (gt_mag > alpha).float()
+
+    return reward
+
+
+def compliance_torque_tracking(
+    env: ManagerBasedRLEnv,
+    B_torque: float = 10.0,
+    sigma: float = 0.25,
+    alpha: float = 2.0,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names="base"),
+) -> torch.Tensor:
+    """PAINT-style compliance reward for yaw torque using GT torque.
+
+    When ``||τ_yaw_gt|| > alpha``: reward = exp(-||τ_yaw_gt / B_τ - ω_yaw_base||² / σ)
+    When ``||τ_yaw_gt|| <= alpha``: reward = 0
+
+    Args:
+        B_torque: Virtual impedance for torque-to-angular-velocity mapping (Nm·s/rad).
+        sigma: Exponential kernel width.
+        alpha: Torque activation threshold (Nm).
+        asset_cfg: Robot asset with body_names="base".
+    """
+    asset: Articulation = env.scene[asset_cfg.name]
+
+    # GT yaw torque from permanent wrench composer (body frame)
+    gt_tau_yaw = asset.permanent_wrench_composer.composed_torque_as_torch[
+        :, asset_cfg.body_ids, 2
+    ].squeeze(1)  # [N]
+
+    tau_mag = gt_tau_yaw.abs()  # [N]
+    omega_yaw = asset.data.root_ang_vel_b[:, 2]  # [N]
+
+    # Target angular velocity from impedance model
+    omega_target = gt_tau_yaw / B_torque  # [N]
+    error = torch.square(omega_target - omega_yaw)
+    reward = torch.exp(-error / sigma)
+
+    # Gate: only active when torque exceeds threshold
+    reward = reward * (tau_mag > alpha).float()
+
+    return reward

@@ -186,11 +186,15 @@ class ForceEstimator(nn.Module):
             Dict with loss values and diagnostics.
         """
         z_t, force_hat = self._forward(obs_history)
-        latent = self._build_latent(force_hat, z_t)
-        next_obs_hat = self.decoder(latent)
 
         force_loss = F.mse_loss(force_hat, gt_force)
-        rec_loss = F.mse_loss(next_obs_hat, next_obs)
+
+        if self.rec_loss_weight > 0:
+            latent = self._build_latent(force_hat, z_t)
+            next_obs_hat = self.decoder(latent)
+            rec_loss = F.mse_loss(next_obs_hat, next_obs)
+        else:
+            rec_loss = torch.tensor(0.0, device=obs_history.device)
 
         # ── Angular loss: MSE on wrapped angle difference ────────────
         # Always computed on the XY plane (first 2 components).
@@ -268,6 +272,16 @@ class ForceEstimator(nn.Module):
         # Add fz MAE if 3D
         if self.force_dim >= 3:
             stats["mae_z"] = error[:, 2].mean().item()
+
+        # Add torque MAE if 4D+ (Fx, Fy, Fz, τ_yaw)
+        if self.force_dim >= 4:
+            stats["mae_tau_yaw"] = error[:, 3].mean().item()
+
+        # Add roll/pitch torque MAE if 6D (Fx, Fy, Fz, τ_roll, τ_pitch, τ_yaw)
+        if self.force_dim >= 6:
+            stats["mae_tau_roll"] = error[:, 3].mean().item()
+            stats["mae_tau_pitch"] = error[:, 4].mean().item()
+            stats["mae_tau_yaw"] = error[:, 5].mean().item()
 
         return stats
 
