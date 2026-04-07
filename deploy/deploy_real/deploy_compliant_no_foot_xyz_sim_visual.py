@@ -427,7 +427,10 @@ if __name__ == "__main__":
                 obs_for_policy[7] -= compliance_k * force_ema[1]
 
             # ── Build full policy input (57 raw + 3 force estimate) ───
-            full_obs = np.concatenate([obs_for_policy, force_hat])
+            if compliance_mode == "inverted":
+                full_obs = np.concatenate([obs_for_policy, -force_hat])
+            else:
+                full_obs = np.concatenate([obs_for_policy, force_hat])
 
             # ── Policy inference ──────────────────────────────────────
             obs_tensor = torch.from_numpy(full_obs).float().unsqueeze(0)
