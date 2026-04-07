@@ -13,23 +13,15 @@
 # D1-Student: PAINT distillation, 3D force, compliance reward env
 # D2-Student: PAINT distillation, 4D wrench, compliance reward env
 #
-# Requires teacher checkpoints from Stage 1 (paint_teacher_sweep.sh).
-# Set TEACHER_D1 and TEACHER_D2 below before submitting.
+# Teacher checkpoints from Stage 1 (paint_teacher_sweep.sh).
 #
 # Usage:
-#   export TEACHER_D1=/path/to/ablation_D1_teacher/<date>/model_XXXX.pt
-#   export TEACHER_D2=/path/to/ablation_D2_teacher/<date>/model_XXXX.pt
 #   sbatch scripts/cluster/paint_student_sweep.sh
 
 module load eth_proxy
 
-# ── Check teacher checkpoints are set ────────────────────────────────────────
-if [ -z "$TEACHER_D1" ] || [ -z "$TEACHER_D2" ]; then
-    echo "ERROR: Set TEACHER_D1 and TEACHER_D2 environment variables before submitting."
-    echo "  export TEACHER_D1=/path/to/D1_teacher/model_XXXX.pt"
-    echo "  export TEACHER_D2=/path/to/D2_teacher/model_XXXX.pt"
-    exit 1
-fi
+TEACHER_D1="/cluster/home/habaumann/go2_rl_lab/logs/rsl_rl/ablation_D1_teacher/2026-04-06_23-52-15/model_14000.pt"
+TEACHER_D2="/cluster/home/habaumann/go2_rl_lab/logs/rsl_rl/ablation_D2_teacher/2026-04-06_23-52-15/model_14000.pt"
 
 case $SLURM_ARRAY_TASK_ID in
     1) TASK="Go2-Ablation-D1-v0"; CKPT="$TEACHER_D1" ;;
