@@ -353,6 +353,8 @@ if __name__ == "__main__":
     if compliance_k > 0:
         print(f"  Compliance: k={compliance_k:.4f}  EMA alpha={ema_alpha}")
     print("  Press B to toggle recording marker (green ball in viz)")
+    print("  Press Y to toggle compliance mapping OFF (estimator still runs)")
+    print("  Press X to toggle INVERTED mapping (v = v_cmd - k*F)")
     print("  Press SELECT to stop")
     print("=" * 60 + "\n")
 
@@ -364,6 +366,11 @@ if __name__ == "__main__":
     debug_log = []
     should_stop = False
     estimator.reset()
+
+    # Compliance mode: "normal" = +k*F, "off" = no mapping, "inverted" = -k*F
+    compliance_mode = "normal"
+    prev_y_button = 0
+    prev_x_button = 0
 
     try:
         while not should_stop:
@@ -412,9 +419,12 @@ if __name__ == "__main__":
 
             # ── Compliance modulation (XY only) ──────────────────────
             obs_for_policy = raw_obs.copy()
-            if compliance_k > 0.0:
+            if compliance_k > 0.0 and compliance_mode == "normal":
                 obs_for_policy[6] += compliance_k * force_ema[0]
                 obs_for_policy[7] += compliance_k * force_ema[1]
+            elif compliance_k > 0.0 and compliance_mode == "inverted":
+                obs_for_policy[6] -= compliance_k * force_ema[0]
+                obs_for_policy[7] -= compliance_k * force_ema[1]
 
             # ── Build full policy input (57 raw + 3 force estimate) ───
             full_obs = np.concatenate([obs_for_policy, force_hat])
@@ -454,6 +464,26 @@ if __name__ == "__main__":
                 print(f"[step {step_count}] *** Recording marker {tag} ***", flush=True)
             prev_b_button = b_now
 
+            # ── Y button: toggle compliance OFF / normal ──────────────
+            y_now = remote_controller.button[KeyMap.Y]
+            if y_now == 1 and prev_y_button == 0:
+                if compliance_mode == "off":
+                    compliance_mode = "normal"
+                else:
+                    compliance_mode = "off"
+                print(f"[step {step_count}] *** Compliance mode: {compliance_mode} ***", flush=True)
+            prev_y_button = y_now
+
+            # ── X button: toggle compliance INVERTED / normal ─────────
+            x_now = remote_controller.button[KeyMap.X]
+            if x_now == 1 and prev_x_button == 0:
+                if compliance_mode == "inverted":
+                    compliance_mode = "normal"
+                else:
+                    compliance_mode = "inverted"
+                print(f"[step {step_count}] *** Compliance mode: {compliance_mode} ***", flush=True)
+            prev_x_button = x_now
+
             # ── Debug logging ─────────────────────────────────────────
             step_count += 1
             if args.debug:
@@ -461,6 +491,7 @@ if __name__ == "__main__":
                     'step': step_count,
                     'wall_time': time.time(),
                     'sim_real_recording': sim_real_recording,
+                    'compliance_mode': compliance_mode,
                     'raw_obs': raw_obs.copy().tolist(),
                     'force_hat': force_hat.tolist(),
                     'force_ema': force_ema.tolist(),
@@ -534,6 +565,7 @@ if __name__ == "__main__":
 
         wall_time_arr = [s['wall_time'] for s in debug_log]
         sim_real_recording_arr = [s['sim_real_recording'] for s in debug_log]
+        compliance_mode_arr = [s['compliance_mode'] for s in debug_log]
 
         log_json = {
             "source": "real_robot",
@@ -546,6 +578,7 @@ if __name__ == "__main__":
             "time_s": timestamps,
             "wall_time": wall_time_arr,
             "sim_real_recording": sim_real_recording_arr,
+            "compliance_mode": compliance_mode_arr,
             "raw_obs": raw_obs_arr.tolist(),
             "actions": actions_arr.tolist(),
             "force_hat": force_hat_arr.tolist(),
