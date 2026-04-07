@@ -170,9 +170,12 @@ if __name__ == "__main__":
         viz_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         print(f"[SimViz] Streaming to UDP port {SIM_VIZ_PORT}")
 
+    sim_real_recording = False
+    prev_b_button = 0
+
     def send_viz_state(force=None, vel=None):
         """Send robot state to MuJoCo viewer via UDP (non-blocking).
-        Packet: 12 motor_q + 4 quaternion + 3 force + 3 velocity = 22 floats.
+        Packet: 12 motor_q + 4 quaternion + 3 force + 3 velocity + 1 recording flag = 23 floats.
         """
         if viz_sock is None:
             return
@@ -181,7 +184,8 @@ if __name__ == "__main__":
             quat = list(low_state.imu_state.quaternion)
             f = list(force) if force is not None else [0.0, 0.0, 0.0]
             v = list(vel) if vel is not None else [0.0, 0.0, 0.0]
-            packet = struct.pack('22f', *motor_q, *quat, *f, *v)
+            rec = 1.0 if sim_real_recording else 0.0
+            packet = struct.pack('23f', *motor_q, *quat, *f, *v, rec)
             viz_sock.sendto(packet, SIM_VIZ_ADDR)
         except OSError:
             pass
@@ -348,6 +352,7 @@ if __name__ == "__main__":
     print(f"  Force estimator: {temporal_steps}x{raw_obs_dim} -> {force_dim}D force")
     if compliance_k > 0:
         print(f"  Compliance: k={compliance_k:.4f}  EMA alpha={ema_alpha}")
+    print("  Press B to toggle recording marker (green ball in viz)")
     print("  Press SELECT to stop")
     print("=" * 60 + "\n")
 
@@ -441,11 +446,21 @@ if __name__ == "__main__":
             send_cmd()
             send_viz_state(force=force_hat, vel=velocity_cmd)
 
+            # ── B button: toggle recording marker ─────────────────────
+            b_now = remote_controller.button[KeyMap.B]
+            if b_now == 1 and prev_b_button == 0:
+                sim_real_recording = not sim_real_recording
+                tag = "ON" if sim_real_recording else "OFF"
+                print(f"[step {step_count}] *** Recording marker {tag} ***")
+            prev_b_button = b_now
+
             # ── Debug logging ─────────────────────────────────────────
             step_count += 1
             if args.debug:
                 debug_log.append({
                     'step': step_count,
+                    'wall_time': time.time(),
+                    'sim_real_recording': sim_real_recording,
                     'raw_obs': raw_obs.copy().tolist(),
                     'force_hat': force_hat.tolist(),
                     'force_ema': force_ema.tolist(),
@@ -517,6 +532,9 @@ if __name__ == "__main__":
             + [f"torque_{i}" for i in range(12)]
         )
 
+        wall_time_arr = [s['wall_time'] for s in debug_log]
+        sim_real_recording_arr = [s['sim_real_recording'] for s in debug_log]
+
         log_json = {
             "source": "real_robot",
             "timestamp": timestamp,
@@ -526,6 +544,8 @@ if __name__ == "__main__":
             "ema_alpha": ema_alpha,
             "obs_labels": obs_labels,
             "time_s": timestamps,
+            "wall_time": wall_time_arr,
+            "sim_real_recording": sim_real_recording_arr,
             "raw_obs": raw_obs_arr.tolist(),
             "actions": actions_arr.tolist(),
             "force_hat": force_hat_arr.tolist(),
