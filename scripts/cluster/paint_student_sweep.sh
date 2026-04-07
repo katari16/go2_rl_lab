@@ -51,7 +51,6 @@ python scripts/rsl_rl/train.py \
     --task ${TASK} \
     --num_envs 4096 \
     --headless \
-    --resume \
-    --checkpoint ${CKPT}
+    --teacher_checkpoint ${CKPT}
 
 echo "Job ${TASK} completed at $(date)"

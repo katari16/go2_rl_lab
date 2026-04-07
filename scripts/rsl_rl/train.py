@@ -36,6 +36,7 @@ parser.add_argument(
 )
 parser.add_argument("--estimator_checkpoint", type=str, default=None, help="Path to pre-trained estimator checkpoint for compliant training.")
 parser.add_argument("--stage1_checkpoint", type=str, default=None, help="Path to stage-1 checkpoint for HAC-LOCO stage 2 compliance training.")
+parser.add_argument("--teacher_checkpoint", type=str, default=None, help="Path to teacher checkpoint for PAINT student training.")
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -240,7 +241,10 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # write git state to logs
     runner.add_git_repo_to_log(__file__)
     # load the checkpoint
-    if agent_cfg.resume or agent_cfg.algorithm.class_name == "Distillation":
+    if agent_cfg.class_name == "PaintRunner" and args_cli.teacher_checkpoint:
+        print(f"[INFO]: Loading teacher checkpoint for PAINT: {args_cli.teacher_checkpoint}")
+        runner.load(args_cli.teacher_checkpoint)
+    elif agent_cfg.resume or agent_cfg.algorithm.class_name == "Distillation":
         print(f"[INFO]: Loading model checkpoint from: {resume_path}")
         # load previously trained model
         runner.load(resume_path)
