@@ -29,6 +29,8 @@ parser.add_argument("--pull", action="store_true", default=False, help="Flip for
 parser.add_argument("--num_trials", type=int, default=20)
 parser.add_argument("--force_hold_s", type=float, default=4.0)
 parser.add_argument("--warmup_s", type=float, default=3.0)
+parser.add_argument("--linear_modulation", action="store_true", default=False,
+                    help="Enable force estimate → velocity command modulation.")
 parser.add_argument("--compliance_k", type=float, default=0.06)
 parser.add_argument("--ema_alpha", type=float, default=0.1)
 parser.add_argument("--stage1_checkpoint", type=str, default=None)
@@ -124,6 +126,7 @@ def main(
 
     warmup_steps = int(args_cli.warmup_s / dt)
     force_steps = int(args_cli.force_hold_s / dt)
+    compliance_k = args_cli.compliance_k if args_cli.linear_modulation else 0.0
 
     # ── Build per-env force assignments ──────────────────────────────────
     # Layout: env_idx = mag_idx * (NUM_DIRECTIONS * num_trials) + dir_idx * num_trials + trial_idx
@@ -152,6 +155,7 @@ def main(
     print(f"  Total envs: {n}")
     print(f"  Force hold: {args_cli.force_hold_s}s  Warmup: {args_cli.warmup_s}s")
     print(f"  Mode: {'PULL' if args_cli.pull else 'PUSH'}")
+    print(f"  Linear modulation: {args_cli.linear_modulation} (k={compliance_k})")
     print(f"  Runner: {runner_class_name}")
     print(f"{'=' * 70}\n")
 
@@ -165,7 +169,7 @@ def main(
     print(f"  Warmup ({args_cli.warmup_s}s)...", flush=True)
     for _ in range(warmup_steps):
         obs, dones = step_policy(obs, ctx, env, runner, isaac_env, n,
-                                 runner_class_name, args_cli.compliance_k,
+                                 runner_class_name, compliance_k,
                                  args_cli.ema_alpha)
 
     # Record start positions for all envs
@@ -195,7 +199,7 @@ def main(
         )
 
         obs, dones = step_policy(obs, ctx, env, runner, isaac_env, n,
-                                 runner_class_name, args_cli.compliance_k,
+                                 runner_class_name, compliance_k,
                                  args_cli.ema_alpha)
 
         # Track falls

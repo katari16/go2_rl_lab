@@ -85,6 +85,9 @@ class ForceEstimator(nn.Module):
         rec_loss_weight: float = 1.0,
         angle_min_force: float = 1.0,
         max_grad_norm: float = 10.0,
+        torque_angle_loss_weight: float = 0.0,
+        torque_angle_min: float = 0.3,
+        yaw_loss_weight: float = 0.0,
         **kwargs,
     ) -> None:
         if kwargs:
@@ -114,6 +117,9 @@ class ForceEstimator(nn.Module):
         self.angle_min_force = angle_min_force
         self.max_grad_norm = max_grad_norm
         self.learning_rate = learning_rate
+        self.torque_angle_loss_weight = torque_angle_loss_weight
+        self.torque_angle_min = torque_angle_min
+        self.yaw_loss_weight = yaw_loss_weight
 
         # ── Encoder: o_t^H → z_t ─────────────────────────────────────────
         enc_input = temporal_steps * num_one_step_obs
@@ -213,10 +219,34 @@ class ForceEstimator(nn.Module):
         else:
             angle_loss = torch.tensor(0.0, device=obs_history.device)
 
+        # ── Torque angle loss: direction of torque in roll-pitch plane ───
+        # For 6D wrench: indices [3]=τ_roll, [4]=τ_pitch, [5]=τ_yaw
+        # Analogous to force angle loss but for the torque XY (roll/pitch) plane
+        torque_angle_loss = torch.tensor(0.0, device=obs_history.device)
+        if self.torque_angle_loss_weight > 0 and self.force_dim >= 6:
+            gt_tau_angle = torch.atan2(gt_force[:, 4], gt_force[:, 3])
+            pred_tau_angle = torch.atan2(force_hat[:, 4], force_hat[:, 3])
+            tau_angle_diff = torch.atan2(
+                torch.sin(gt_tau_angle - pred_tau_angle),
+                torch.cos(gt_tau_angle - pred_tau_angle),
+            )
+            gt_tau_mag_rp = gt_force[:, 3:5].norm(dim=-1)
+            tau_mask = gt_tau_mag_rp > self.torque_angle_min
+            if tau_mask.any():
+                torque_angle_loss = (tau_angle_diff[tau_mask] ** 2).mean()
+
+        # ── Yaw torque loss: separate weighted MSE on yaw component ─────
+        yaw_loss = torch.tensor(0.0, device=obs_history.device)
+        if self.yaw_loss_weight > 0 and self.force_dim >= 4:
+            yaw_idx = 5 if self.force_dim >= 6 else 3  # 6D: idx 5, 4D: idx 3
+            yaw_loss = F.mse_loss(force_hat[:, yaw_idx], gt_force[:, yaw_idx])
+
         total_loss = (
             self.force_loss_weight * force_loss
             + self.angle_loss_weight * angle_loss
             + self.rec_loss_weight * rec_loss
+            + self.torque_angle_loss_weight * torque_angle_loss
+            + self.yaw_loss_weight * yaw_loss
         )
 
         self.optimizer.zero_grad()
@@ -248,6 +278,8 @@ class ForceEstimator(nn.Module):
             "force_loss": force_loss.item(),
             "angle_loss": angle_loss.item(),
             "rec_loss": rec_loss.item(),
+            "torque_angle_loss": torque_angle_loss.item(),
+            "yaw_loss": yaw_loss.item(),
             "total_loss": total_loss.item(),
             "estimator_lr": self.optimizer.param_groups[0]["lr"],
             # GT force stats

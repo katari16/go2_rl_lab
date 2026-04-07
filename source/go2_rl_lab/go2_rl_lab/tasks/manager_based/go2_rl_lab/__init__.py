@@ -47,7 +47,7 @@ gym.register(
     },
 )
 
-# ── Force estimator ablation study (A1, A2, B1-B3, C1, C2, E1, E2) ─────────
+# ── Force estimator ablation study (A1, A2, B1-B5, C1, C2, E1, E2) ─────────
 
 # Group A: History length (3D, with reconstruction) — use baseline env
 for _id, _cfg in [("A1", "AblationA1Cfg"), ("A2", "AblationA2Cfg")]:
@@ -61,8 +61,9 @@ for _id, _cfg in [("A1", "AblationA1Cfg"), ("A2", "AblationA2Cfg")]:
         },
     )
 
-# Group B: 6D wrench estimation — use wrench env
-for _id, _cfg in [("B1", "AblationB1Cfg"), ("B2", "AblationB2Cfg"), ("B3", "AblationB3Cfg")]:
+# Group B: 6D wrench estimation — use wrench env (5 Nm torque)
+for _id, _cfg in [("B1", "AblationB1Cfg"), ("B2", "AblationB2Cfg"), ("B3", "AblationB3Cfg"),
+                   ("B4", "AblationB4Cfg")]:
     gym.register(
         id=f"Go2-Ablation-{_id}-v0",
         entry_point="isaaclab.envs:ManagerBasedRLEnv",
@@ -72,6 +73,17 @@ for _id, _cfg in [("B1", "AblationB1Cfg"), ("B2", "AblationB2Cfg"), ("B3", "Abla
             "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:{_cfg}",
         },
     )
+
+# B5: 6D wrench with higher torque range (10 Nm)
+gym.register(
+    id="Go2-Ablation-B5-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:LowLevelWrenchHighTorqueEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:AblationB5Cfg",
+    },
+)
 
 # Group C: No reconstruction loss — use baseline env
 for _id, _cfg in [("C1", "AblationC1Cfg"), ("C2", "AblationC2Cfg")]:

@@ -1,8 +1,9 @@
 """Ablation study env configs — wrench and compliance reward variants.
 
-Three variants built on LowLevelEnvCfg:
+Variants built on LowLevelEnvCfg:
 
-1. LowLevelWrenchEnvCfg — for B1, B2, B3: 6D wrench event + critic GT
+1. LowLevelWrenchEnvCfg — for B1-B4: 6D wrench event (torque 0-5 Nm) + critic GT
+1b. LowLevelWrenchHighTorqueEnvCfg — for B5: same but torque 0-10 Nm
 2. LowLevelComplianceRewardEnvCfg — for E1: baseline + compliance_force_tracking
 3. LowLevelWrenchComplianceRewardEnvCfg — for E2: wrench + both compliance rewards
 """
@@ -109,6 +110,35 @@ class LowLevelWrenchEnvCfg(LowLevelEnvCfg):
 
     events: WrenchEventCfg = WrenchEventCfg()
     observations: WrenchObservationsCfg = WrenchObservationsCfg()
+
+
+# ── 1b. Wrench env with higher torque range (B5) ───────────────────────────
+
+
+@configclass
+class WrenchHighTorqueEventCfg(EventCfg):
+    """Like WrenchEventCfg but with torque_range up to 10 Nm."""
+
+    persistent_xyz_force = None
+
+    persistent_wrench = EventTerm(
+        func=apply_persistent_wrench,
+        mode="interval",
+        interval_range_s=(3.0, 5.0),
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names="base"),
+            "force_range": (0.0, 0.0),
+            "fz_scale": 0.6,
+            "torque_range": (0.0, 10.0),
+        },
+    )
+
+
+@configclass
+class LowLevelWrenchHighTorqueEnvCfg(LowLevelWrenchEnvCfg):
+    """6D wrench env with torque_range=(0, 10) Nm — for ablation run B5."""
+
+    events: WrenchHighTorqueEventCfg = WrenchHighTorqueEventCfg()
 
 
 # ── 2. Compliance reward env (E1) ───────────────────────────────────────────
