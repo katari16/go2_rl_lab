@@ -368,9 +368,7 @@ if __name__ == "__main__":
     estimator.reset()
 
     # Compliance mode: "normal" = +k*F, "off" = no mapping, "inverted" = -k*F
-    # Inverted subtracts only the delta above the baseline captured at toggle time.
     compliance_mode = "normal"
-    force_baseline = np.zeros(force_dim, dtype=np.float32)
     prev_y_button = 0
     prev_x_button = 0
 
@@ -425,10 +423,8 @@ if __name__ == "__main__":
                 obs_for_policy[6] += compliance_k * force_ema[0]
                 obs_for_policy[7] += compliance_k * force_ema[1]
             elif compliance_k > 0.0 and compliance_mode == "inverted":
-                # Keep baseline contribution, only flip the delta
-                delta = force_ema - force_baseline
-                obs_for_policy[6] += compliance_k * (force_baseline[0] - delta[0])
-                obs_for_policy[7] += compliance_k * (force_baseline[1] - delta[1])
+                obs_for_policy[6] -= compliance_k * force_ema[0]
+                obs_for_policy[7] -= compliance_k * force_ema[1]
 
             # ── Build full policy input (57 raw + 3 force estimate) ───
             full_obs = np.concatenate([obs_for_policy, force_hat])
@@ -485,8 +481,6 @@ if __name__ == "__main__":
                     compliance_mode = "normal"
                 else:
                     compliance_mode = "inverted"
-                    force_baseline = force_ema.copy()
-                    print(f"[step {step_count}]     Baseline captured: [{force_baseline[0]:+.2f}, {force_baseline[1]:+.2f}, {force_baseline[2]:+.2f}]", flush=True)
                 print(f"[step {step_count}] *** Compliance mode: {compliance_mode} ***", flush=True)
             prev_x_button = x_now
 
