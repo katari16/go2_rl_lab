@@ -198,17 +198,18 @@ def main():
                         scn.geoms[scn.ngeom].rgba[:] = [0.2, 0.4, 1.0, 0.8]
                         scn.ngeom += 1
 
-            # Green sphere: recording marker
+            # Green sphere: recording marker (hovering above robot)
             if recording and scn.ngeom < scn.maxgeom:
                 sphere_pos = base_pos.copy()
-                sphere_pos[2] += 0.45
+                sphere_pos[2] += 0.50  # above force arrow
+                g = scn.geoms[scn.ngeom]
                 mujoco.mjv_initGeom(
-                    scn.geoms[scn.ngeom],
+                    g,
                     type=mujoco.mjtGeom.mjGEOM_SPHERE,
-                    size=[0.04, 0, 0],
-                    pos=sphere_pos,
-                    mat=np.eye(3).flatten(),
-                    rgba=np.array([0.1, 0.9, 0.2, 0.85], dtype=np.float32),
+                    size=np.array([0.05, 0.05, 0.05], dtype=np.float64),
+                    pos=np.array(sphere_pos, dtype=np.float64),
+                    mat=np.eye(3, dtype=np.float64).flatten(),
+                    rgba=np.array([0.1, 0.95, 0.2, 0.9], dtype=np.float32),
                 )
                 scn.ngeom += 1
 

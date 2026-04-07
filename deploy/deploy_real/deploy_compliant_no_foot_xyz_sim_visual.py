@@ -451,7 +451,7 @@ if __name__ == "__main__":
             if b_now == 1 and prev_b_button == 0:
                 sim_real_recording = not sim_real_recording
                 tag = "ON" if sim_real_recording else "OFF"
-                print(f"[step {step_count}] *** Recording marker {tag} ***")
+                print(f"[step {step_count}] *** Recording marker {tag} ***", flush=True)
             prev_b_button = b_now
 
             # ── Debug logging ─────────────────────────────────────────
