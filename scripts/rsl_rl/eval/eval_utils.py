@@ -678,14 +678,22 @@ class _NumpyEncoder(json.JSONEncoder):
         return super().default(obj)
 
 
-def create_eval_output_dir(experiment_name: str, eval_type: str) -> str:
-    """Create go2_rl_lab/data/eval/<experiment_name>/<eval_type>_<timestamp>/.
+def create_eval_output_dir(experiment_name: str, eval_type: str, suffix: str = "") -> str:
+    """Create go2_rl_lab/data/eval/<experiment_name>/<eval_type>_<timestamp>[_<suffix>]/.
+
+    Args:
+        experiment_name: Name of the experiment (e.g. "go2_lowlevel").
+        eval_type: Type of evaluation (e.g. "static_360").
+        suffix: Optional suffix appended after the timestamp (e.g. "_A1_nonlinear_25N").
 
     Returns:
         Path to the output directory.
     """
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    out_dir = os.path.join("data", "eval", experiment_name, f"{eval_type}_{timestamp}")
+    dirname = f"{eval_type}_{timestamp}"
+    if suffix:
+        dirname += f"_{suffix}"
+    out_dir = os.path.join("data", "eval", experiment_name, dirname)
     os.makedirs(out_dir, exist_ok=True)
     return out_dir
 
