@@ -33,6 +33,7 @@ from .mdp.rewards import (
     compliance_force_tracking,
     compliance_torque_tracking,
     compliant_track_lin_vel_xy_exp,
+    force_estimation_accuracy,
     standing_pose_penalty,
 )
 
@@ -139,6 +140,38 @@ class LowLevelWrenchHighTorqueEnvCfg(LowLevelWrenchEnvCfg):
     """6D wrench env with torque_range=(0, 10) Nm — for ablation run B5."""
 
     events: WrenchHighTorqueEventCfg = WrenchHighTorqueEventCfg()
+
+
+# ── 1c. Force estimation accuracy reward envs (H7, H8) ─────────────────────
+
+
+@configclass
+class EstAccuracyRewardsCfg(RewardsCfg):
+    """Baseline rewards + force estimation accuracy reward."""
+
+    force_est_accuracy = RewTerm(
+        func=force_estimation_accuracy,
+        weight=0.5,
+        params={
+            "sigma": 1.0,
+            "alpha": 2.0,
+            "asset_cfg": SceneEntityCfg("robot", body_names="base"),
+        },
+    )
+
+
+@configclass
+class LowLevelEstAccuracyEnvCfg(LowLevelEnvCfg):
+    """Baseline env + force estimation accuracy reward — for H8 (3D)."""
+
+    rewards: EstAccuracyRewardsCfg = EstAccuracyRewardsCfg()
+
+
+@configclass
+class LowLevelWrenchEstAccuracyEnvCfg(LowLevelWrenchEnvCfg):
+    """Wrench env + force estimation accuracy reward — for H7 (4D)."""
+
+    rewards: EstAccuracyRewardsCfg = EstAccuracyRewardsCfg()
 
 
 # ── 2. Compliance reward env (E1) ───────────────────────────────────────────

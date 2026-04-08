@@ -142,6 +142,66 @@ gym.register(
 )
 
 
+# ── Group H: Batch 2 dimension sweep (50N / 100N) ──────────────────────────
+
+# H1, H9: baseline env (force only, 2D/3D)
+for _id, _cfg in [
+    ("H1-50N", "AblationH1_50Cfg"), ("H1-100N", "AblationH1_100Cfg"),
+    ("H9-50N", "AblationH9_50Cfg"), ("H9-100N", "AblationH9_100Cfg"),
+]:
+    gym.register(
+        id=f"Go2-Ablation-{_id}-v0",
+        entry_point="isaaclab.envs:ManagerBasedRLEnv",
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": f"{__name__}.go2_lowlevel_env_cfg:LowLevelEnvCfg",
+            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:{_cfg}",
+        },
+    )
+
+# H3a/b/c, H5, H6: wrench env (6D/4D)
+for _id, _cfg in [
+    ("H3a-50N", "AblationH3a_50Cfg"), ("H3a-100N", "AblationH3a_100Cfg"),
+    ("H3b-50N", "AblationH3b_50Cfg"), ("H3b-100N", "AblationH3b_100Cfg"),
+    ("H3c-50N", "AblationH3c_50Cfg"), ("H3c-100N", "AblationH3c_100Cfg"),
+    ("H5-50N", "AblationH5_50Cfg"), ("H5-100N", "AblationH5_100Cfg"),
+    ("H6-50N", "AblationH6_50Cfg"), ("H6-100N", "AblationH6_100Cfg"),
+]:
+    gym.register(
+        id=f"Go2-Ablation-{_id}-v0",
+        entry_point="isaaclab.envs:ManagerBasedRLEnv",
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:LowLevelWrenchEnvCfg",
+            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:{_cfg}",
+        },
+    )
+
+# H7: wrench env + force est accuracy reward (4D)
+for _id, _cfg in [("H7-50N", "AblationH7_50Cfg"), ("H7-100N", "AblationH7_100Cfg")]:
+    gym.register(
+        id=f"Go2-Ablation-{_id}-v0",
+        entry_point="isaaclab.envs:ManagerBasedRLEnv",
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:LowLevelWrenchEstAccuracyEnvCfg",
+            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:{_cfg}",
+        },
+    )
+
+# H8: baseline env + force est accuracy reward (3D)
+for _id, _cfg in [("H8-50N", "AblationH8_50Cfg"), ("H8-100N", "AblationH8_100Cfg")]:
+    gym.register(
+        id=f"Go2-Ablation-{_id}-v0",
+        entry_point="isaaclab.envs:ManagerBasedRLEnv",
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:LowLevelEstAccuracyEnvCfg",
+            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:{_cfg}",
+        },
+    )
+
+
 # ── High-level non-linear sweep: 8 variations (R1-R8) ───────────────────────
 # 2x2x2: reward type (penalty/positive) x gravity correction x tracking reward
 for _r in range(1, 9):

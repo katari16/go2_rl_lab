@@ -1,21 +1,35 @@
 """Runner configs for force estimator ablation study.
 
-11 configs for Groups A, B, C, E (branch: feature/estimator-ablation).
-All inherit from LowLevelRunnerCfg, overriding estimator params.
+Groups A-E (batch 1, 20N): 11 configs.
+Group H (batch 2, 50N/100N): 9 configs x 2 force levels = 18 configs.
 
-| ID | Force dims | History | Recon | Network | Torque losses | Compliance |
-|----|-----------|---------|-------|---------|---------------|------------|
-| A1 | 3D | 10 | Yes | default | No  | No |
-| A2 | 3D | 40 | Yes | default | No  | No |
-| B1 | 6D | 10 | Yes | default | No  | No |
-| B2 | 6D | 40 | Yes | default | No  | No |
-| B3 | 6D | 40 | Yes | bigger  | No  | No |
-| B4 | 6D | 40 | Yes | bigger  | Yes | No |
-| B5 | 6D | 60 | Yes | bigger  | Yes | No |
-| C1 | 3D | 10 | No  | default | No  | No |
-| C2 | 3D | 40 | No  | default | No  | No |
-| E1 | 3D | 20 | Yes | default | No  | force |
-| E2 | 4D | 20 | Yes | default | No  | force+torque |
+Batch 1 (20N):
+| ID | Dims | h  | Recon | Network | Torque losses | Compliance |
+|----|------|----|-------|---------|---------------|------------|
+| A1 | 3D   | 10 | Yes   | default | No            | No         |
+| A2 | 3D   | 40 | Yes   | default | No            | No         |
+| B1 | 6D   | 10 | Yes   | default | No            | No         |
+| B2 | 6D   | 40 | Yes   | default | No            | No         |
+| B3 | 6D   | 40 | Yes   | bigger  | No            | No         |
+| B4 | 6D   | 40 | Yes   | bigger  | Yes           | No         |
+| B5 | 6D   | 60 | Yes   | bigger  | Yes           | No         |
+| C1 | 3D   | 10 | No    | default | No            | No         |
+| C2 | 3D   | 40 | No    | default | No            | No         |
+| E1 | 3D   | 20 | Yes   | default | No            | force      |
+| E2 | 4D   | 20 | Yes   | default | No            | force+tq   |
+
+Batch 2 (50N / 100N each):
+| ID  | Dims | h  | Network | Losses                   | Est accuracy reward |
+|-----|------|----|---------|--------------------------|---------------------|
+| H1  | 3D   | 30 | default | force+angle+rec          | No                  |
+| H3a | 6D   | 40 | bigger  | force+angle+rec+yaw_loss | No                  |
+| H3b | 6D   | 30 | bigger  | force+angle+rec+yaw_loss | No                  |
+| H3c | 6D   | 30 | default | force+angle+rec+yaw_loss | No                  |
+| H5  | 4D   | 30 | default | force+angle+rec+yaw_loss | No                  |
+| H6  | 4D   | 30 | default | force+angle+rec          | No                  |
+| H7  | 4D   | 30 | default | force+angle+rec          | Yes                 |
+| H8  | 3D   | 30 | default | force+angle+rec          | Yes                 |
+| H9  | 2D   | 30 | default | force+angle+rec          | No                  |
 """
 
 from isaaclab.utils import configclass
@@ -159,3 +173,209 @@ class AblationE2Cfg(LowLevelRunnerCfg):
     experiment_name: str = "ablation_E2_h20_4d_compliance"
     force_event_term_name: str = "persistent_wrench"
     estimator: dict = _est(temporal_steps=20, force_dim=4, rec_loss_weight=1.0)
+
+
+# ── Group H: Batch 2 dimension sweep (50N / 100N) ─────────────────────────
+# Each config has a 50N and 100N variant (suffix _50N / _100N).
+
+
+def _h_cfg(name_suffix: str, force_dim: int, temporal_steps: int, max_force: float,
+           force_event: str = "persistent_xyz_force",
+           enc_hidden_dims: list[int] | None = None,
+           f_head_dims: list[int] | None = None,
+           yaw_loss_weight: float = 0.0,
+           torque_angle_loss_weight: float = 0.0,
+           rec_loss_weight: float = 1.0) -> dict:
+    """Return a dict of class attributes for H-series configs."""
+    return {
+        "experiment_name": f"ablation_{name_suffix}",
+        "force_event_term_name": force_event,
+        "max_force": max_force,
+        "estimator": _est(
+            temporal_steps=temporal_steps,
+            force_dim=force_dim,
+            rec_loss_weight=rec_loss_weight,
+            enc_hidden_dims=enc_hidden_dims,
+            f_head_dims=f_head_dims,
+            yaw_loss_weight=yaw_loss_weight,
+            torque_angle_loss_weight=torque_angle_loss_weight,
+        ),
+    }
+
+
+# ── H1: 3D, h=30, default ────────────────────────────────────────────────
+
+@configclass
+class AblationH1_50Cfg(LowLevelRunnerCfg):
+    experiment_name: str = "ablation_H1_3d_h30_50N"
+    max_force: float = 50.0
+    estimator: dict = _est(temporal_steps=30, force_dim=3)
+
+
+@configclass
+class AblationH1_100Cfg(LowLevelRunnerCfg):
+    experiment_name: str = "ablation_H1_3d_h30_100N"
+    max_force: float = 100.0
+    estimator: dict = _est(temporal_steps=30, force_dim=3)
+
+
+# ── H3a: 6D, h=40, bigger, yaw_loss ──────────────────────────────────────
+
+@configclass
+class AblationH3a_50Cfg(LowLevelRunnerCfg):
+    experiment_name: str = "ablation_H3a_6d_h40_big_yaw_50N"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 50.0
+    estimator: dict = _est(
+        temporal_steps=40, force_dim=6, enc_hidden_dims=[256, 128],
+        f_head_dims=[64, 32], yaw_loss_weight=3.0, torque_angle_loss_weight=3.0,
+    )
+
+
+@configclass
+class AblationH3a_100Cfg(LowLevelRunnerCfg):
+    experiment_name: str = "ablation_H3a_6d_h40_big_yaw_100N"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 100.0
+    estimator: dict = _est(
+        temporal_steps=40, force_dim=6, enc_hidden_dims=[256, 128],
+        f_head_dims=[64, 32], yaw_loss_weight=3.0, torque_angle_loss_weight=3.0,
+    )
+
+
+# ── H3b: 6D, h=30, bigger, yaw_loss ──────────────────────────────────────
+
+@configclass
+class AblationH3b_50Cfg(LowLevelRunnerCfg):
+    experiment_name: str = "ablation_H3b_6d_h30_big_yaw_50N"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 50.0
+    estimator: dict = _est(
+        temporal_steps=30, force_dim=6, enc_hidden_dims=[256, 128],
+        f_head_dims=[64, 32], yaw_loss_weight=3.0, torque_angle_loss_weight=3.0,
+    )
+
+
+@configclass
+class AblationH3b_100Cfg(LowLevelRunnerCfg):
+    experiment_name: str = "ablation_H3b_6d_h30_big_yaw_100N"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 100.0
+    estimator: dict = _est(
+        temporal_steps=30, force_dim=6, enc_hidden_dims=[256, 128],
+        f_head_dims=[64, 32], yaw_loss_weight=3.0, torque_angle_loss_weight=3.0,
+    )
+
+
+# ── H3c: 6D, h=30, default, yaw_loss ─────────────────────────────────────
+
+@configclass
+class AblationH3c_50Cfg(LowLevelRunnerCfg):
+    experiment_name: str = "ablation_H3c_6d_h30_def_yaw_50N"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 50.0
+    estimator: dict = _est(
+        temporal_steps=30, force_dim=6, yaw_loss_weight=3.0,
+        torque_angle_loss_weight=3.0,
+    )
+
+
+@configclass
+class AblationH3c_100Cfg(LowLevelRunnerCfg):
+    experiment_name: str = "ablation_H3c_6d_h30_def_yaw_100N"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 100.0
+    estimator: dict = _est(
+        temporal_steps=30, force_dim=6, yaw_loss_weight=3.0,
+        torque_angle_loss_weight=3.0,
+    )
+
+
+# ── H5: 4D, h=30, default, yaw_loss ──────────────────────────────────────
+
+@configclass
+class AblationH5_50Cfg(LowLevelRunnerCfg):
+    experiment_name: str = "ablation_H5_4d_h30_yaw_50N"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 50.0
+    estimator: dict = _est(
+        temporal_steps=30, force_dim=4, yaw_loss_weight=3.0,
+    )
+
+
+@configclass
+class AblationH5_100Cfg(LowLevelRunnerCfg):
+    experiment_name: str = "ablation_H5_4d_h30_yaw_100N"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 100.0
+    estimator: dict = _est(
+        temporal_steps=30, force_dim=4, yaw_loss_weight=3.0,
+    )
+
+
+# ── H6: 4D, h=30, default, no yaw_loss ───────────────────────────────────
+
+@configclass
+class AblationH6_50Cfg(LowLevelRunnerCfg):
+    experiment_name: str = "ablation_H6_4d_h30_50N"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 50.0
+    estimator: dict = _est(temporal_steps=30, force_dim=4)
+
+
+@configclass
+class AblationH6_100Cfg(LowLevelRunnerCfg):
+    experiment_name: str = "ablation_H6_4d_h30_100N"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 100.0
+    estimator: dict = _est(temporal_steps=30, force_dim=4)
+
+
+# ── H7: 4D, h=30, default, + force est accuracy reward ───────────────────
+
+@configclass
+class AblationH7_50Cfg(LowLevelRunnerCfg):
+    experiment_name: str = "ablation_H7_4d_h30_estrew_50N"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 50.0
+    estimator: dict = _est(temporal_steps=30, force_dim=4)
+
+
+@configclass
+class AblationH7_100Cfg(LowLevelRunnerCfg):
+    experiment_name: str = "ablation_H7_4d_h30_estrew_100N"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 100.0
+    estimator: dict = _est(temporal_steps=30, force_dim=4)
+
+
+# ── H8: 3D, h=30, default, + force est accuracy reward ───────────────────
+
+@configclass
+class AblationH8_50Cfg(LowLevelRunnerCfg):
+    experiment_name: str = "ablation_H8_3d_h30_estrew_50N"
+    max_force: float = 50.0
+    estimator: dict = _est(temporal_steps=30, force_dim=3)
+
+
+@configclass
+class AblationH8_100Cfg(LowLevelRunnerCfg):
+    experiment_name: str = "ablation_H8_3d_h30_estrew_100N"
+    max_force: float = 100.0
+    estimator: dict = _est(temporal_steps=30, force_dim=3)
+
+
+# ── H9: 2D, h=30, default ────────────────────────────────────────────────
+
+@configclass
+class AblationH9_50Cfg(LowLevelRunnerCfg):
+    experiment_name: str = "ablation_H9_2d_h30_50N"
+    max_force: float = 50.0
+    estimator: dict = _est(temporal_steps=30, force_dim=2)
+
+
+@configclass
+class AblationH9_100Cfg(LowLevelRunnerCfg):
+    experiment_name: str = "ablation_H9_2d_h30_100N"
+    max_force: float = 100.0
+    estimator: dict = _est(temporal_steps=30, force_dim=2)

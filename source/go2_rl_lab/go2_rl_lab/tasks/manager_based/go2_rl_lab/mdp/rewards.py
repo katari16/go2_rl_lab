@@ -610,6 +610,53 @@ def compliance_force_tracking(
     return reward
 
 
+def force_estimation_accuracy(
+    env: ManagerBasedRLEnv,
+    sigma: float = 1.0,
+    alpha: float = 2.0,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names="base"),
+) -> torch.Tensor:
+    """Reward for accurate force estimation: exp(-||F_gt - F_hat||^2 / sigma).
+
+    Encourages the locomotion policy to adopt gaits that make external forces
+    easier to estimate from proprioception alone.
+
+    Only active when ||F_gt|| > alpha (no reward signal when no force applied).
+
+    Args:
+        sigma: Exponential kernel width.
+        alpha: Force activation threshold (N).
+        asset_cfg: Robot asset with body_names="base".
+    """
+    if not hasattr(env, "_force_estimate_xy"):
+        return torch.zeros(env.num_envs, device=env.device)
+
+    force_hat = env._force_estimate_xy  # [N, force_dim]
+    force_dim = force_hat.shape[1]
+    asset: Articulation = env.scene[asset_cfg.name]
+
+    # Get GT force (and torque if wrench env) matching estimator dims
+    gt_force = asset.permanent_wrench_composer.composed_force_as_torch[
+        :, asset_cfg.body_ids, :
+    ].squeeze(1)  # [N, 3]
+
+    if force_dim <= 3:
+        gt = gt_force[:, :force_dim]
+    else:
+        gt_torque = asset.permanent_wrench_composer.composed_torque_as_torch[
+            :, asset_cfg.body_ids, :
+        ].squeeze(1)  # [N, 3]
+        gt = torch.cat([gt_force, gt_torque], dim=1)[:, :force_dim]
+
+    mse = torch.sum(torch.square(gt - force_hat), dim=1)
+    reward = torch.exp(-mse / sigma)
+
+    gt_mag = gt_force[:, :2].norm(dim=1)
+    reward = reward * (gt_mag > alpha).float()
+
+    return reward
+
+
 def compliance_torque_tracking(
     env: ManagerBasedRLEnv,
     B_torque: float = 10.0,
