@@ -30,10 +30,12 @@ TOTAL=0
 FAILED=0
 
 for dir in data/eval/*/static_360_*; do
-    if [ -d "$dir" ] && [ -f "$dir/raw_data.json" ]; then
+    if [ -d "$dir" ] && [ -f "$dir/raw_data.json" ] && [ ! -f "$dir/analysis.pdf" ]; then
         echo "Analyzing: $dir"
         python scripts/rsl_rl/eval/analyze_static_360.py "$dir" || FAILED=$((FAILED + 1))
         TOTAL=$((TOTAL + 1))
+    else
+        [ -f "$dir/analysis.pdf" ] && echo "Skipping (already analyzed): $dir"
     fi
 done
 
