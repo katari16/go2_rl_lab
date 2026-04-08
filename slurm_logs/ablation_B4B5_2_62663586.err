@@ -1,0 +1,19 @@
+Traceback (most recent call last):
+  File "/cluster/home/habaumann/go2_rl_lab/scripts/rsl_rl/train.py", line 260, in <module>
+    
+  File "/cluster/home/habaumann/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/utils/hydra.py", line 80, in wrapper
+    env_cfg, agent_cfg = register_task_to_hydra(task_name.split(":")[-1], agent_cfg_entry_point)
+                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/cluster/home/habaumann/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/utils/hydra.py", line 41, in register_task_to_hydra
+    env_cfg = load_cfg_from_registry(task_name, "env_cfg_entry_point")
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/cluster/home/habaumann/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/utils/parse_cfg.py", line 58, in load_cfg_from_registry
+    cfg_entry_point = gym.spec(task_name.split(":")[-1]).kwargs.get(entry_point_key)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/cluster/project/rsl/habaumann/miniconda3/envs/env_isaaclab/lib/python3.11/site-packages/gymnasium/envs/registration.py", line 1000, in spec
+    _check_version_exists(ns, name, version)
+  File "/cluster/project/rsl/habaumann/miniconda3/envs/env_isaaclab/lib/python3.11/site-packages/gymnasium/envs/registration.py", line 392, in _check_version_exists
+    _check_name_exists(ns, name)
+  File "/cluster/project/rsl/habaumann/miniconda3/envs/env_isaaclab/lib/python3.11/site-packages/gymnasium/envs/registration.py", line 369, in _check_name_exists
+    raise error.NameNotFound(
+gymnasium.error.NameNotFound: Environment `Go2-Ablation-B5` doesn't exist. Did you mean: `Go2-Ablation-B3`?

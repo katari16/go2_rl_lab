@@ -1,0 +1,67 @@
+=========================================
+SLURM Job ID: 62663675
+Array Task ID: 1
+Running on: eu-lo-g2-026
+Starting at: Wed Apr  8 12:17:00 AM CEST 2026
+GPU allocation: 0
+Task: Go2-Ablation-B4-v0
+=========================================
+Wed Apr  8 00:17:00 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 580.126.20             Driver Version: 580.126.20     CUDA Version: 13.0     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA GeForce RTX 2080 Ti     On  |   00000000:B1:00.0 Off |                  N/A |
+|  0%   27C    P8              5W /  250W |       1MiB /  11264MiB |      0%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+[INFO][AppLauncher]: Using device: cuda:0
+[INFO][AppLauncher]: Loading experience file: /cluster/home/habaumann/IsaacLab/apps/isaaclab.python.headless.kit
+Loading user config located at: '/cluster/project/rsl/habaumann/miniconda3/envs/env_isaaclab/lib/python3.11/site-packages/isaacsim/kit/data/Kit/Isaac-Sim/5.1/user.config.json'
+[Info] [carb] Logging to file: /cluster/project/rsl/habaumann/miniconda3/envs/env_isaaclab/lib/python3.11/site-packages/isaacsim/kit/logs/Kit/Isaac-Sim/5.1/kit_20260408_001711.log
+2026-04-07T22:17:11Z [53ms] [Warning] [carb.crashreporter-breakpad.plugin] [previous crash] preventing upload of minidump due to user opt-out: '/cluster/project/rsl/habaumann/miniconda3/envs/env_isaaclab/lib/python3.11/site-packages/isaacsim/kit/data/Kit/Isaac-Sim/5.1/9f60274b-c8e4-4db9-30f34597-15c89912.dmp'
+2026-04-07T22:17:11Z [58ms] [Warning] [carb.crashreporter-breakpad.plugin] [previous crash] preventing upload of minidump due to user opt-out: '/cluster/project/rsl/habaumann/miniconda3/envs/env_isaaclab/lib/python3.11/site-packages/isaacsim/kit/data/Kit/Isaac-Sim/5.1/9fabc7c7-0fe9-4986-d6612384-1dcf5175.dmp'
+2026-04-07T22:17:11Z [61ms] [Warning] [carb.crashreporter-breakpad.plugin] [previous crash] preventing upload of minidump due to user opt-out: '/cluster/project/rsl/habaumann/miniconda3/envs/env_isaaclab/lib/python3.11/site-packages/isaacsim/kit/data/Kit/Isaac-Sim/5.1/a5cd8d26-e687-4f8b-6439b88e-c065c48b.dmp'
+2026-04-07T22:17:11Z [64ms] [Warning] [carb.crashreporter-breakpad.plugin] [previous crash] preventing upload of minidump due to user opt-out: '/cluster/project/rsl/habaumann/miniconda3/envs/env_isaaclab/lib/python3.11/site-packages/isaacsim/kit/data/Kit/Isaac-Sim/5.1/f0d1fcd6-d9df-48a4-e04c87b4-5f63d4c2.dmp'
+2026-04-07T22:17:25Z [13,655ms] [Warning] [omni.usd_config.extension] Enable omni.materialx.libs extension to use MaterialX
+2026-04-07T22:17:27Z [15,751ms] [Warning] [omni.platforminfo.plugin] failed to open the default display.  Can't verify X Server version.
+2026-04-07T22:17:29Z [17,528ms] [Warning] [carb] Acquiring non optional plugin interface which is not listed as dependency: [omni::physx::IPhysxBenchmarks v1.0] (plugin: <default plugin>), by client: omni.physics.physx.plugin. Add it to CARB_PLUGIN_IMPL_DEPS() macro of a client.
+2026-04-07T22:17:29Z [17,625ms] [Warning] [omni.isaac.dynamic_control] omni.isaac.dynamic_control is deprecated as of Isaac Sim 4.5. No action is needed from end-users.
+2026-04-07T22:18:00Z [48,481ms] [Warning] [carb.cudainterop.plugin] CUDA_VISIBLE_DEVICES environment variable is set.
+2026-04-07T22:18:00Z [48,481ms] [Warning] [carb.cudainterop.plugin] Note CUDA device enumeration and Omniverse device enumeration are different.
+2026-04-07T22:18:00Z [48,481ms] [Warning] [carb.cudainterop.plugin] Setting CUDA_VISIBLE_DEVICES can lead to undesired behavior or crashes.
+
+|---------------------------------------------------------------------------------------------|
+| Driver Version: 580.126.20    | Graphics API: Vulkan
+|=============================================================================================|
+| GPU | Name                             | Active | LDA | GPU Memory | Vendor-ID | LUID       |
+|     |                                  |        |     |            | Device-ID | UUID       |
+|     |                                  |        |     |            | Bus-ID    |            |
+|---------------------------------------------------------------------------------------------|
+| 0   | NVIDIA GeForce RTX 2080 Ti       | Yes: 0 |     | 11510   MB | 10de      | 0          |
+|     |                                  |        |     |            | 1e07      | bcd513ec.. |
+|     |                                  |        |     |            | b1        |            |
+|=============================================================================================|
+| OS: 22.04.5 LTS (Jammy Jellyfish) ubuntu, Version: 22.04.5, Kernel: 5.15.0-171-generic
+| Processor: Intel(R) Xeon(R) Gold 6240 CPU @ 2.60GHz
+| Cores: 36 | Logical Cores: 72
+|---------------------------------------------------------------------------------------------|
+| Total Memory (MB): 383268 | Free Memory: 345963
+| Total Page/Swap (MB): 32767 | Free Page/Swap: 32159
+|---------------------------------------------------------------------------------------------|
+2026-04-07T22:18:02Z [51,127ms] [Warning] [gpu.foundation.plugin] CPU performance profile is set to powersave. This profile sets the CPU to the lowest frequency reducing performance.
+2026-04-07T22:18:02Z [51,252ms] [Warning] [omni.kvdb.plugin] Disabling key-value database because another kit process is locking it
+2026-04-07T22:18:18Z [66,550ms] [Warning] [omni.physx.plugin] USD stage detach not called, holding a loose ptr to a stage!
+2026-04-07T22:18:18Z [66,708ms] [Warning] [carb] Recursive unloadAllPlugins() detected!
+Job Go2-Ablation-B4-v0 completed at Wed Apr  8 12:18:18 AM CEST 2026

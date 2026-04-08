@@ -1,0 +1,13 @@
+Error executing job with overrides: []
+Traceback (most recent call last):
+  File "/cluster/home/habaumann/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/utils/hydra.py", line 100, in hydra_main
+    func(env_cfg, agent_cfg, *args, **kwargs)
+  File "/cluster/home/habaumann/go2_rl_lab/scripts/rsl_rl/train.py", line 187, in main
+    resume_path = get_checkpoint_path(log_root_path, agent_cfg.load_run, agent_cfg.load_checkpoint)
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/cluster/home/habaumann/IsaacLab/source/isaaclab_tasks/isaaclab_tasks/utils/parse_cfg.py", line 194, in get_checkpoint_path
+    os.path.join(log_path, run) for run in os.scandir(log_path) if run.is_dir() and re.match(run_dir, run.name)
+                                           ^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/cluster/home/habaumann/go2_rl_lab/logs/rsl_rl/ablation_D1_h20_3d_paint'
+
+Set the environment variable HYDRA_FULL_ERROR=1 for a complete stack trace.

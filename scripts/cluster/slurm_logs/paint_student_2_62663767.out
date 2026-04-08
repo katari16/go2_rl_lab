@@ -1,0 +1,233 @@
+=========================================
+SLURM Job ID: 62663767
+Array Task ID: 2
+Running on: eu-lo-g2-027
+Starting at: Wed Apr  8 12:19:04 AM CEST 2026
+GPU allocation: 0
+Task: Go2-Ablation-D2-v0
+Teacher checkpoint: /cluster/home/habaumann/go2_rl_lab/logs/rsl_rl/ablation_D2_teacher/2026-04-06_23-52-15/model_14000.pt
+=========================================
+Wed Apr  8 00:19:04 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 580.126.20             Driver Version: 580.126.20     CUDA Version: 13.0     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA GeForce RTX 2080 Ti     On  |   00000000:B2:00.0 Off |                  N/A |
+|  0%   28C    P8             11W /  250W |       1MiB /  11264MiB |      0%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|  No running processes found                                                             |
++-----------------------------------------------------------------------------------------+
+[INFO][AppLauncher]: Using device: cuda:0
+[INFO][AppLauncher]: Loading experience file: /cluster/home/habaumann/IsaacLab/apps/isaaclab.python.headless.kit
+[INFO]: Parsing configuration from: go2_rl_lab.tasks.manager_based.go2_rl_lab.go2_ablation_env_cfgs:LowLevelWrenchComplianceRewardEnvCfg
+[INFO]: Parsing configuration from: go2_rl_lab.tasks.manager_based.go2_rl_lab.agents.rsl_rl_teacher_student_cfg:AblationD2Cfg
+[INFO] Logging experiment in directory: /cluster/home/habaumann/go2_rl_lab/logs/rsl_rl/ablation_D2_h20_4d_paint
+Exact experiment name requested from command line: 2026-04-08_00-20-29
+
+[36m=================================================================================================================[0m
+[36m[1m[INFO][IsaacLab]: Logging to file: /scratch/tmp.62663767.habaumann/isaaclab/logs/isaaclab_2026-04-08_00-20-29.log[0m
+[36m=================================================================================================================[0m
+
+[33m00:20:29 [simulation_context.py] WARNING: The `enable_external_forces_every_iteration` parameter in the PhysxCfg is set to False. If you are experiencing noisy velocities, consider enabling this flag. You may need to slightly increase the number of velocity iterations (setting it to 1 or 2 rather than 0), together with this flag, to improve the accuracy of velocity updates.[0m
+[INFO]: Base environment:
+	Environment device    : cuda:0
+	Environment seed      : 42
+	Physics step-size     : 0.005
+	Rendering step-size   : 0.02
+	Environment step-size : 0.02
+[INFO] Generating terrains based on curriculum took : 2.252512 seconds
+[INFO]: Time taken for scene creation : 11.723321 seconds
+[INFO]: Scene manager:  <class InteractiveScene>
+	Number of environments: 4096
+	Environment spacing   : 2.5
+	Source prim name      : /World/envs/env_0
+	Global prim paths     : ['/World/ground']
+	Replicate physics     : True
+[INFO]: Starting the simulation. This may take a few seconds. Please wait...
+[INFO]: Time taken for simulation start : 9.692593 seconds
+[INFO] Command Manager:  <CommandManager> contains 1 active terms.
++------------------------------------------------+
+|              Active Command Terms              |
++-------+---------------+------------------------+
+| Index | Name          |          Type          |
++-------+---------------+------------------------+
+|   0   | base_velocity | UniformVelocityCommand |
++-------+---------------+------------------------+
+
+[INFO] Event Manager:  <EventManager> contains 3 active terms.
++--------------------------------------+
+| Active Event Terms in Mode: 'startup' |
++----------+---------------------------+
+|  Index   | Name                      |
++----------+---------------------------+
+|    0     | physics_material          |
+|    1     | add_base_mass             |
++----------+---------------------------+
++---------------------------------------+
+|  Active Event Terms in Mode: 'reset'  |
++--------+------------------------------+
+| Index  | Name                         |
++--------+------------------------------+
+|   0    | base_external_force_torque   |
+|   1    | reset_base                   |
+|   2    | reset_robot_joints           |
++--------+------------------------------+
++-----------------------------------------------------+
+|        Active Event Terms in Mode: 'interval'       |
++-------+-------------------+-------------------------+
+| Index | Name              | Interval time range (s) |
++-------+-------------------+-------------------------+
+|   0   | push_robot        |       (10.0, 15.0)      |
+|   1   | persistent_wrench |        (3.0, 5.0)       |
++-------+-------------------+-------------------------+
+
+[INFO] Recorder Manager:  <RecorderManager> contains 0 active terms.
++---------------------+
+| Active Recorder Terms |
++-----------+---------+
+|   Index   | Name    |
++-----------+---------+
++-----------+---------+
+
+[INFO] Action Manager:  <ActionManager> contains 1 active terms.
++------------------------------------+
+|  Active Action Terms (shape: 12)   |
++--------+-------------+-------------+
+| Index  | Name        |   Dimension |
++--------+-------------+-------------+
+|   0    | joint_pos   |          12 |
++--------+-------------+-------------+
+
+[ForceEstimateObsTerm] No checkpoint — returning zeros.
+[ForceEstimateObsTerm] No checkpoint — returning zeros.
+[INFO] Observation Manager: <ObservationManager> contains 2 groups.
++---------------------------------------------------------+
+| Active Observation Terms in Group: 'policy' (shape: (59,)) |
++-----------+---------------------------------+-----------+
+|   Index   | Name                            |   Shape   |
++-----------+---------------------------------+-----------+
+|     0     | base_ang_vel                    |    (3,)   |
+|     1     | projected_gravity               |    (3,)   |
+|     2     | velocity_commands               |    (3,)   |
+|     3     | joint_pos                       |   (12,)   |
+|     4     | joint_vel                       |   (12,)   |
+|     5     | actions                         |   (12,)   |
+|     6     | applied_torque_obs              |   (12,)   |
+|     7     | force_estimate                  |    (2,)   |
++-----------+---------------------------------+-----------+
++----------------------------------------------------------+
+| Active Observation Terms in Group: 'critic' (shape: (72,)) |
++-----------+----------------------------------+-----------+
+|   Index   | Name                             |   Shape   |
++-----------+----------------------------------+-----------+
+|     0     | base_lin_vel                     |    (3,)   |
+|     1     | base_ang_vel                     |    (3,)   |
+|     2     | projected_gravity                |    (3,)   |
+|     3     | velocity_commands                |    (3,)   |
+|     4     | joint_pos                        |   (12,)   |
+|     5     | joint_vel                        |   (12,)   |
+|     6     | actions                          |   (12,)   |
+|     7     | applied_torque_obs               |   (12,)   |
+|     8     | foot_contact_forces              |    (4,)   |
+|     9     | base_applied_wrench              |    (6,)   |
+|     10    | force_estimate                   |    (2,)   |
++-----------+----------------------------------+-----------+
+
+[INFO] Termination Manager:  <TerminationManager> contains 3 active terms.
++------------------------------------+
+|      Active Termination Terms      |
++-------+-----------------+----------+
+| Index | Name            | Time Out |
++-------+-----------------+----------+
+|   0   | time_out        |   True   |
+|   1   | base_contact    |  False   |
+|   2   | bad_orientation |  False   |
++-------+-----------------+----------+
+
+[INFO] Reward Manager:  <RewardManager> contains 22 active terms.
++-----------------------------------------+
+|           Active Reward Terms           |
++-------+----------------------+----------+
+| Index | Name                 |   Weight |
++-------+----------------------+----------+
+|   0   | track_lin_vel_xy_exp |      1.5 |
+|   1   | track_ang_vel_z_exp  |     0.75 |
+|   2   | lin_vel_z_l2         |     -2.0 |
+|   3   | ang_vel_xy_l2        |    -0.05 |
+|   4   | dof_acc_l2           | -2.5e-07 |
+|   5   | feet_air_time        |     0.75 |
+|   6   | flat_orientation_l2  |     -2.5 |
+|   7   | dof_pos_limits       |    -10.0 |
+|   8   | energy               |   -2e-05 |
+|   9   | undesired_contacts   |     -1.0 |
+|   10  | feet_slide           |     -0.1 |
+|   11  | action_smoothness_2  |    -0.01 |
+|   12  | pose_similarity      |     -0.1 |
+|   13  | feet_clearance       |     -0.5 |
+|   14  | feet_too_near        |     -1.0 |
+|   15  | soft_landing         |   -0.001 |
+|   16  | base_height_l2       |     -0.5 |
+|   17  | action_rate_l2       |    -0.01 |
+|   18  | joint_torques_l2     |  -0.0001 |
+|   19  | standing_pose        |     -0.5 |
+|   20  | compliance_force     |      0.5 |
+|   21  | compliance_torque    |      0.5 |
++-------+----------------------+----------+
+
+[INFO] Curriculum Manager:  <CurriculumManager> contains 1 active terms.
++---------------------------+
+|  Active Curriculum Terms  |
++--------+------------------+
+| Index  | Name             |
++--------+------------------+
+|   0    | terrain_levels   |
++--------+------------------+
+
+[INFO]: Completed setting up the environment...
+Loading user config located at: '/cluster/project/rsl/habaumann/miniconda3/envs/env_isaaclab/lib/python3.11/site-packages/isaacsim/kit/data/Kit/Isaac-Sim/5.1/user.config.json'
+[Info] [carb] Logging to file: /cluster/project/rsl/habaumann/miniconda3/envs/env_isaaclab/lib/python3.11/site-packages/isaacsim/kit/logs/Kit/Isaac-Sim/5.1/kit_20260408_001918.log
+2026-04-07T22:19:18Z [68ms] [Warning] [carb.crashreporter-breakpad.plugin] [previous crash] preventing upload of minidump due to user opt-out: '/cluster/project/rsl/habaumann/miniconda3/envs/env_isaaclab/lib/python3.11/site-packages/isaacsim/kit/data/Kit/Isaac-Sim/5.1/9f60274b-c8e4-4db9-30f34597-15c89912.dmp'
+2026-04-07T22:19:18Z [74ms] [Warning] [carb.crashreporter-breakpad.plugin] [previous crash] preventing upload of minidump due to user opt-out: '/cluster/project/rsl/habaumann/miniconda3/envs/env_isaaclab/lib/python3.11/site-packages/isaacsim/kit/data/Kit/Isaac-Sim/5.1/9fabc7c7-0fe9-4986-d6612384-1dcf5175.dmp'
+2026-04-07T22:19:18Z [78ms] [Warning] [carb.crashreporter-breakpad.plugin] [previous crash] preventing upload of minidump due to user opt-out: '/cluster/project/rsl/habaumann/miniconda3/envs/env_isaaclab/lib/python3.11/site-packages/isaacsim/kit/data/Kit/Isaac-Sim/5.1/a5cd8d26-e687-4f8b-6439b88e-c065c48b.dmp'
+2026-04-07T22:19:18Z [82ms] [Warning] [carb.crashreporter-breakpad.plugin] [previous crash] preventing upload of minidump due to user opt-out: '/cluster/project/rsl/habaumann/miniconda3/envs/env_isaaclab/lib/python3.11/site-packages/isaacsim/kit/data/Kit/Isaac-Sim/5.1/f0d1fcd6-d9df-48a4-e04c87b4-5f63d4c2.dmp'
+2026-04-07T22:19:33Z [15,311ms] [Warning] [omni.usd_config.extension] Enable omni.materialx.libs extension to use MaterialX
+2026-04-07T22:19:36Z [17,795ms] [Warning] [omni.platforminfo.plugin] failed to open the default display.  Can't verify X Server version.
+2026-04-07T22:19:38Z [19,936ms] [Warning] [carb] Acquiring non optional plugin interface which is not listed as dependency: [omni::physx::IPhysxBenchmarks v1.0] (plugin: <default plugin>), by client: omni.physics.physx.plugin. Add it to CARB_PLUGIN_IMPL_DEPS() macro of a client.
+2026-04-07T22:19:38Z [20,052ms] [Warning] [omni.isaac.dynamic_control] omni.isaac.dynamic_control is deprecated as of Isaac Sim 4.5. No action is needed from end-users.
+2026-04-07T22:20:10Z [51,709ms] [Warning] [carb.cudainterop.plugin] CUDA_VISIBLE_DEVICES environment variable is set.
+2026-04-07T22:20:10Z [51,709ms] [Warning] [carb.cudainterop.plugin] Note CUDA device enumeration and Omniverse device enumeration are different.
+2026-04-07T22:20:10Z [51,709ms] [Warning] [carb.cudainterop.plugin] Setting CUDA_VISIBLE_DEVICES can lead to undesired behavior or crashes.
+
+|---------------------------------------------------------------------------------------------|
+| Driver Version: 580.126.20    | Graphics API: Vulkan
+|=============================================================================================|
+| GPU | Name                             | Active | LDA | GPU Memory | Vendor-ID | LUID       |
+|     |                                  |        |     |            | Device-ID | UUID       |
+|     |                                  |        |     |            | Bus-ID    |            |
+|---------------------------------------------------------------------------------------------|
+| 0   | NVIDIA GeForce RTX 2080 Ti       | Yes: 0 |     | 11510   MB | 10de      | 0          |
+|     |                                  |        |     |            | 1e07      | 5667b86a.. |
+|     |                                  |        |     |            | b2        |            |
+|=============================================================================================|
+| OS: 22.04.5 LTS (Jammy Jellyfish) ubuntu, Version: 22.04.5, Kernel: 5.15.0-171-generic
+| Processor: Intel(R) Xeon(R) Gold 6240 CPU @ 2.60GHz
+| Cores: 36 | Logical Cores: 72
+|---------------------------------------------------------------------------------------------|
+| Total Memory (MB): 383268 | Free Memory: 356035
+| Total Page/Swap (MB): 32767 | Free Page/Swap: 32580
+|---------------------------------------------------------------------------------------------|
+2026-04-07T22:20:13Z [55,016ms] [Warning] [gpu.foundation.plugin] CPU performance profile is set to powersave. This profile sets the CPU to the lowest frequency reducing performance.
+2026-04-07T22:20:13Z [55,102ms] [Warning] [omni.kvdb.plugin] Disabling key-value database because another kit process is locking it
+2026-04-07T22:20:57Z [99,617ms] [Warning] [omni.physx.plugin] USD stage detach not called, holding a loose ptr to a stage!
+2026-04-07T22:20:59Z [100,838ms] [Warning] [carb] Recursive unloadAllPlugins() detected!
+Job Go2-Ablation-D2-v0 completed at Wed Apr  8 12:20:59 AM CEST 2026

@@ -1,0 +1,3 @@
+ERROR: Set TEACHER_D1 and TEACHER_D2 environment variables before submitting.
+  export TEACHER_D1=/path/to/D1_teacher/model_XXXX.pt
+  export TEACHER_D2=/path/to/D2_teacher/model_XXXX.pt
