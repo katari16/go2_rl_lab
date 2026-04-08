@@ -256,7 +256,7 @@ def main(
 
     # ── Save raw data ────────────────────────────────────────────────────
     task_short = args_cli.task.replace("Go2-Ablation-", "").replace("-v0", "")
-    modulation_tag = "linear" if args_cli.linear_modulation else "nonlinear"
+    modulation_tag = "mapping" if args_cli.linear_modulation else "nomapping"
     max_force = int(max(magnitudes))
     dir_suffix = f"{task_short}_{modulation_tag}_{max_force}N"
     output_dir = create_eval_output_dir(agent_cfg.experiment_name, "static_360", suffix=dir_suffix)
