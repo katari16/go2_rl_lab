@@ -67,6 +67,7 @@ from eval.eval_utils import (
     create_eval_output_dir,
     create_runner,
     disable_force_events,
+    update_force_arrows_per_env,
     get_asset_and_base,
     reset_env,
     resolve_checkpoint,
@@ -198,6 +199,9 @@ def main(
             forces=force_tensor, torques=torque_tensor,
         )
 
+        # Visualize force arrows on all envs
+        update_force_arrows_per_env(force_arrow, asset, fx_per_env, fy_per_env, device, n)
+
         obs, dones = step_policy(obs, ctx, env, runner, isaac_env, n,
                                  runner_class_name, compliance_k,
                                  args_cli.ema_alpha)
@@ -217,6 +221,7 @@ def main(
             time.sleep(dt)
 
     clear_force(asset, base_idx, device, n)
+    force_arrow.set_visibility(False)
     print(f"  Done. Fell: {fell.sum().item()}/{n} envs")
 
     env.close()

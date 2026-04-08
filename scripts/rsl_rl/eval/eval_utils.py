@@ -596,6 +596,45 @@ def update_force_arrow(markers: VisualizationMarkers, asset, base_idx,
     markers.visualize(pos, quats, scales)
 
 
+def update_force_arrows_per_env(markers: VisualizationMarkers, asset,
+                                fx_per_env: torch.Tensor, fy_per_env: torch.Tensor,
+                                device, n: int):
+    """Update per-env force arrow visualization.
+
+    Like update_force_arrow but each env has its own (fx, fy) force vector.
+
+    Args:
+        markers: Arrow VisualizationMarkers instance.
+        asset: Robot asset.
+        fx_per_env: [n] tensor of per-env X force components (world frame).
+        fy_per_env: [n] tensor of per-env Y force components (world frame).
+        device: Torch device.
+        n: Number of envs.
+    """
+    force_world = torch.zeros(n, 3, device=device)
+    force_world[:, 0] = fx_per_env[:n]
+    force_world[:, 1] = fy_per_env[:n]
+
+    any_force = force_world.norm(dim=-1).max() > 0.1
+    if not any_force:
+        markers.set_visibility(False)
+        return
+
+    markers.set_visibility(True)
+
+    pos = asset.data.root_pos_w[:n].clone()
+    pos[:, 2] += 0.55
+
+    quats = _force_vec_to_quat(force_world, device)
+
+    force_scale = 0.05
+    gt_mag = force_world.norm(dim=-1, keepdim=True)
+    scales = torch.full((n, 3), 0.3, device=device)
+    scales[:, 0:1] = (gt_mag * force_scale).clamp(min=0.05)
+
+    markers.visualize(pos, quats, scales)
+
+
 def update_trajectory_vis(markers: VisualizationMarkers, positions: list[tuple],
                           height: float, device):
     """Update trajectory visualization with a line of sphere markers.
