@@ -509,6 +509,7 @@ if __name__ == "__main__":
             if do_print:
                 print(f"[step {step_count}] cmd=[{velocity_cmd[0]:.1f},{velocity_cmd[1]:.1f},{velocity_cmd[2]:.1f}]"
                       f"  F_hat=[{force_hat[0]:+.1f},{force_hat[1]:+.1f},{force_hat[2]:+.1f}]"
+                      f"  |F|={np.linalg.norm(force_hat):.1f}N"
                       f"  gravity={raw_obs[3:6].round(3)}"
                       f"  action_norm={np.linalg.norm(action):.3f}")
 
