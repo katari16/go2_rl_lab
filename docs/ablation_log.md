@@ -75,17 +75,23 @@ Based on H3a (6D, h=40, bigger net, yaw+tq_angle losses). These runs use the fix
 
 | ID | Log dir | Dims | h | Network | TCN mode | TCN config | Baseline |
 |----|---------|------|---|---------|----------|------------|----------|
-| H12a | `ablation_H12a_6d_h40_tcnpre_50N` | 6D | 40 | bigger | preprocessor | ch=[64,64], k=3, dil=[1,2] | H3a-50N |
-| H12b | `ablation_H12b_6d_h40_tcnrep_50N` | 6D | 40 | bigger | replacement | ch=[64,64], k=3, dil=[1,2] | H3a-50N |
+| ID | Log dir | Dims | h | Network | TCN mode | TCN config | Est reward | Baseline |
+|----|---------|------|---|---------|----------|------------|------------|----------|
+| H12a | `ablation_H12a_6d_h40_tcnpre_50N` | 6D | 40 | bigger | preprocessor | ch=[64,64], k=3, dil=[1,2] | no | H3a-50N |
+| H12b | `ablation_H12b_6d_h40_tcnrep_50N` | 6D | 40 | bigger | replacement | ch=[64,64], k=3, dil=[1,2] | no | H3a-50N |
+| H13a | `ablation_H13a_4d_h30_tcnpre_50N` | 4D | 30 | default | preprocessor | ch=[64,64], k=3, dil=[1,2] | yes (exp, w=0.5, sigma=1.0) | H7-50N |
+| H13b | `ablation_H13b_4d_h30_tcnrep_50N` | 4D | 30 | default | replacement | ch=[64,64], k=3, dil=[1,2] | yes (exp, w=0.5, sigma=1.0) | H7-50N |
 
-- **H12a (preprocessor):** TCN enriches obs history with temporal context → flatten → MLP encoder [256,128] → force head. Same input shape to MLP, but features are temporally aware.
-- **H12b (replacement):** TCN processes obs history → global avg pool over time → linear projection to z_t (128-dim) → force head. No MLP encoder.
+- **H12a/H13a (preprocessor):** TCN enriches obs history with temporal context → flatten → MLP encoder → force head. Same input shape to MLP, but features are temporally aware.
+- **H12b/H13b (replacement):** TCN processes obs history → global avg pool over time → linear projection to z_t → force head. No MLP encoder.
 
 ### Ablation axes
 
 - **H12a vs H3a:** Effect of temporal preprocessing on 6D estimation
-- **H12b vs H3a:** Can a TCN fully replace the MLP encoder?
-- **H12a vs H12b:** Preprocessor (hybrid) vs replacement (pure TCN)
+- **H12b vs H3a:** Can a TCN fully replace the MLP encoder for 6D?
+- **H13a vs H7:** Effect of temporal preprocessing on 4D estimation (with est reward)
+- **H13b vs H7:** Can a TCN fully replace the MLP encoder for 4D?
+- **H12a vs H12b / H13a vs H13b:** Preprocessor (hybrid) vs replacement (pure TCN)
 
 
 ## Environment configs reference

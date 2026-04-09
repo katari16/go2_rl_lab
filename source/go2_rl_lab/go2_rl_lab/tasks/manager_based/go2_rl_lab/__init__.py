@@ -216,6 +216,21 @@ for _id, _cfg in [
         },
     )
 
+# H13a/b: TCN ablation (4D wrench + est accuracy reward env, based on H7)
+for _id, _cfg in [
+    ("H13a-50N", "AblationH13a_50Cfg"),
+    ("H13b-50N", "AblationH13b_50Cfg"),
+]:
+    gym.register(
+        id=f"Go2-Ablation-{_id}-v0",
+        entry_point="isaaclab.envs:ManagerBasedRLEnv",
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:LowLevelWrenchEstAccuracyEnvCfg",
+            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:{_cfg}",
+        },
+    )
+
 
 # ── High-level non-linear sweep: 8 variations (R1-R8) ───────────────────────
 # 2x2x2: reward type (penalty/positive) x gravity correction x tracking reward

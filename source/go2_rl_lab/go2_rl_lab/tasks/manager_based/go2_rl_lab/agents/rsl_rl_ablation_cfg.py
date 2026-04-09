@@ -417,3 +417,31 @@ class AblationH12b_50Cfg(LowLevelRunnerCfg):
         tcn_mode="replacement", tcn_channels=[64, 64], tcn_kernel_size=3,
         tcn_dilations=[1, 2],
     )
+
+
+# ── H13a: 4D, h=30, default, est reward, TCN preprocessor (based on H7) ─
+
+@configclass
+class AblationH13a_50Cfg(LowLevelRunnerCfg):
+    experiment_name: str = "ablation_H13a_4d_h30_tcnpre_50N"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 50.0
+    estimator: dict = _est(
+        temporal_steps=30, force_dim=4,
+        tcn_mode="preprocessor", tcn_channels=[64, 64], tcn_kernel_size=3,
+        tcn_dilations=[1, 2],
+    )
+
+
+# ── H13b: 4D, h=30, default, est reward, TCN replacement (based on H7) ──
+
+@configclass
+class AblationH13b_50Cfg(LowLevelRunnerCfg):
+    experiment_name: str = "ablation_H13b_4d_h30_tcnrep_50N"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 50.0
+    estimator: dict = _est(
+        temporal_steps=30, force_dim=4,
+        tcn_mode="replacement", tcn_channels=[64, 64], tcn_kernel_size=3,
+        tcn_dilations=[1, 2],
+    )
