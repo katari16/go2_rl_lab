@@ -73,6 +73,13 @@ class CompliantOnPolicyRunner(OnPolicyRunner):
             rec_loss_weight=est_cfg.get("rec_loss_weight", 1.0),
             angle_min_force=est_cfg.get("angle_min_force", 1.0),
             max_grad_norm=est_cfg.get("max_grad_norm", 10.0),
+            torque_angle_loss_weight=est_cfg.get("torque_angle_loss_weight", 0.0),
+            torque_angle_min=est_cfg.get("torque_angle_min", 0.3),
+            yaw_loss_weight=est_cfg.get("yaw_loss_weight", 0.0),
+            tcn_mode=est_cfg.get("tcn_mode", "none"),
+            tcn_channels=est_cfg.get("tcn_channels", None),
+            tcn_kernel_size=est_cfg.get("tcn_kernel_size", 3),
+            tcn_dilations=est_cfg.get("tcn_dilations", None),
         ).to(device)
 
         # ── Load estimator from checkpoint if provided ───────────────────
@@ -366,8 +373,11 @@ class CompliantOnPolicyRunner(OnPolicyRunner):
             for key in ["force_loss", "angle_loss", "rec_loss", "mae_total",
                         "mae_x", "mae_y", "mae_z",
                         "mae_tau_roll", "mae_tau_pitch", "mae_tau_yaw",
+                        "torque_angle_loss", "yaw_loss",
                         "angle_err_mean_deg", "angle_err_median_deg",
-                        "gt_force_mean_mag", "pred_force_mean_mag"]:
+                        "gt_force_mean_mag", "pred_force_mean_mag",
+                        "grad_norm_encoder", "grad_norm_f_head",
+                        "grad_norm_decoder", "grad_norm_tcn"]:
                 if key in est:
                     self.writer.add_scalar(f"Estimator/{key}", est[key], it)
             if len(self._est_loss_buf) > 0:

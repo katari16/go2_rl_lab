@@ -24,6 +24,61 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
+class TemporalConvBlock(nn.Module):
+    """Single TCN block: dilated causal conv → activation → residual."""
+
+    def __init__(self, in_channels: int, out_channels: int, kernel_size: int,
+                 dilation: int, activation: nn.Module):
+        super().__init__()
+        padding = (kernel_size - 1) * dilation  # causal padding
+        self.conv = nn.Conv1d(in_channels, out_channels, kernel_size,
+                              dilation=dilation, padding=padding)
+        self.activation = activation
+        self.residual = nn.Conv1d(in_channels, out_channels, 1) if in_channels != out_channels else nn.Identity()
+        self.causal_trim = padding
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x: [batch, channels, time]
+        out = self.conv(x)
+        if self.causal_trim > 0:
+            out = out[:, :, :-self.causal_trim]
+        out = self.activation(out)
+        return out + self.residual(x)
+
+
+class TCN(nn.Module):
+    """Temporal Convolutional Network: stacked dilated causal convolutions.
+
+    Input:  [batch, time, features]
+    Output: [batch, time, features]  (same shape — preprocessor mode)
+    """
+
+    def __init__(self, num_features: int, num_channels: list[int],
+                 kernel_size: int = 3, dilations: list[int] | None = None,
+                 activation: str = "elu"):
+        super().__init__()
+        act_fn = _get_activation(activation)
+        if dilations is None:
+            dilations = [2 ** i for i in range(len(num_channels))]
+
+        layers: list[nn.Module] = []
+        in_ch = num_features
+        for i, out_ch in enumerate(num_channels):
+            layers.append(TemporalConvBlock(in_ch, out_ch, kernel_size, dilations[i], act_fn))
+            in_ch = out_ch
+        self.network = nn.Sequential(*layers)
+        # Project back to original feature dim if needed
+        self.proj = nn.Linear(in_ch, num_features) if in_ch != num_features else nn.Identity()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x: [batch, time, features]
+        out = x.permute(0, 2, 1)  # [batch, features, time]
+        out = self.network(out)
+        out = out.permute(0, 2, 1)  # [batch, time, features]
+        out = self.proj(out)
+        return out
+
+
 def _get_activation(name: str) -> nn.Module:
     activations = {
         "elu": nn.ELU(),
@@ -88,6 +143,10 @@ class ForceEstimator(nn.Module):
         torque_angle_loss_weight: float = 0.0,
         torque_angle_min: float = 0.3,
         yaw_loss_weight: float = 0.0,
+        tcn_mode: str = "none",
+        tcn_channels: list[int] | None = None,
+        tcn_kernel_size: int = 3,
+        tcn_dilations: list[int] | None = None,
         **kwargs,
     ) -> None:
         if kwargs:
@@ -121,9 +180,30 @@ class ForceEstimator(nn.Module):
         self.torque_angle_min = torque_angle_min
         self.yaw_loss_weight = yaw_loss_weight
 
+        # ── Optional TCN preprocessor/replacement ─────────────────────────
+        self.tcn_mode = tcn_mode  # "none", "preprocessor", "replacement"
+        self.tcn = None
+        if tcn_mode in ("preprocessor", "replacement"):
+            if tcn_channels is None:
+                tcn_channels = [64, 64]
+            self.tcn = TCN(
+                num_features=num_one_step_obs,
+                num_channels=tcn_channels,
+                kernel_size=tcn_kernel_size,
+                dilations=tcn_dilations,
+                activation=activation,
+            )
+            print(f"[ForceEstimator] TCN mode={tcn_mode}, channels={tcn_channels}, "
+                  f"kernel={tcn_kernel_size}, dilations={tcn_dilations}")
+
         # ── Encoder: o_t^H → z_t ─────────────────────────────────────────
         enc_input = temporal_steps * num_one_step_obs
-        self.encoder = _build_mlp([enc_input] + enc_hidden_dims, act_fn)
+        if tcn_mode == "replacement":
+            # TCN → global avg pool over time → project to enc_latent_dim
+            self.encoder = None
+            self.tcn_pool_proj = nn.Linear(num_one_step_obs, self.enc_latent_dim)
+        else:
+            self.encoder = _build_mlp([enc_input] + enc_hidden_dims, act_fn)
 
         # ── Force head: z_t → f̂_t ────────────────────────────────────────
         self.f_head = _build_mlp([self.enc_latent_dim] + f_head_dims + [force_dim], act_fn)
@@ -138,7 +218,19 @@ class ForceEstimator(nn.Module):
 
     def _forward(self, obs_history: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Shared forward pass returning (z_t, force_hat)."""
-        z_t = self.encoder(obs_history)
+        if self.tcn is not None:
+            # Reshape flat history to [batch, time, features]
+            x = obs_history.view(-1, self.temporal_steps, self.num_one_step_obs)
+            x = self.tcn(x)  # [batch, time, features]
+            if self.tcn_mode == "replacement":
+                # Global average pool over time → project to z_t
+                z_t = x.mean(dim=1)  # [batch, features]
+                z_t = self.tcn_pool_proj(z_t)
+            else:
+                # Preprocessor: flatten back and feed to MLP encoder
+                z_t = self.encoder(x.reshape(-1, self.temporal_steps * self.num_one_step_obs))
+        else:
+            z_t = self.encoder(obs_history)
         force_hat = self.f_head(z_t)
         return z_t, force_hat
 
@@ -253,7 +345,7 @@ class ForceEstimator(nn.Module):
         total_loss.backward()
 
         # Collect gradient norms BEFORE clipping
-        grad_norm_encoder = _grad_norm(self.encoder)
+        grad_norm_encoder = _grad_norm(self.encoder) if self.encoder is not None else 0.0
         grad_norm_f_head = _grad_norm(self.f_head)
         grad_norm_decoder = _grad_norm(self.decoder)
 
@@ -299,6 +391,7 @@ class ForceEstimator(nn.Module):
             "grad_norm_encoder": grad_norm_encoder,
             "grad_norm_f_head": grad_norm_f_head,
             "grad_norm_decoder": grad_norm_decoder,
+            "grad_norm_tcn": _grad_norm(self.tcn) if self.tcn is not None else 0.0,
         }
 
         # Add fz MAE if 3D

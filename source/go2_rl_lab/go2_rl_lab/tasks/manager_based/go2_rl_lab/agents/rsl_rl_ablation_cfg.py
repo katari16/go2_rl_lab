@@ -45,6 +45,10 @@ def _est(
     torque_angle_loss_weight: float = 0.0,
     torque_angle_min: float = 0.3,
     yaw_loss_weight: float = 0.0,
+    tcn_mode: str = "none",
+    tcn_channels: list[int] | None = None,
+    tcn_kernel_size: int = 3,
+    tcn_dilations: list[int] | None = None,
 ) -> dict:
     """Build estimator config dict, overriding only what changes."""
     d = {
@@ -63,6 +67,10 @@ def _est(
         "torque_angle_loss_weight": torque_angle_loss_weight,
         "torque_angle_min": torque_angle_min,
         "yaw_loss_weight": yaw_loss_weight,
+        "tcn_mode": tcn_mode,
+        "tcn_channels": tcn_channels,
+        "tcn_kernel_size": tcn_kernel_size,
+        "tcn_dilations": tcn_dilations,
     }
     return d
 
@@ -379,3 +387,33 @@ class AblationH9_100Cfg(LowLevelRunnerCfg):
     experiment_name: str = "ablation_H9_2d_h30_100N"
     max_force: float = 100.0
     estimator: dict = _est(temporal_steps=30, force_dim=2)
+
+
+# ── H12a: 6D, h=40, bigger, yaw_loss, TCN preprocessor (based on H3a) ───
+
+@configclass
+class AblationH12a_50Cfg(LowLevelRunnerCfg):
+    experiment_name: str = "ablation_H12a_6d_h40_tcnpre_50N"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 50.0
+    estimator: dict = _est(
+        temporal_steps=40, force_dim=6, enc_hidden_dims=[256, 128],
+        f_head_dims=[64, 32], yaw_loss_weight=3.0, torque_angle_loss_weight=3.0,
+        tcn_mode="preprocessor", tcn_channels=[64, 64], tcn_kernel_size=3,
+        tcn_dilations=[1, 2],
+    )
+
+
+# ── H12b: 6D, h=40, bigger, yaw_loss, TCN replacement (based on H3a) ────
+
+@configclass
+class AblationH12b_50Cfg(LowLevelRunnerCfg):
+    experiment_name: str = "ablation_H12b_6d_h40_tcnrep_50N"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 50.0
+    estimator: dict = _est(
+        temporal_steps=40, force_dim=6, enc_hidden_dims=[256, 128],
+        f_head_dims=[64, 32], yaw_loss_weight=3.0, torque_angle_loss_weight=3.0,
+        tcn_mode="replacement", tcn_channels=[64, 64], tcn_kernel_size=3,
+        tcn_dilations=[1, 2],
+    )
