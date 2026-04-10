@@ -401,108 +401,111 @@ def main():
         plt.tight_layout()
         figures.append(fig)
 
-        # ── Page 6c: Estimate vs GT time series per direction (largest mag) ──
-        fig, axes = plt.subplots(2, 5, figsize=(20, 8))
-        mag_str = str(float(magnitudes[-1]))
-        fig.suptitle(f"Force Estimate vs GT ({magnitudes[-1]:.0f}N) — Fx (blue) Fy (red)",
-                     fontsize=14, fontweight="bold")
+        # ── Page 6c: Estimate vs GT time series per direction (one page per magnitude) ──
+        for mag in magnitudes:
+            fig, axes = plt.subplots(2, 5, figsize=(20, 8))
+            mag_str = str(float(mag))
+            fig.suptitle(f"Force Estimate vs GT ({mag:.0f}N) — Fx (blue) Fy (red)",
+                         fontsize=14, fontweight="bold")
 
-        for j, deg in enumerate(DIRECTIONS_DEG):
-            ax = axes[j // 5, j % 5]
-            deg_str = str(float(deg))
-            trials = [t for t in results[mag_str][deg_str]
-                      if t["success"] and "force_est" in t]
-            if trials:
-                t0 = trials[0]
-                est = np.array(t0["force_est"])
-                gt = np.array(t0["force_xy"])
-                time_s = np.arange(len(est)) * dt
-                ax.axhline(gt[0], color="tab:blue", linestyle="--", alpha=0.5, label="GT Fx")
-                ax.axhline(gt[1], color="tab:red", linestyle="--", alpha=0.5, label="GT Fy")
-                ax.plot(time_s, est[:, 0], color="tab:blue", linewidth=1, label="Est Fx")
-                ax.plot(time_s, est[:, 1], color="tab:red", linewidth=1, label="Est Fy")
-            ax.set_title(f"{deg:.0f}°", fontsize=9)
-            ax.set_xlabel("Time (s)", fontsize=8)
-            ax.set_ylabel("Force (N)", fontsize=8)
-            ax.tick_params(labelsize=7)
-            ax.grid(True, alpha=0.3)
-            if j == 0:
-                ax.legend(fontsize=6)
+            for j, deg in enumerate(DIRECTIONS_DEG):
+                ax = axes[j // 5, j % 5]
+                deg_str = str(float(deg))
+                trials = [t for t in results[mag_str][deg_str]
+                          if t["success"] and "force_est" in t]
+                if trials:
+                    t0 = trials[0]
+                    est = np.array(t0["force_est"])
+                    gt = np.array(t0["force_xy"])
+                    time_s = np.arange(len(est)) * dt
+                    ax.axhline(gt[0], color="tab:blue", linestyle="--", alpha=0.5, label="GT Fx")
+                    ax.axhline(gt[1], color="tab:red", linestyle="--", alpha=0.5, label="GT Fy")
+                    ax.plot(time_s, est[:, 0], color="tab:blue", linewidth=1, label="Est Fx")
+                    ax.plot(time_s, est[:, 1], color="tab:red", linewidth=1, label="Est Fy")
+                ax.set_title(f"{deg:.0f}°", fontsize=9)
+                ax.set_xlabel("Time (s)", fontsize=8)
+                ax.set_ylabel("Force (N)", fontsize=8)
+                ax.tick_params(labelsize=7)
+                ax.grid(True, alpha=0.3)
+                if j == 0:
+                    ax.legend(fontsize=6)
 
-        plt.tight_layout()
-        figures.append(fig)
+            plt.tight_layout()
+            figures.append(fig)
 
-        # ── Page 6d: Force error time series per direction (MAE, median AE, RMSE) ──
-        fig, axes = plt.subplots(2, 5, figsize=(20, 8))
-        mag_str = str(float(magnitudes[-1]))
-        fig.suptitle(f"Force Estimation Error Over Time ({magnitudes[-1]:.0f}N) — "
-                     "mean+std across trials",
-                     fontsize=14, fontweight="bold")
+        # ── Page 6d: Force error time series per direction (one page per magnitude) ──
+        for mag in magnitudes:
+            fig, axes = plt.subplots(2, 5, figsize=(20, 8))
+            mag_str = str(float(mag))
+            fig.suptitle(f"Force Estimation Error Over Time ({mag:.0f}N) — "
+                         "mean+std across trials",
+                         fontsize=14, fontweight="bold")
 
-        for j, deg in enumerate(DIRECTIONS_DEG):
-            ax = axes[j // 5, j % 5]
-            deg_str = str(float(deg))
-            trials = [t for t in results[mag_str][deg_str]
-                      if t["success"] and t.get("estimator_ae_per_step") is not None]
-            if trials:
-                max_len = max(len(t["estimator_ae_per_step"]) for t in trials)
-                ae_all = []
-                for t in trials:
-                    ae = np.array(t["estimator_ae_per_step"])
-                    if len(ae) < max_len:
-                        ae = np.pad(ae, (0, max_len - len(ae)), constant_values=np.nan)
-                    ae_all.append(ae)
-                ae_all = np.array(ae_all)
-                time_s = np.arange(max_len) * dt
-                mean_ae = np.nanmean(ae_all, axis=0)
-                std_ae = np.nanstd(ae_all, axis=0)
-                ax.plot(time_s, mean_ae, color="tab:purple", linewidth=1.5, label="L2 error")
-                ax.fill_between(time_s, mean_ae - std_ae, mean_ae + std_ae,
-                                alpha=0.2, color="tab:purple")
-            ax.set_title(f"{deg:.0f}°", fontsize=9)
-            ax.set_xlabel("Time (s)", fontsize=8)
-            ax.set_ylabel("Error (N)", fontsize=8)
-            ax.tick_params(labelsize=7)
-            ax.grid(True, alpha=0.3)
+            for j, deg in enumerate(DIRECTIONS_DEG):
+                ax = axes[j // 5, j % 5]
+                deg_str = str(float(deg))
+                trials = [t for t in results[mag_str][deg_str]
+                          if t["success"] and t.get("estimator_ae_per_step") is not None]
+                if trials:
+                    max_len = max(len(t["estimator_ae_per_step"]) for t in trials)
+                    ae_all = []
+                    for t in trials:
+                        ae = np.array(t["estimator_ae_per_step"])
+                        if len(ae) < max_len:
+                            ae = np.pad(ae, (0, max_len - len(ae)), constant_values=np.nan)
+                        ae_all.append(ae)
+                    ae_all = np.array(ae_all)
+                    time_s = np.arange(max_len) * dt
+                    mean_ae = np.nanmean(ae_all, axis=0)
+                    std_ae = np.nanstd(ae_all, axis=0)
+                    ax.plot(time_s, mean_ae, color="tab:purple", linewidth=1.5, label="L2 error")
+                    ax.fill_between(time_s, mean_ae - std_ae, mean_ae + std_ae,
+                                    alpha=0.2, color="tab:purple")
+                ax.set_title(f"{deg:.0f}°", fontsize=9)
+                ax.set_xlabel("Time (s)", fontsize=8)
+                ax.set_ylabel("Error (N)", fontsize=8)
+                ax.tick_params(labelsize=7)
+                ax.grid(True, alpha=0.3)
 
-        plt.tight_layout()
-        figures.append(fig)
+            plt.tight_layout()
+            figures.append(fig)
 
-        # ── Page 6e: Angular error time series per direction ──
-        fig, axes = plt.subplots(2, 5, figsize=(20, 8))
-        mag_str = str(float(magnitudes[-1]))
-        fig.suptitle(f"Angular Error Over Time ({magnitudes[-1]:.0f}N) — "
-                     "mean+std across trials",
-                     fontsize=14, fontweight="bold")
+        # ── Page 6e: Angular error time series per direction (one page per magnitude) ──
+        for mag in magnitudes:
+            fig, axes = plt.subplots(2, 5, figsize=(20, 8))
+            mag_str = str(float(mag))
+            fig.suptitle(f"Angular Error Over Time ({mag:.0f}N) — "
+                         "mean+std across trials",
+                         fontsize=14, fontweight="bold")
 
-        for j, deg in enumerate(DIRECTIONS_DEG):
-            ax = axes[j // 5, j % 5]
-            deg_str = str(float(deg))
-            trials = [t for t in results[mag_str][deg_str]
-                      if t["success"] and t.get("estimator_angle_err_deg") is not None]
-            if trials:
-                max_len = max(len(t["estimator_angle_err_deg"]) for t in trials)
-                ang_all = []
-                for t in trials:
-                    ang = np.array(t["estimator_angle_err_deg"])
-                    if len(ang) < max_len:
-                        ang = np.pad(ang, (0, max_len - len(ang)), constant_values=np.nan)
-                    ang_all.append(ang)
-                ang_all = np.array(ang_all)
-                time_s = np.arange(max_len) * dt
-                mean_ang = np.nanmean(ang_all, axis=0)
-                std_ang = np.nanstd(ang_all, axis=0)
-                ax.plot(time_s, mean_ang, color="tab:orange", linewidth=1.5, label="Angle err")
-                ax.fill_between(time_s, mean_ang - std_ang, mean_ang + std_ang,
-                                alpha=0.2, color="tab:orange")
-            ax.set_title(f"{deg:.0f}°", fontsize=9)
-            ax.set_xlabel("Time (s)", fontsize=8)
-            ax.set_ylabel("Angle Error (°)", fontsize=8)
-            ax.tick_params(labelsize=7)
-            ax.grid(True, alpha=0.3)
+            for j, deg in enumerate(DIRECTIONS_DEG):
+                ax = axes[j // 5, j % 5]
+                deg_str = str(float(deg))
+                trials = [t for t in results[mag_str][deg_str]
+                          if t["success"] and t.get("estimator_angle_err_deg") is not None]
+                if trials:
+                    max_len = max(len(t["estimator_angle_err_deg"]) for t in trials)
+                    ang_all = []
+                    for t in trials:
+                        ang = np.array(t["estimator_angle_err_deg"])
+                        if len(ang) < max_len:
+                            ang = np.pad(ang, (0, max_len - len(ang)), constant_values=np.nan)
+                        ang_all.append(ang)
+                    ang_all = np.array(ang_all)
+                    time_s = np.arange(max_len) * dt
+                    mean_ang = np.nanmean(ang_all, axis=0)
+                    std_ang = np.nanstd(ang_all, axis=0)
+                    ax.plot(time_s, mean_ang, color="tab:orange", linewidth=1.5, label="Angle err")
+                    ax.fill_between(time_s, mean_ang - std_ang, mean_ang + std_ang,
+                                    alpha=0.2, color="tab:orange")
+                ax.set_title(f"{deg:.0f}°", fontsize=9)
+                ax.set_xlabel("Time (s)", fontsize=8)
+                ax.set_ylabel("Angle Error (°)", fontsize=8)
+                ax.tick_params(labelsize=7)
+                ax.grid(True, alpha=0.3)
 
-        plt.tight_layout()
-        figures.append(fig)
+            plt.tight_layout()
+            figures.append(fig)
 
         # ── Page 6f: MAE / Median AE / Relative Error vs direction ──
         fig, axes = plt.subplots(1, 3, figsize=(18, 5))
