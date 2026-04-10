@@ -156,11 +156,39 @@ def main():
                     # Compare only XY (first 2 dims of estimate)
                     err = est[:, :2] - gt[np.newaxis, :]
                     mse_per_step = np.mean(err ** 2, axis=1)  # [T]
+                    ae_per_step = np.linalg.norm(err, axis=1)  # [T] — L2 error per step
                     t["estimator_mse"] = float(np.mean(mse_per_step))
                     t["estimator_mse_per_step"] = mse_per_step
+                    t["estimator_mae"] = float(np.mean(ae_per_step))
+                    t["estimator_median_ae"] = float(np.median(ae_per_step))
+                    t["estimator_rmse"] = float(np.sqrt(np.mean(mse_per_step)))
+                    gt_mag = np.linalg.norm(gt)
+                    t["estimator_relative_err"] = float(t["estimator_mae"] / gt_mag * 100) if gt_mag > 1e-3 else 0.0
+                    t["estimator_ae_per_step"] = ae_per_step
+                    # Per-axis MAE
+                    t["estimator_mae_x"] = float(np.mean(np.abs(err[:, 0])))
+                    t["estimator_mae_y"] = float(np.mean(np.abs(err[:, 1])))
+                    # Angular error (degrees)
+                    gt_angle = np.arctan2(gt[1], gt[0])
+                    est_angles = np.arctan2(est[:, 1], est[:, 0])
+                    angle_diff = est_angles - gt_angle
+                    angle_diff = np.arctan2(np.sin(angle_diff), np.cos(angle_diff))
+                    t["estimator_angle_err_deg"] = np.abs(angle_diff) * (180.0 / np.pi)
+                    t["estimator_angle_err_mean"] = float(np.mean(t["estimator_angle_err_deg"]))
+                    t["estimator_angle_err_median"] = float(np.median(t["estimator_angle_err_deg"]))
                 else:
                     t["estimator_mse"] = None
                     t["estimator_mse_per_step"] = None
+                    t["estimator_mae"] = None
+                    t["estimator_median_ae"] = None
+                    t["estimator_rmse"] = None
+                    t["estimator_relative_err"] = None
+                    t["estimator_ae_per_step"] = None
+                    t["estimator_mae_x"] = None
+                    t["estimator_mae_y"] = None
+                    t["estimator_angle_err_deg"] = None
+                    t["estimator_angle_err_mean"] = None
+                    t["estimator_angle_err_median"] = None
 
     # ── Print summary to terminal ────────────────────────────────────────
     print(f"\n{'=' * 70}")
@@ -177,11 +205,24 @@ def main():
         succ = [t for t in all_trials if t["success"]]
         n_total = len(all_trials)
         n_succ = len(succ)
-        print(f"  {mag:.0f}N: {n_succ}/{n_total} success "
-              f"({100 * n_succ / n_total:.0f}%)"
-              f"  peak_disp={np.mean([t['peak_displacement'] for t in succ]):.3f}m"
-              f"  C={np.mean([t['effective_compliance'] for t in succ]):.4f} s/kg"
-              if succ else f"  {mag:.0f}N: 0/{n_total} success")
+        if succ:
+            line = (f"  {mag:.0f}N: {n_succ}/{n_total} success "
+                    f"({100 * n_succ / n_total:.0f}%)"
+                    f"  peak_disp={np.mean([t['peak_displacement'] for t in succ]):.3f}m"
+                    f"  C={np.mean([t['effective_compliance'] for t in succ]):.4f} s/kg")
+            if has_estimator:
+                maes = [t['estimator_mae'] for t in succ if t['estimator_mae'] is not None]
+                med_aes = [t['estimator_median_ae'] for t in succ if t['estimator_median_ae'] is not None]
+                rel_errs = [t['estimator_relative_err'] for t in succ if t['estimator_relative_err'] is not None]
+                ang_errs = [t['estimator_angle_err_median'] for t in succ if t['estimator_angle_err_median'] is not None]
+                if maes:
+                    line += (f"\n         MAE={np.mean(maes):.2f}N"
+                             f"  MedianAE={np.mean(med_aes):.2f}N"
+                             f"  RelErr={np.mean(rel_errs):.1f}%"
+                             f"  AngErr(med)={np.mean(ang_errs):.1f}°")
+            print(line)
+        else:
+            print(f"  {mag:.0f}N: 0/{n_total} success")
 
     # ── Generate plots ───────────────────────────────────────────────────
     figures = []
@@ -391,13 +432,147 @@ def main():
         plt.tight_layout()
         figures.append(fig)
 
+        # ── Page 6d: Force error time series per direction (MAE, median AE, RMSE) ──
+        fig, axes = plt.subplots(2, 5, figsize=(20, 8))
+        mag_str = str(float(magnitudes[-1]))
+        fig.suptitle(f"Force Estimation Error Over Time ({magnitudes[-1]:.0f}N) — "
+                     "mean+std across trials",
+                     fontsize=14, fontweight="bold")
+
+        for j, deg in enumerate(DIRECTIONS_DEG):
+            ax = axes[j // 5, j % 5]
+            deg_str = str(float(deg))
+            trials = [t for t in results[mag_str][deg_str]
+                      if t["success"] and t.get("estimator_ae_per_step") is not None]
+            if trials:
+                max_len = max(len(t["estimator_ae_per_step"]) for t in trials)
+                ae_all = []
+                for t in trials:
+                    ae = np.array(t["estimator_ae_per_step"])
+                    if len(ae) < max_len:
+                        ae = np.pad(ae, (0, max_len - len(ae)), constant_values=np.nan)
+                    ae_all.append(ae)
+                ae_all = np.array(ae_all)
+                time_s = np.arange(max_len) * dt
+                mean_ae = np.nanmean(ae_all, axis=0)
+                std_ae = np.nanstd(ae_all, axis=0)
+                ax.plot(time_s, mean_ae, color="tab:purple", linewidth=1.5, label="L2 error")
+                ax.fill_between(time_s, mean_ae - std_ae, mean_ae + std_ae,
+                                alpha=0.2, color="tab:purple")
+            ax.set_title(f"{deg:.0f}°", fontsize=9)
+            ax.set_xlabel("Time (s)", fontsize=8)
+            ax.set_ylabel("Error (N)", fontsize=8)
+            ax.tick_params(labelsize=7)
+            ax.grid(True, alpha=0.3)
+
+        plt.tight_layout()
+        figures.append(fig)
+
+        # ── Page 6e: Angular error time series per direction ──
+        fig, axes = plt.subplots(2, 5, figsize=(20, 8))
+        mag_str = str(float(magnitudes[-1]))
+        fig.suptitle(f"Angular Error Over Time ({magnitudes[-1]:.0f}N) — "
+                     "mean+std across trials",
+                     fontsize=14, fontweight="bold")
+
+        for j, deg in enumerate(DIRECTIONS_DEG):
+            ax = axes[j // 5, j % 5]
+            deg_str = str(float(deg))
+            trials = [t for t in results[mag_str][deg_str]
+                      if t["success"] and t.get("estimator_angle_err_deg") is not None]
+            if trials:
+                max_len = max(len(t["estimator_angle_err_deg"]) for t in trials)
+                ang_all = []
+                for t in trials:
+                    ang = np.array(t["estimator_angle_err_deg"])
+                    if len(ang) < max_len:
+                        ang = np.pad(ang, (0, max_len - len(ang)), constant_values=np.nan)
+                    ang_all.append(ang)
+                ang_all = np.array(ang_all)
+                time_s = np.arange(max_len) * dt
+                mean_ang = np.nanmean(ang_all, axis=0)
+                std_ang = np.nanstd(ang_all, axis=0)
+                ax.plot(time_s, mean_ang, color="tab:orange", linewidth=1.5, label="Angle err")
+                ax.fill_between(time_s, mean_ang - std_ang, mean_ang + std_ang,
+                                alpha=0.2, color="tab:orange")
+            ax.set_title(f"{deg:.0f}°", fontsize=9)
+            ax.set_xlabel("Time (s)", fontsize=8)
+            ax.set_ylabel("Angle Error (°)", fontsize=8)
+            ax.tick_params(labelsize=7)
+            ax.grid(True, alpha=0.3)
+
+        plt.tight_layout()
+        figures.append(fig)
+
+        # ── Page 6f: MAE / Median AE / Relative Error vs direction ──
+        fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+        fig.suptitle("Force Estimation Metrics vs Direction", fontsize=14, fontweight="bold")
+
+        for metric_idx, (metric_key, metric_label, color) in enumerate([
+            ("estimator_mae", "MAE (N)", "tab:blue"),
+            ("estimator_median_ae", "Median AE (N)", "tab:green"),
+            ("estimator_relative_err", "Relative Error (%)", "tab:red"),
+        ]):
+            ax = axes[metric_idx]
+            for mag in magnitudes:
+                mag_str = str(float(mag))
+                means, stds = [], []
+                for deg in DIRECTIONS_DEG:
+                    deg_str = str(float(deg))
+                    vals = [t[metric_key] for t in results[mag_str][deg_str]
+                            if t["success"] and t[metric_key] is not None]
+                    means.append(np.mean(vals) if vals else 0.0)
+                    stds.append(np.std(vals) if vals else 0.0)
+                means = np.array(means)
+                stds = np.array(stds)
+                ax.errorbar(DIRECTIONS_DEG, means, yerr=stds, marker="o",
+                             capsize=3, linewidth=1.5, label=f"{mag:.0f}N")
+            ax.set_xlabel("Force Direction (deg)")
+            ax.set_ylabel(metric_label)
+            ax.set_title(metric_label, fontsize=12)
+            ax.set_xticks(DIRECTIONS_DEG)
+            ax.legend()
+            ax.grid(True, alpha=0.3)
+
+        plt.tight_layout()
+        figures.append(fig)
+
+        # ── Page 6g: Per-axis MAE vs direction ──
+        fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+        fig.suptitle("Per-Axis MAE vs Direction", fontsize=14, fontweight="bold")
+
+        for ax_idx, (axis_key, axis_label) in enumerate([
+            ("estimator_mae_x", "MAE Fx (N)"),
+            ("estimator_mae_y", "MAE Fy (N)"),
+        ]):
+            ax = axes[ax_idx]
+            for mag in magnitudes:
+                mag_str = str(float(mag))
+                means = []
+                for deg in DIRECTIONS_DEG:
+                    deg_str = str(float(deg))
+                    vals = [t[axis_key] for t in results[mag_str][deg_str]
+                            if t["success"] and t[axis_key] is not None]
+                    means.append(np.mean(vals) if vals else 0.0)
+                ax.plot(DIRECTIONS_DEG, means, marker="o", linewidth=1.5, label=f"{mag:.0f}N")
+            ax.set_xlabel("Force Direction (deg)")
+            ax.set_ylabel(axis_label)
+            ax.set_title(axis_label, fontsize=12)
+            ax.set_xticks(DIRECTIONS_DEG)
+            ax.legend()
+            ax.grid(True, alpha=0.3)
+
+        plt.tight_layout()
+        figures.append(fig)
+
     # ── Summary table ────────────────────────────────────────────────
-    fig, ax = plt.subplots(figsize=(14, 2 + len(magnitudes) * 0.6))
+    fig, ax = plt.subplots(figsize=(22, 2 + len(magnitudes) * 0.6))
     ax.axis("off")
     headers = ["Mag (N)", "Success %", "Peak Disp (m)", "Compliance (s/kg)",
                "SS Vel (m/s)", "Mean Disp (m)"]
     if has_estimator:
-        headers.append("Est RMSE (N)")
+        headers.extend(["MAE (N)", "Median AE (N)", "RMSE (N)", "Rel Err %",
+                         "MAE x (N)", "MAE y (N)", "Ang Err med (°)"])
     rows = []
     for mag in magnitudes:
         mag_str = str(float(mag))
@@ -419,17 +594,23 @@ def main():
                 f"{np.std([t['mean_displacement'] for t in succ]):.3f}",
             ]
             if has_estimator:
-                mses = [t["estimator_mse"] for t in succ if t["estimator_mse"] is not None]
-                if mses:
-                    rmse = np.mean(mses) ** 0.5
-                    row.append(f"{rmse:.3f}")
-                else:
-                    row.append("N/A")
+                def _avg(key):
+                    vals = [t[key] for t in succ if t[key] is not None]
+                    return np.mean(vals) if vals else float("nan")
+                row.extend([
+                    f"{_avg('estimator_mae'):.2f}",
+                    f"{_avg('estimator_median_ae'):.2f}",
+                    f"{_avg('estimator_rmse'):.2f}",
+                    f"{_avg('estimator_relative_err'):.1f}",
+                    f"{_avg('estimator_mae_x'):.2f}",
+                    f"{_avg('estimator_mae_y'):.2f}",
+                    f"{_avg('estimator_angle_err_median'):.1f}",
+                ])
             rows.append(row)
         else:
             row = [f"{mag:.0f}", "0%", "N/A", "N/A", "N/A", "N/A"]
             if has_estimator:
-                row.append("N/A")
+                row.extend(["N/A"] * 7)
             rows.append(row)
 
     table = ax.table(cellText=rows, colLabels=headers, loc="center", cellLoc="center")
