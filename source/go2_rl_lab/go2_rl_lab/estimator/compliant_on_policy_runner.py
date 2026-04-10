@@ -40,6 +40,7 @@ class CompliantOnPolicyRunner(OnPolicyRunner):
         self._angular_threshold: float = train_cfg.get("estimator_angular_threshold", 7.0)
         self._force_event_term: str = train_cfg.get("force_event_term_name", "persistent_xy_force")
         self._max_force: float = train_cfg.get("max_force", 20.0)
+        self._max_torque: float = train_cfg.get("max_torque", 5.0)
 
         # Compliance parameters
         self._compliance_alpha: float = train_cfg.get("compliance_alpha", 5.0)
@@ -314,10 +315,14 @@ class CompliantOnPolicyRunner(OnPolicyRunner):
             isaac_env = self.env.unwrapped
             event_cfg = isaac_env.event_manager.get_term_cfg(self._force_event_term)
             event_cfg.params["force_range"] = (0.0, self._max_force)
+            if "torque_range" in event_cfg.params:
+                event_cfg.params["torque_range"] = (0.0, self._max_torque)
             print(
                 f"\n{'=' * 80}\n"
                 f"  [CompliantRunner] PHASE 2: Mean reward {mean_rew:.1f} >= {self._force_threshold:.1f}\n"
-                f"  Forces activated at {self._max_force:.0f}N. Estimator training begins.\n"
+                f"  Forces activated at {self._max_force:.0f}N"
+                + (f", torques at {self._max_torque:.1f}Nm" if "torque_range" in event_cfg.params else "")
+                + f". Estimator training begins.\n"
                 f"{'=' * 80}"
             )
 
@@ -444,6 +449,8 @@ class CompliantOnPolicyRunner(OnPolicyRunner):
             isaac_env = self.env.unwrapped
             event_cfg = isaac_env.event_manager.get_term_cfg(self._force_event_term)
             event_cfg.params["force_range"] = (0.0, self._max_force)
+            if "torque_range" in event_cfg.params:
+                event_cfg.params["torque_range"] = (0.0, self._max_torque)
         if state.get("mapping_active"):
             self._mapping_active = True
             isaac_env = self.env.unwrapped

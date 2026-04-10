@@ -94,6 +94,41 @@ Based on H3a (6D, h=40, bigger net, yaw+tq_angle losses). These runs use the fix
 - **H12a vs H12b / H13a vs H13b:** Preprocessor (hybrid) vs replacement (pure TCN)
 
 
+## Batch 4 — Trapezoid force profile (50N only, branch: `feature/estimator-ablation`)
+
+PAINT-style piecewise-linear force envelope with stratified magnitude buckets.
+Addresses two training distribution gaps: (1) magnitude clustering around 35-45N,
+(2) constant force profile (no ramps/transitions in estimator history).
+
+**Known bug (all runs before this batch):** `torque_range` was set to `(0, 5Nm)` from env init, not gated by the curriculum. Torques were applied during phase 1 (walking-only) before the estimator started training. **Fixed:** `torque_range` now starts at `(0, 0)` and is activated alongside `force_range` by the runner's curriculum gate.
+
+| ID | Log dir | Dims | h | Network | Force profile | Buckets | Baseline |
+|----|---------|------|---|---------|---------------|---------|----------|
+| H14 | `ablation_H14_6d_h40_big_yaw_trap_50N` | 6D | 40 | bigger | trapezoid (ramp 0.2-0.8s, hold 2-5s, zero 0.5-2s, p_zero=0.02) | [0, 0-10, 10-25, 25-50]N | H3a-50N |
+
+### Force profile details
+
+Envelope s(t) per cycle:
+```
+ramp_up (0.2-0.8s) → hold (2.0-5.0s) → ramp_down (0.2-0.8s) → zero (0.5-2.0s)
+```
+Target force sampled once per cycle within the env's assigned magnitude bucket.
+2% of cycles are zero-wrench (null case training). Ramp durations randomized per cycle.
+
+### Magnitude buckets (4096 envs ÷ 4)
+
+| Bucket | Envs | Force range | Purpose |
+|--------|------|-------------|---------|
+| 0 | 0-1023 | 0 N | Null case, prevent baseline bias |
+| 1 | 1024-2047 | 0-10 N | Payload-level forces |
+| 2 | 2048-3071 | 10-25 N | Mid-range |
+| 3 | 3072-4095 | 25-50 N | High forces |
+
+### Ablation axes
+
+- **H14 vs H3a:** Effect of trapezoid force profile + stratified buckets on 6D estimation
+
+
 ## Environment configs reference
 
 | Env config | Force type | Torque range | Extra rewards |
@@ -103,6 +138,7 @@ Based on H3a (6D, h=40, bigger net, yaw+tq_angle losses). These runs use the fix
 | `LowLevelWrenchHighTorqueEnvCfg` | 6D wrench | 0-10 Nm | baseline |
 | `LowLevelEstAccuracyEnvCfg` | XYZ force only | N/A | + force_est_accuracy (w=0.5) |
 | `LowLevelWrenchEstAccuracyEnvCfg` | 6D wrench | 0-5 Nm | + force_est_accuracy (w=0.5) |
+| `LowLevelWrenchTrapezoidEnvCfg` | 6D trapezoid wrench (stratified buckets) | 0-5 Nm | baseline |
 
 ## Network architecture reference
 

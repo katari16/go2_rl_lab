@@ -227,24 +227,7 @@ def main():
     # ── Generate plots ───────────────────────────────────────────────────
     figures = []
 
-    # ── Page 1: Success rate heatmap ─────────────────────────────────
-    success_2d = np.zeros((len(magnitudes), NUM_DIRECTIONS))
-    for i, mag in enumerate(magnitudes):
-        mag_str = str(float(mag))
-        for j, deg in enumerate(DIRECTIONS_DEG):
-            trials = results[mag_str][str(float(deg))]
-            if trials:
-                success_2d[i, j] = np.mean([t["success"] for t in trials]) * 100
-
-    fig, ax = plt.subplots(figsize=(8, 8), subplot_kw={"projection": "polar"})
-    fig.suptitle("Static Compliance — Success Rate (%)", fontsize=14, fontweight="bold")
-    mesh = polar_heatmap(ax, DIRECTIONS_DEG, np.array(magnitudes), success_2d,
-                         "Success Rate (%)")
-    fig.colorbar(mesh, ax=ax, label="%", shrink=0.8)
-    plt.tight_layout()
-    figures.append(fig)
-
-    # ── Page 2: Effective compliance vs direction (one line per magnitude) ──
+    # ── Page 1: Effective compliance vs direction (one line per magnitude) ──
     fig, ax = plt.subplots(figsize=(10, 5))
     for mag in magnitudes:
         mag_str = str(float(mag))

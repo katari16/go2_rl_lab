@@ -22,7 +22,7 @@ from .go2_lowlevel_env_cfg import (
     ObservationsCfg,
     RewardsCfg,
 )
-from .mdp.events import apply_persistent_wrench
+from .mdp.events import apply_persistent_wrench, apply_trapezoid_wrench
 from .mdp.observations import (
     ForceEstimateObsTerm,
     applied_torque,
@@ -55,7 +55,7 @@ class WrenchEventCfg(EventCfg):
             "asset_cfg": SceneEntityCfg("robot", body_names="base"),
             "force_range": (0.0, 0.0),  # curriculum sets to (0, max_force)
             "fz_scale": 0.6,
-            "torque_range": (0.0, 5.0),
+            "torque_range": (0.0, 0.0),  # curriculum sets to (0, max_torque)
         },
     )
 
@@ -130,7 +130,7 @@ class WrenchHighTorqueEventCfg(EventCfg):
             "asset_cfg": SceneEntityCfg("robot", body_names="base"),
             "force_range": (0.0, 0.0),
             "fz_scale": 0.6,
-            "torque_range": (0.0, 10.0),
+            "torque_range": (0.0, 0.0),  # curriculum sets to (0, max_torque)
         },
     )
 
@@ -142,7 +142,50 @@ class LowLevelWrenchHighTorqueEnvCfg(LowLevelWrenchEnvCfg):
     events: WrenchHighTorqueEventCfg = WrenchHighTorqueEventCfg()
 
 
-# ── 1c. Force estimation accuracy reward envs (H7, H8) ─────────────────────
+# ── 1c. Trapezoid wrench env (PAINT-style force profile) ────────────────────
+
+
+@configclass
+class TrapezoidWrenchEventCfg(EventCfg):
+    """Swaps persistent_xyz_force → trapezoid wrench with stratified buckets."""
+
+    persistent_xyz_force = None  # remove parent's XYZ-only event
+
+    persistent_wrench = EventTerm(
+        func=apply_trapezoid_wrench,
+        mode="interval",
+        interval_range_s=(0.02, 0.02),  # fire every control step
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names="base"),
+            "force_range": (0.0, 0.0),  # curriculum sets to (0, max_force)
+            "fz_scale": 0.6,
+            "torque_range": (0.0, 0.0),  # curriculum sets to (0, max_torque)
+            "ramp_s_range": (0.2, 0.8),
+            "hold_s_range": (2.0, 5.0),
+            "zero_s_range": (0.5, 2.0),
+            "zero_prob": 0.02,
+            "bucket_fracs": (
+                (0.0, 0.0), (0.0, 0.2), (0.2, 0.5), (0.5, 1.0),
+            ),
+        },
+    )
+
+
+@configclass
+class LowLevelWrenchTrapezoidEnvCfg(LowLevelEnvCfg):
+    """6D wrench env with PAINT-style trapezoid force profile.
+
+    Changes from LowLevelEnvCfg:
+    - Event: apply_trapezoid_wrench (forces + torques, stratified buckets)
+    - Critic: 6D wrench GT instead of 3D force GT
+    - force_event_term_name must be "persistent_wrench" in runner cfg
+    """
+
+    events: TrapezoidWrenchEventCfg = TrapezoidWrenchEventCfg()
+    observations: WrenchObservationsCfg = WrenchObservationsCfg()
+
+
+# ── 1d. Force estimation accuracy reward envs (H7, H8) ─────────────────────
 
 
 @configclass

@@ -232,6 +232,29 @@ for _id, _cfg in [
     )
 
 
+# H15: H3a rerun with bug fixes (constant force, yaw loss + torque gating fixed)
+gym.register(
+    id="Go2-Ablation-H15-50N-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:LowLevelWrenchEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:AblationH15_50Cfg",
+    },
+)
+
+# H14: Trapezoid force profile ablation (6D wrench, based on H3a)
+gym.register(
+    id="Go2-Ablation-H14-50N-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:LowLevelWrenchTrapezoidEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:AblationH14_50Cfg",
+    },
+)
+
+
 # ── High-level non-linear sweep: 8 variations (R1-R8) ───────────────────────
 # 2x2x2: reward type (penalty/positive) x gravity correction x tracking reward
 for _r in range(1, 9):

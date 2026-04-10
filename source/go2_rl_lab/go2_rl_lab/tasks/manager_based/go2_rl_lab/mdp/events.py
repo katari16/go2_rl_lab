@@ -200,6 +200,206 @@ def apply_persistent_wrench(
     )
 
 
+# ── Trapezoid force profile (PAINT-style) ────────────────────────────────────
+# Phase constants for the piecewise-linear envelope
+_TRAP_RAMP_UP = 0
+_TRAP_HOLD = 1
+_TRAP_RAMP_DOWN = 2
+_TRAP_ZERO = 3
+
+
+def apply_trapezoid_wrench(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    force_range: tuple[float, float],
+    fz_scale: float = 0.6,
+    torque_range: tuple[float, float] = (0.0, 0.0),
+    ramp_s_range: tuple[float, float] = (0.2, 0.8),
+    hold_s_range: tuple[float, float] = (2.0, 5.0),
+    zero_s_range: tuple[float, float] = (0.5, 2.0),
+    zero_prob: float = 0.02,
+    bucket_fracs: tuple[tuple[float, float], ...] = (
+        (0.0, 0.0), (0.0, 0.2), (0.2, 0.5), (0.5, 1.0),
+    ),
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names="base"),
+) -> None:
+    """Apply PAINT-style trapezoid wrench with stratified magnitude buckets.
+
+    Must be used with ``interval_range_s`` matching the control dt (e.g. 0.02)
+    so it fires every step. The function manages its own cycle internally:
+    each env goes through ramp_up → hold → ramp_down → zero → ramp_up → ...
+
+    On each new cycle, a target force+torque is sampled within the env's
+    magnitude bucket. The applied wrench is ``target * s(t)`` where s(t) is
+    a piecewise-linear envelope (Eq. 12 from PAINT).
+
+    Args:
+        env: The environment instance.
+        env_ids: Environment indices (all envs every step).
+        force_range: (min, max) — max is set by the curriculum. Bucket ranges
+            are fractions of force_range[1].
+        fz_scale: Scale for Z force relative to XY.
+        torque_range: (min, max) for each torque axis.
+        ramp_s_range: Duration range for ramp up/down phases (seconds).
+        hold_s_range: Duration range for hold phase (seconds).
+        zero_s_range: Duration range for zero-force gap (seconds).
+        zero_prob: Probability of sampling a full-zero cycle.
+        bucket_fracs: Per-bucket (lo_frac, hi_frac) of max force. Envs are
+            divided equally among buckets by index.
+        asset_cfg: Asset and body to apply wrench to.
+    """
+    asset: RigidObject | Articulation = env.scene[asset_cfg.name]
+    device = asset.device
+    N = env.scene.num_envs
+    dt = env.step_dt
+    num_bodies = len(asset_cfg.body_ids) if isinstance(asset_cfg.body_ids, list) else asset.num_bodies
+    f_max = float(force_range[1])
+    t_max = float(torque_range[1])
+
+    # ── First-call init: allocate per-env state ──────────────────────────
+    if not hasattr(env, "_trap"):
+        num_buckets = len(bucket_fracs)
+        bucket_size = N // num_buckets
+        bucket_lo = torch.zeros(N, device=device)
+        bucket_hi = torch.zeros(N, device=device)
+        for b, (lo_f, hi_f) in enumerate(bucket_fracs):
+            start = b * bucket_size
+            end = start + bucket_size if b < num_buckets - 1 else N
+            bucket_lo[start:end] = lo_f
+            bucket_hi[start:end] = hi_f
+
+        env._trap = {
+            "target_f": torch.zeros(N, num_bodies, 3, device=device),
+            "target_t": torch.zeros(N, num_bodies, 3, device=device),
+            "phase": torch.full((N,), _TRAP_ZERO, dtype=torch.long, device=device),
+            "timer": torch.zeros(N, device=device),
+            "duration": torch.ones(N, device=device) * 0.02,
+            "bucket_lo": bucket_lo,
+            "bucket_hi": bucket_hi,
+        }
+
+    s = env._trap
+
+    # ── Tick timers for fired envs ───────────────────────────────────────
+    s["timer"][env_ids] -= dt
+
+    # ── Transition envs whose phase expired ──────────────────────────────
+    expired_mask = s["timer"][env_ids] <= 0
+    if expired_mask.any():
+        exp_ids = env_ids[expired_mask]
+        _trap_transition(s, exp_ids, f_max, fz_scale, t_max,
+                         ramp_s_range, hold_s_range, zero_s_range,
+                         zero_prob, num_bodies, device)
+
+    # ── Compute envelope s(t) ∈ [0, 1] ──────────────────────────────────
+    alpha = torch.zeros(N, device=device)
+    dur = s["duration"].clamp(min=1e-6)
+
+    ramp_up = s["phase"] == _TRAP_RAMP_UP
+    alpha[ramp_up] = 1.0 - s["timer"][ramp_up] / dur[ramp_up]
+
+    alpha[s["phase"] == _TRAP_HOLD] = 1.0
+
+    ramp_dn = s["phase"] == _TRAP_RAMP_DOWN
+    alpha[ramp_dn] = s["timer"][ramp_dn] / dur[ramp_dn]
+
+    # ZERO phase: alpha stays 0
+
+    alpha = alpha.clamp(0.0, 1.0)
+
+    # ── Apply scaled forces to fired envs ────────────────────────────────
+    a = alpha[env_ids].unsqueeze(-1).unsqueeze(-1)  # [len(env_ids), 1, 1]
+    forces = s["target_f"][env_ids] * a
+    torques = s["target_t"][env_ids] * a
+
+    asset.permanent_wrench_composer.set_forces_and_torques(
+        forces=forces,
+        torques=torques,
+        body_ids=asset_cfg.body_ids,
+        env_ids=env_ids,
+    )
+
+
+def _trap_transition(
+    s: dict, exp_ids: torch.Tensor, f_max: float, fz_scale: float,
+    t_max: float, ramp_s_range: tuple, hold_s_range: tuple,
+    zero_s_range: tuple, zero_prob: float, num_bodies: int, device: torch.device,
+) -> None:
+    """Advance expired envs to the next phase, resample on new cycle."""
+    cur_phase = s["phase"][exp_ids]
+    n = len(exp_ids)
+
+    # Next phase: 0→1→2→3→0
+    next_phase = (cur_phase + 1) % 4
+    s["phase"][exp_ids] = next_phase
+
+    # Sample durations for the new phase
+    dur = torch.zeros(n, device=device)
+    is_ramp = (next_phase == _TRAP_RAMP_UP) | (next_phase == _TRAP_RAMP_DOWN)
+    is_hold = next_phase == _TRAP_HOLD
+    is_zero = next_phase == _TRAP_ZERO
+
+    if is_ramp.any():
+        dur[is_ramp] = torch.empty(is_ramp.sum(), device=device).uniform_(*ramp_s_range)
+    if is_hold.any():
+        dur[is_hold] = torch.empty(is_hold.sum(), device=device).uniform_(*hold_s_range)
+    if is_zero.any():
+        dur[is_zero] = torch.empty(is_zero.sum(), device=device).uniform_(*zero_s_range)
+
+    s["timer"][exp_ids] = dur
+    s["duration"][exp_ids] = dur
+
+    # ── Resample target force on new cycle (entering RAMP_UP) ────────────
+    new_cycle = next_phase == _TRAP_RAMP_UP
+    if new_cycle.any():
+        cycle_ids = exp_ids[new_cycle]
+        nc = len(cycle_ids)
+
+        # Zero-wrench episodes
+        is_zero_ep = torch.rand(nc, device=device) < zero_prob
+
+        # Bucket-scaled force range
+        b_lo = s["bucket_lo"][cycle_ids] * f_max
+        b_hi = s["bucket_hi"][cycle_ids] * f_max
+
+        # Sample per-axis XY magnitude within bucket, random sign
+        mag_xy = torch.rand(nc, 2, device=device) * (b_hi - b_lo).unsqueeze(-1) + b_lo.unsqueeze(-1)
+        sign_xy = torch.sign(torch.empty(nc, 2, device=device).uniform_(-1, 1))
+        sign_xy[sign_xy == 0] = 1.0
+        xy = mag_xy * sign_xy
+
+        # Z force
+        bz_lo = b_lo * fz_scale
+        bz_hi = b_hi * fz_scale
+        mag_z = torch.rand(nc, 1, device=device) * (bz_hi - bz_lo).unsqueeze(-1) + bz_lo.unsqueeze(-1)
+        sign_z = torch.sign(torch.empty(nc, 1, device=device).uniform_(-1, 1))
+        sign_z[sign_z == 0] = 1.0
+        z = mag_z * sign_z
+
+        forces = torch.zeros(nc, num_bodies, 3, device=device)
+        forces[:, :, 0] = xy[:, 0:1]
+        forces[:, :, 1] = xy[:, 1:2]
+        forces[:, :, 2] = z[:, 0:1]
+
+        # Torques
+        torques = torch.zeros(nc, num_bodies, 3, device=device)
+        if t_max > 1e-6:
+            mag_t = torch.empty(nc, 3, device=device).uniform_(0, t_max)
+            sign_t = torch.sign(torch.empty(nc, 3, device=device).uniform_(-1, 1))
+            sign_t[sign_t == 0] = 1.0
+            tv = mag_t * sign_t
+            torques[:, :, 0] = tv[:, 0:1]
+            torques[:, :, 1] = tv[:, 1:2]
+            torques[:, :, 2] = tv[:, 2:3]
+
+        # Zero out for zero-wrench episodes
+        forces[is_zero_ep] = 0.0
+        torques[is_zero_ep] = 0.0
+
+        s["target_f"][cycle_ids] = forces
+        s["target_t"][cycle_ids] = torques
+
+
 def push_by_setting_velocity_with_return(
     env: ManagerBasedEnv,
     env_ids: torch.Tensor,
