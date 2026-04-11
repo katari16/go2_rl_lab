@@ -183,7 +183,7 @@ if __name__ == "__main__":
         try:
             motor_q = [low_state.motor_state[i].q for i in range(12)]
             quat = list(low_state.imu_state.quaternion)
-            f = list(force) if force is not None else [0.0, 0.0, 0.0]
+            f = list(force[:3]) if force is not None else [0.0, 0.0, 0.0]
             v = list(vel) if vel is not None else [0.0, 0.0, 0.0]
             rec = 1.0 if sim_real_recording else 0.0
             packet = struct.pack('23f', *motor_q, *quat, *f, *v, rec)

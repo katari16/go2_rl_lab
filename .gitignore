@@ -68,6 +68,9 @@ _build
 **/*.out
 **/*.err
 
+# Eval data
+data/
+
 # Deploy debug data
 deploy/deploy_real/debug/
 
