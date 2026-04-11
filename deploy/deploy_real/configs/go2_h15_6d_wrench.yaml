@@ -1,0 +1,46 @@
+msg_type: "go"
+imu_type: "pelvis"
+
+lowcmd_topic: "rt/lowcmd"
+lowstate_topic: "rt/lowstate"
+
+# Exported JIT models (from play_export.py on H15 checkpoint)
+policy_path: "deploy/pre_train/h15_6d_h40_big_yaw_fixed_50N/policy.pt"
+estimator_path: "deploy/pre_train/h15_6d_h40_big_yaw_fixed_50N/estimator.pt"
+
+leg_joint2motor_idx: [3,0,9,6,4,1,10,7,5,2,11,8]                                # Isaac-to-SDK motor index mapping
+default_angles: [-0.1,  0.8, -1.5, 0.1, 0.8, -1.5, -0.1, 1, -1.5, 0.1, 1, -1.5] # SDK ordering: FR(hip,thigh,calf), FL, RR, RL
+
+kps: [ 25.0, 25.0,  25.0,  25.0,  25.0,  25.0,  25.0,  25.0, 25.0,  25.0,  25.0,  25.0]
+kds: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
+
+weak_motor: []
+arm_waist_joint2motor_idx: []
+arm_waist_kps: []
+arm_waist_kds: []
+arm_waist_target: [ ]
+
+# MUST MATCH TRAINING ENVIRONMENT (decimation=4, sim.dt=0.005)
+# Raw obs (57 dims, NO foot contacts):
+#   base_ang_vel(3), projected_gravity(3), velocity_commands(3),
+#   joint_pos_rel(12), joint_vel_rel(12), last_action(12), applied_torque*0.1(12)
+# Force estimator adds 6 dims (Fx,Fy,Fz,τ_roll,τ_pitch,τ_yaw) -> policy input = 63 dims
+control_dt: 0.02
+action_scale: 0.25
+cmd_scale: [1.0, 1.0, 1.0]
+max_cmd: [1.0, 1.0, 1.0]
+num_actions: 12
+raw_obs_dim: 57          # obs without force estimate
+force_dim: 6             # 6D wrench estimate from estimator
+policy_obs_dim: 63       # raw_obs_dim + force_dim = policy input
+
+# Force estimator config (must match training)
+estimator_temporal_steps: 40
+
+# Compliance modulation
+# v_x* = v_x_cmd + k * EMA(F_hat_x)
+# v_y* = v_y_cmd + k * EMA(F_hat_y)
+# ω_z* = ω_z_cmd + k_yaw * EMA(τ_hat_yaw)
+compliance_k: 0.06        # XY force → linear velocity gain
+compliance_k_yaw: 0.06    # yaw torque → angular velocity gain
+ema_alpha: 0.1            # EMA smoothing for force estimate

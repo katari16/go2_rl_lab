@@ -150,6 +150,7 @@ if __name__ == "__main__":
     control_dt = cfg["control_dt"]
     temporal_steps = cfg["estimator_temporal_steps"]
     compliance_k = cfg.get("compliance_k", 0.0)
+    compliance_k_yaw = cfg.get("compliance_k_yaw", 0.0)
     ema_alpha = cfg.get("ema_alpha", 0.1)
     weak_motor = cfg.get("weak_motor", [])
 
@@ -351,7 +352,7 @@ if __name__ == "__main__":
     print(f"  POLICY RUNNING (50 Hz) — {raw_obs_dim}+{force_dim}={policy_obs_dim} obs dims")
     print(f"  Force estimator: {temporal_steps}x{raw_obs_dim} -> {force_dim}D force")
     if compliance_k > 0:
-        print(f"  Compliance: k={compliance_k:.4f}  EMA alpha={ema_alpha}")
+        print(f"  Compliance: k_xy={compliance_k:.4f}  k_yaw={compliance_k_yaw:.4f}  EMA alpha={ema_alpha}")
     print("  Press B to toggle recording marker (green ball in viz)")
     print("  Press Y to toggle compliance mapping OFF (estimator still runs)")
     print("  Press X to toggle INVERTED mapping (v = v_cmd - k*F)")
@@ -417,14 +418,20 @@ if __name__ == "__main__":
             # EMA filter
             force_ema = ema_alpha * force_hat + (1.0 - ema_alpha) * force_ema
 
-            # ── Compliance modulation (XY only) ──────────────────────
+            # ── Compliance modulation (XY force + yaw torque) ────────
             obs_for_policy = raw_obs.copy()
             if compliance_k > 0.0 and compliance_mode == "normal":
                 obs_for_policy[6] += compliance_k * force_ema[0]
                 obs_for_policy[7] += compliance_k * force_ema[1]
+                if compliance_k_yaw > 0.0 and force_dim >= 4:
+                    yaw_idx = 5 if force_dim >= 6 else 3
+                    obs_for_policy[8] += compliance_k_yaw * force_ema[yaw_idx]
             elif compliance_k > 0.0 and compliance_mode == "inverted":
                 obs_for_policy[6] -= compliance_k * force_ema[0]
                 obs_for_policy[7] -= compliance_k * force_ema[1]
+                if compliance_k_yaw > 0.0 and force_dim >= 4:
+                    yaw_idx = 5 if force_dim >= 6 else 3
+                    obs_for_policy[8] -= compliance_k_yaw * force_ema[yaw_idx]
 
             # ── Build full policy input (57 raw + 3 force estimate) ───
             if compliance_mode == "inverted":
@@ -507,9 +514,10 @@ if __name__ == "__main__":
                         or (step_count <= 50 and step_count % 10 == 0)
                         or step_count % 50 == 0)
             if do_print:
+                f_str = ",".join(f"{force_hat[i]:+.1f}" for i in range(min(force_dim, 3)))
+                extra = f"  τ_yaw={force_hat[5 if force_dim >= 6 else 3]:+.2f}" if force_dim >= 4 else ""
                 print(f"[step {step_count}] cmd=[{velocity_cmd[0]:.1f},{velocity_cmd[1]:.1f},{velocity_cmd[2]:.1f}]"
-                      f"  F_hat=[{force_hat[0]:+.1f},{force_hat[1]:+.1f},{force_hat[2]:+.1f}]"
-                      f"  |F|={np.linalg.norm(force_hat):.1f}N"
+                      f"  F_hat=[{f_str}]  |F|={np.linalg.norm(force_hat[:3]):.1f}N{extra}"
                       f"  gravity={raw_obs[3:6].round(3)}"
                       f"  action_norm={np.linalg.norm(action):.3f}")
 
@@ -577,6 +585,7 @@ if __name__ == "__main__":
             "control_dt": control_dt,
             "num_steps": N,
             "compliance_k": compliance_k,
+            "compliance_k_yaw": compliance_k_yaw,
             "ema_alpha": ema_alpha,
             "obs_labels": obs_labels,
             "time_s": timestamps,
