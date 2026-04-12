@@ -81,6 +81,8 @@ class CompliantOnPolicyRunner(OnPolicyRunner):
             tcn_channels=est_cfg.get("tcn_channels", None),
             tcn_kernel_size=est_cfg.get("tcn_kernel_size", 3),
             tcn_dilations=est_cfg.get("tcn_dilations", None),
+            temporal_decay=est_cfg.get("temporal_decay", "none"),
+            force_layout=est_cfg.get("force_layout", "auto"),
         ).to(device)
 
         # ── Load estimator from checkpoint if provided ───────────────────
@@ -258,15 +260,19 @@ class CompliantOnPolicyRunner(OnPolicyRunner):
 
         # Get GT force/wrench from wrench composer
         asset = isaac_env.scene["robot"]
-        if self._force_dim <= 3:
+        force_layout = self.estimator.force_layout
+
+        if force_layout == "xy_yaw":
+            gt_f = asset.permanent_wrench_composer.composed_force_as_torch[:, 0, :2]
+            gt_t = asset.permanent_wrench_composer.composed_torque_as_torch[:, 0, 2:3]
+            gt_force = torch.cat([gt_f, gt_t], dim=-1)
+        elif self._force_dim <= 3:
             gt_force = asset.permanent_wrench_composer.composed_force_as_torch[:, 0, :self._force_dim]
         elif self._force_dim == 4:
-            # [Fx, Fy, Fz, tau_yaw]
             gt_f = asset.permanent_wrench_composer.composed_force_as_torch[:, 0, :3]
             gt_t = asset.permanent_wrench_composer.composed_torque_as_torch[:, 0, 2:3]
             gt_force = torch.cat([gt_f, gt_t], dim=-1)
         else:
-            # [Fx, Fy, Fz, tau_roll, tau_pitch, tau_yaw]
             gt_f = asset.permanent_wrench_composer.composed_force_as_torch[:, 0, :3]
             gt_t = asset.permanent_wrench_composer.composed_torque_as_torch[:, 0, :3]
             gt_force = torch.cat([gt_f, gt_t], dim=-1)

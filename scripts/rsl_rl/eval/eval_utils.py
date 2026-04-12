@@ -87,7 +87,7 @@ def setup_runner_for_eval(runner, env, runner_class_name, is_stage2, device, n):
         "wrapper": None,
         "compliant_raw_obs_dim": None,
         "force_dim": 3,
-        "force_ema": torch.zeros(n, 2, device=device),
+        "force_ema": None,  # initialized after force_dim is known
         "has_estimator": False,
     }
 
@@ -112,6 +112,8 @@ def setup_runner_for_eval(runner, env, runner_class_name, is_stage2, device, n):
         isaac_env = env.unwrapped if hasattr(env, "unwrapped") else env
         isaac_env._force_estimate_xy = torch.zeros(n, ctx["force_dim"], device=device)
 
+    ctx["force_ema"] = torch.zeros(n, ctx["force_dim"], device=device)
+
     return ctx, env
 
 
@@ -129,11 +131,16 @@ def step_policy(obs, ctx, env, runner, isaac_env, n, runner_class_name,
             runner._history_buffer.insert(raw_obs)
             fhat, _ = runner.estimator.get_latent(runner._history_buffer.get_flattened())
             isaac_env._force_estimate_xy = fhat
-            ctx["force_ema"] = ema_alpha * fhat[:, :2] + (1.0 - ema_alpha) * ctx["force_ema"]
+            ctx["force_ema"] = ema_alpha * fhat + (1.0 - ema_alpha) * ctx["force_ema"]
             if compliance_k > 0:
                 obs = {k: v.clone() for k, v in obs.items()}
                 obs["policy"][:, 6] = obs["policy"][:, 6] + compliance_k * ctx["force_ema"][:, 0]
                 obs["policy"][:, 7] = obs["policy"][:, 7] + compliance_k * ctx["force_ema"][:, 1]
+                # Yaw torque compliance: τ_yaw → ωz command
+                force_dim = ctx["force_dim"]
+                if force_dim >= 4:
+                    yaw_idx = 5 if force_dim >= 6 else 3
+                    obs["policy"][:, 8] = obs["policy"][:, 8] + compliance_k * ctx["force_ema"][:, yaw_idx]
 
         if ctx["wrapper"] is not None:
             actions = ctx["policy"](obs)
@@ -180,7 +187,16 @@ def read_gt_force(asset, base_idx, force_dim, n):
     Returns:
         Tensor [n, force_dim].
     """
-    gt = asset.permanent_wrench_composer.composed_force_as_torch[:n, base_idx, :force_dim]
+    if force_dim <= 3:
+        gt = asset.permanent_wrench_composer.composed_force_as_torch[:n, base_idx, :force_dim]
+    elif force_dim == 4:
+        gt_f = asset.permanent_wrench_composer.composed_force_as_torch[:n, base_idx, :3]
+        gt_t = asset.permanent_wrench_composer.composed_torque_as_torch[:n, base_idx, 2:3]
+        gt = torch.cat([gt_f, gt_t], dim=-1)
+    else:
+        gt_f = asset.permanent_wrench_composer.composed_force_as_torch[:n, base_idx, :3]
+        gt_t = asset.permanent_wrench_composer.composed_torque_as_torch[:n, base_idx, :3]
+        gt = torch.cat([gt_f, gt_t], dim=-1)
     if gt.dim() == 3:
         gt = gt.squeeze(1)
     return gt
@@ -204,6 +220,8 @@ def disable_force_events(env_cfg, agent_cfg):
     try:
         force_event = getattr(env_cfg.events, force_event_name)
         force_event.params["force_range"] = (0.0, 0.0)
+        if "torque_range" in force_event.params:
+            force_event.params["torque_range"] = (0.0, 0.0)
     except AttributeError:
         pass
     try:
@@ -268,7 +286,7 @@ def reset_env(env, ctx, isaac_env, runner, runner_class_name, is_stage2, device,
         _estimator_runners = ("CompliantOnPolicyRunner", "TeacherStudentRunner", "PaintRunner")
         if runner_class_name in _estimator_runners and hasattr(runner, "_history_buffer"):
             runner._history_buffer.reset(env_ids)
-            ctx["force_ema"] = torch.zeros(n, 2, device=device)
+            ctx["force_ema"] = torch.zeros(n, ctx["force_dim"], device=device)
             isaac_env._force_estimate_xy = torch.zeros(n, ctx["force_dim"], device=device)
 
         # Reset policy hidden states

@@ -13,10 +13,11 @@ Supports both runner types:
   Panel 3 (GREEN):  Normal velocity command — cmd_vx & cmd_vy
   Panel 4 (YELLOW): Adjusted velocity command — v* = v_cmd + k * F_hat
 
-Arrows above the robot:
-  RED  = ground-truth force
-  BLUE = NN-estimated force
-  GREEN = EMA-filtered estimate
+Arrows above the robot (GT always shown, others via flags):
+  RED    = ground-truth force        (always)
+  BLUE   = NN-estimated force        (--show_est)
+  GREEN  = velocity command          (--show_cmd)
+  YELLOW = adjusted velocity command (--show_adj)
 
 Usage examples:
     # ForceOnPolicyRunner:
@@ -55,6 +56,9 @@ parser.add_argument("--duration", type=float, default=20.0, help="Duration to ru
 parser.add_argument("--ema_alpha", type=float, default=0.1, help="EMA smoothing factor for filtered estimate (0=full smooth, 1=no smooth).")
 parser.add_argument("--compliance_k", type=float, default=0.0, help="Compliance gain k for v*=v+k*F (0=disabled).")
 parser.add_argument("--real-time", action="store_true", default=False, help="Run in real-time, if possible.")
+parser.add_argument("--show_est", action="store_true", default=False, help="Show estimated force arrow (blue).")
+parser.add_argument("--show_cmd", action="store_true", default=False, help="Show velocity command arrow (green).")
+parser.add_argument("--show_adj", action="store_true", default=False, help="Show adjusted velocity command arrow (yellow).")
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -154,6 +158,7 @@ def generate_plots(
     from datetime import datetime
 
     has_fz = "gt_force_z" in log and len(log["gt_force_z"]) > 0
+    has_torque_yaw = "gt_torque_yaw" in log and len(log["gt_torque_yaw"]) > 0
 
     t = np.array(log["time_s"])
     gt_fx = np.array(log["gt_force_x"])
@@ -168,12 +173,12 @@ def generate_plots(
     adj_vy = np.array(log["adj_vel_y"])
     rerandom = log["rerandom_steps"]
 
-    n_panels = 5 if has_fz else 4
+    n_panels = 4 + (1 if has_fz else 0) + (1 if has_torque_yaw else 0)
     fig, axes = plt.subplots(n_panels, 1, figsize=(14, 3 * n_panels), sharex=True)
     k_str = f"k={compliance_k:.4f}" if compliance_k > 0 else "k=0 (disabled)"
     fig.suptitle(
         f"Static Force Eval — [{force_min:.0f}, {force_max:.0f}] N/axis — EMA \u03b1={ema_alpha} — {k_str}"
-        + (" (XYZ)" if has_fz else ""),
+        + (" (6D wrench)" if has_torque_yaw else " (XYZ)" if has_fz else ""),
         fontsize=14,
         fontweight="bold",
     )
@@ -208,6 +213,19 @@ def generate_plots(
         ax.legend(loc="upper right", fontsize=9)
         ax.grid(True, alpha=0.3)
         ax.set_title("Applied Force Z: GT (solid) vs Estimated (dashed)", fontsize=11)
+        panel += 1
+
+    # ── Panel: Yaw torque (only if 6D) ──────────────────────────────────
+    if has_torque_yaw:
+        gt_tyaw = np.array(log["gt_torque_yaw"])
+        est_tyaw = np.array(log["est_torque_yaw"])
+        ax = axes[panel]
+        ax.plot(t, gt_tyaw, color="tab:orange", linewidth=1.2, alpha=0.9, label="GT τ_yaw")
+        ax.plot(t, est_tyaw, color="orange", linewidth=0.8, alpha=0.5, linestyle="--", label="Est τ_yaw")
+        ax.set_ylabel("Torque (Nm)")
+        ax.legend(loc="upper right", fontsize=9)
+        ax.grid(True, alpha=0.3)
+        ax.set_title("Yaw Torque: GT (solid) vs Estimated (dashed)", fontsize=11)
         panel += 1
 
     # ── Panel: Base velocity ─────────────────────────────────────────────
@@ -247,7 +265,7 @@ def generate_plots(
     eval_dir = os.path.join(os.path.dirname(checkpoint_path), "force_eval")
     os.makedirs(eval_dir, exist_ok=True)
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    dim_str = "xyz" if has_fz else "xy"
+    dim_str = "6d" if has_torque_yaw else ("xyz" if has_fz else "xy")
     filename = f"static_eval_{dim_str}_F{force_max:.0f}_k{compliance_k:.4f}_ema{ema_alpha}_{timestamp}.png"
     fig_path = os.path.join(eval_dir, filename)
     fig.savefig(fig_path, dpi=150, bbox_inches="tight")
@@ -280,16 +298,28 @@ def main(
 
     # Auto-detect force event term name (XY vs XYZ) from agent config
     force_event_name = agent_cfg.to_dict().get("force_event_term_name", "persistent_xy_force")
-    is_xyz = "xyz" in force_event_name
+    is_wrench = "wrench" in force_event_name
+    is_xyz = "xyz" in force_event_name or is_wrench
 
     # Activate forces immediately with user-specified range
     force_event = getattr(env_cfg.events, force_event_name)
     force_event.params["force_range"] = (args_cli.force_min, args_cli.force_max)
+    if is_wrench and "torque_range" in force_event.params:
+        force_event.params["torque_range"] = (0.0, 5.0)
     # Re-randomize frequently for a dynamic demo
     force_event.interval_range_s = (1.0, 3.0)
 
     # Override the reset event to also apply forces on episode start.
-    if is_xyz:
+    if is_wrench:
+        from go2_rl_lab.tasks.manager_based.go2_rl_lab.mdp.events import apply_persistent_wrench
+        env_cfg.events.base_external_force_torque.func = apply_persistent_wrench
+        env_cfg.events.base_external_force_torque.params = {
+            "asset_cfg": SceneEntityCfg("robot", body_names="base"),
+            "force_range": (args_cli.force_min, args_cli.force_max),
+            "fz_scale": force_event.params.get("fz_scale", 0.6),
+            "torque_range": force_event.params.get("torque_range", (0.0, 5.0)),
+        }
+    elif is_xyz:
         from go2_rl_lab.tasks.manager_based.go2_rl_lab.mdp.events import apply_persistent_xyz_force
         env_cfg.events.base_external_force_torque.func = apply_persistent_xyz_force
         env_cfg.events.base_external_force_torque.params = {
@@ -375,8 +405,9 @@ def main(
 
     # ── Create arrow markers ─────────────────────────────────────────────
     gt_markers = _create_arrow_markers("/World/Visuals/GTForceArrow", (1.0, 0.0, 0.0))       # Red = GT force
-    cmd_markers = _create_arrow_markers("/World/Visuals/CmdVelArrow", (0.0, 0.8, 0.2))       # Green = normal cmd vel
-    adj_markers = _create_arrow_markers("/World/Visuals/AdjVelArrow", (1.0, 0.85, 0.0))        # Yellow = adjusted cmd vel
+    est_markers = _create_arrow_markers("/World/Visuals/EstForceArrow", (0.2, 0.4, 1.0)) if args_cli.show_est else None
+    cmd_markers = _create_arrow_markers("/World/Visuals/CmdVelArrow", (0.0, 0.8, 0.2)) if args_cli.show_cmd else None
+    adj_markers = _create_arrow_markers("/World/Visuals/AdjVelArrow", (1.0, 0.85, 0.0)) if args_cli.show_adj else None
 
     # ── Run loop ──────────────────────────────────────────────────────────
     dt = isaac_env.step_dt
@@ -413,12 +444,18 @@ def main(
     if force_dim >= 3:
         plot_log["gt_force_z"] = []
         plot_log["est_force_z"] = []
+    if force_dim >= 4:
+        plot_log["gt_torque_yaw"] = []
+        plot_log["est_torque_yaw"] = []
     prev_gt_xy = None
+    fd3 = min(force_dim, 3)
+    yaw_idx = {4: 3, 6: 5}.get(force_dim, None)
 
     print(f"\n{'=' * 70}")
     print(f"  Runner      : {runner_class_name} ({runner_mode})")
     print(f"  Mode        : STATIC (zero velocity commands)")
-    print(f"  Force dims  : {'XYZ (3D)' if force_dim >= 3 else 'XY (2D)'}")
+    dim_labels = {2: "XY (2D)", 3: "XYZ (3D)", 6: "6D wrench"}
+    print(f"  Force dims  : {dim_labels.get(force_dim, f'{force_dim}D')}")
     print(f"  Force range : [{args_cli.force_min:.0f}, {args_cli.force_max:.0f}] N per axis" +
           (f" (fz: x0.6)" if force_dim >= 3 else ""))
     print(f"  EMA alpha   : {ema_alpha}")
@@ -426,7 +463,14 @@ def main(
         print(f"  Compliance  : k={compliance_k:.4f}  (v* = v_cmd + k * F_hat_xy)")
     else:
         print(f"  Compliance  : DISABLED (use --compliance_k to enable)")
-    print(f"  Arrows      : RED = GT force   GREEN = cmd vel   YELLOW = adjusted cmd vel")
+    arrows = ["RED=GT"]
+    if args_cli.show_est:
+        arrows.append("BLUE=est")
+    if args_cli.show_cmd:
+        arrows.append("GREEN=cmd")
+    if args_cli.show_adj:
+        arrows.append("YELLOW=adj")
+    print(f"  Arrows      : {', '.join(arrows)}")
     print(f"  Duration    : {args_cli.duration:.0f}s ({max_steps} steps)")
     print(f"  Envs        : {n}")
     print(f"{'=' * 70}\n")
@@ -466,9 +510,18 @@ def main(
                         runner._history_buffer.reset(done_ids)
 
                 # ── GT force (body frame from wrench composer) ─────────
-                gt_force_body = asset.permanent_wrench_composer.composed_force_as_torch[
-                    :n, base_idx, :force_dim
-                ]
+                if force_dim <= 3:
+                    gt_force_body = asset.permanent_wrench_composer.composed_force_as_torch[
+                        :n, base_idx, :force_dim
+                    ]
+                elif force_dim == 4:
+                    gt_f = asset.permanent_wrench_composer.composed_force_as_torch[:n, base_idx, :3]
+                    gt_t = asset.permanent_wrench_composer.composed_torque_as_torch[:n, base_idx, 2:3]
+                    gt_force_body = torch.cat([gt_f, gt_t], dim=-1)
+                else:
+                    gt_f = asset.permanent_wrench_composer.composed_force_as_torch[:n, base_idx, :3]
+                    gt_t = asset.permanent_wrench_composer.composed_torque_as_torch[:n, base_idx, :3]
+                    gt_force_body = torch.cat([gt_f, gt_t], dim=-1)
                 if gt_force_body.dim() == 3:
                     gt_force_body = gt_force_body.squeeze(1)
 
@@ -494,56 +547,63 @@ def main(
                 base_pos = asset.data.root_pos_w[:n]
                 base_quat = asset.data.root_quat_w[:n]
 
-                # GT force arrow (RED) — uses full 3D for arrow direction
-                gt_3d = torch.zeros(n, 3, device=device)
-                gt_3d[:, :force_dim] = gt_force_body
-                gt_world = quat_apply(base_quat, gt_3d)
-
-                # Normal cmd vel arrow (GREEN)
-                cmd_3d = torch.zeros(n, 3, device=device)
-                cmd_3d[:, 0] = cmd_vel[:, 0]
-                cmd_3d[:, 1] = cmd_vel[:, 1]
-                cmd_world = quat_apply(base_quat, cmd_3d)
-
-                # Adjusted cmd vel arrow (YELLOW): v* = v_cmd + k * F_hat
-                adj_3d = torch.zeros(n, 3, device=device)
-                adj_3d[:, 0] = adj_vel_x
-                adj_3d[:, 1] = adj_vel_y
-                adj_world = quat_apply(base_quat, adj_3d)
-
-                # ── Arrow positions (above the robot base) ────────────
-                gt_pos = base_pos.clone()
-                gt_pos[:, 2] += 0.55
-                cmd_pos = base_pos.clone()
-                cmd_pos[:, 2] += 0.40
-                adj_pos = base_pos.clone()
-                adj_pos[:, 2] += 0.25
-
-                # ── Arrow orientations ────────────────────────────────
-                gt_quats = _force_to_quat(gt_world, device)
-                cmd_quats = _force_to_quat(cmd_world, device)
-                adj_quats = _force_to_quat(adj_world, device)
-
-                # ── Arrow scales ──────────────────────────────────────
-                gt_mag_w = gt_world.norm(dim=-1, keepdim=True)
-                cmd_mag_w = cmd_world.norm(dim=-1, keepdim=True)
-                adj_mag_w = adj_world.norm(dim=-1, keepdim=True)
+                # ── Arrow direction vectors (body→world) ──────────────
+                fd3 = min(force_dim, 3)
                 force_scale = 0.05   # 20N -> length 1.0
                 vel_scale = 1.0      # 1 m/s -> length 1.0
 
+                # GT force arrow (RED) — always shown
+                gt_3d = torch.zeros(n, 3, device=device)
+                gt_3d[:, :fd3] = gt_force_body[:, :fd3]
+                gt_world = quat_apply(base_quat, gt_3d)
+                gt_pos = base_pos.clone()
+                gt_pos[:, 2] += 0.55
+                gt_quats = _force_to_quat(gt_world, device)
+                gt_mag_w = gt_world.norm(dim=-1, keepdim=True)
                 gt_scales = torch.full((n, 3), 0.3, device=device)
                 gt_scales[:, 0:1] = (gt_mag_w * force_scale).clamp(min=0.05)
-
-                cmd_scales = torch.full((n, 3), 0.3, device=device)
-                cmd_scales[:, 0:1] = (cmd_mag_w * vel_scale).clamp(min=0.05)
-
-                adj_scales = torch.full((n, 3), 0.3, device=device)
-                adj_scales[:, 0:1] = (adj_mag_w * vel_scale).clamp(min=0.05)
-
-                # ── Render arrows ─────────────────────────────────────
                 gt_markers.visualize(gt_pos, gt_quats, gt_scales)
-                cmd_markers.visualize(cmd_pos, cmd_quats, cmd_scales)
-                adj_markers.visualize(adj_pos, adj_quats, adj_scales)
+
+                # Estimated force arrow (BLUE)
+                if est_markers is not None:
+                    est_3d = torch.zeros(n, 3, device=device)
+                    est_3d[:, :fd3] = force_hat[:, :fd3]
+                    est_world = quat_apply(base_quat, est_3d)
+                    est_pos = base_pos.clone()
+                    est_pos[:, 2] += 0.45
+                    est_quats = _force_to_quat(est_world, device)
+                    est_mag_w = est_world.norm(dim=-1, keepdim=True)
+                    est_scales = torch.full((n, 3), 0.3, device=device)
+                    est_scales[:, 0:1] = (est_mag_w * force_scale).clamp(min=0.05)
+                    est_markers.visualize(est_pos, est_quats, est_scales)
+
+                # Normal cmd vel arrow (GREEN)
+                if cmd_markers is not None:
+                    cmd_3d = torch.zeros(n, 3, device=device)
+                    cmd_3d[:, 0] = cmd_vel[:, 0]
+                    cmd_3d[:, 1] = cmd_vel[:, 1]
+                    cmd_world = quat_apply(base_quat, cmd_3d)
+                    cmd_pos = base_pos.clone()
+                    cmd_pos[:, 2] += 0.35
+                    cmd_quats = _force_to_quat(cmd_world, device)
+                    cmd_mag_w = cmd_world.norm(dim=-1, keepdim=True)
+                    cmd_scales = torch.full((n, 3), 0.3, device=device)
+                    cmd_scales[:, 0:1] = (cmd_mag_w * vel_scale).clamp(min=0.05)
+                    cmd_markers.visualize(cmd_pos, cmd_quats, cmd_scales)
+
+                # Adjusted cmd vel arrow (YELLOW)
+                if adj_markers is not None:
+                    adj_3d = torch.zeros(n, 3, device=device)
+                    adj_3d[:, 0] = adj_vel_x
+                    adj_3d[:, 1] = adj_vel_y
+                    adj_world = quat_apply(base_quat, adj_3d)
+                    adj_pos = base_pos.clone()
+                    adj_pos[:, 2] += 0.25
+                    adj_quats = _force_to_quat(adj_world, device)
+                    adj_mag_w = adj_world.norm(dim=-1, keepdim=True)
+                    adj_scales = torch.full((n, 3), 0.3, device=device)
+                    adj_scales[:, 0:1] = (adj_mag_w * vel_scale).clamp(min=0.05)
+                    adj_markers.visualize(adj_pos, adj_quats, adj_scales)
 
                 # ── Record data for plots (env 0) ────────────────────
                 g0 = gt_force_body[0]
@@ -557,6 +617,9 @@ def main(
                 if force_dim >= 3:
                     plot_log["gt_force_z"].append(g0[2].item())
                     plot_log["est_force_z"].append(e0[2].item())
+                if yaw_idx is not None:
+                    plot_log["gt_torque_yaw"].append(g0[yaw_idx].item())
+                    plot_log["est_torque_yaw"].append(e0[yaw_idx].item())
                 plot_log["base_vel_x"].append(base_lin_vel[0, 0].item())
                 plot_log["base_vel_y"].append(base_lin_vel[0, 1].item())
                 plot_log["cmd_vel_x"].append(cmd_vel[0, 0].item())
@@ -574,18 +637,22 @@ def main(
                 # ── Terminal readout (first env, every 10 steps) ──────
                 step_count += 1
                 if step_count % 10 == 0:
-                    gm0 = g0.norm().item()
-                    em0 = e0.norm().item()
+                    gm0 = g0[:fd3].norm().item()
+                    em0 = e0[:fd3].norm().item()
                     pct = step_count / max_steps
                     bar_len = 20
                     filled = int(bar_len * pct)
                     bar = "\u2588" * filled + "\u2591" * (bar_len - filled)
                     elapsed_s = step_count * dt
-                    fz_str = f",{g0[2]:+6.1f}" if force_dim >= 3 else ""
+                    gt_parts = ",".join(f"{g0[i]:+6.1f}" for i in range(fd3))
+                    est_parts = ",".join(f"{e0[i]:+6.1f}" for i in range(fd3))
+                    tau_str = ""
+                    if yaw_idx is not None:
+                        tau_str = f"  τyaw:{g0[yaw_idx]:+5.1f}/{e0[yaw_idx]:+5.1f}"
                     print(
                         f"\r  [{bar}] {elapsed_s:.0f}/{args_cli.duration:.0f}s  "
-                        f"GT:[{g0[0]:+6.1f},{g0[1]:+6.1f}{fz_str}]N |{gm0:5.1f}|  "
-                        f"Est:[{e0[0]:+6.1f},{e0[1]:+6.1f}]N |{em0:5.1f}|  "
+                        f"GT:[{gt_parts}]N |{gm0:5.1f}|  "
+                        f"Est:[{est_parts}]N |{em0:5.1f}|{tau_str}  "
                         f"v*:[{adj_vel_x[0]:+5.2f},{adj_vel_y[0]:+5.2f}]",
                         end="",
                         flush=True,

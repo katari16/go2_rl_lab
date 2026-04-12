@@ -126,6 +126,8 @@ def main():
     # ── Check if estimator data is available ────────────────────────────
     sample_trial = results[list(results.keys())[0]][list(results[list(results.keys())[0]].keys())[0]][0]
     has_estimator = "force_est" in sample_trial
+    est_dim = len(sample_trial["force_est"][0]) if has_estimator else 0
+    yaw_idx = {4: 3, 6: 5}.get(est_dim, None)
 
     # ── Compute metrics per trial ────────────────────────────────────────
     for mag_str in results:
@@ -176,6 +178,14 @@ def main():
                     t["estimator_angle_err_deg"] = np.abs(angle_diff) * (180.0 / np.pi)
                     t["estimator_angle_err_mean"] = float(np.mean(t["estimator_angle_err_deg"]))
                     t["estimator_angle_err_median"] = float(np.median(t["estimator_angle_err_deg"]))
+                    # Fz bias (no Z force applied, so estimate should be ~0)
+                    if est_dim >= 3:
+                        t["estimator_fz_bias"] = float(np.mean(est[:, 2]))
+                        t["estimator_fz_mae"] = float(np.mean(np.abs(est[:, 2])))
+                    # Yaw torque bias (no torque applied, so estimate should be ~0)
+                    if yaw_idx is not None:
+                        t["estimator_yaw_bias"] = float(np.mean(est[:, yaw_idx]))
+                        t["estimator_yaw_mae"] = float(np.mean(np.abs(est[:, yaw_idx])))
                 else:
                     t["estimator_mse"] = None
                     t["estimator_mse_per_step"] = None
@@ -220,6 +230,14 @@ def main():
                              f"  MedianAE={np.mean(med_aes):.2f}N"
                              f"  RelErr={np.mean(rel_errs):.1f}%"
                              f"  AngErr(med)={np.mean(ang_errs):.1f}°")
+                    if est_dim >= 3:
+                        fz_biases = [t['estimator_fz_bias'] for t in succ if t.get('estimator_fz_bias') is not None]
+                        if fz_biases:
+                            line += f"\n         Fz_bias={np.mean(fz_biases):+.2f}N  Fz_MAE={np.mean([t['estimator_fz_mae'] for t in succ if t.get('estimator_fz_mae') is not None]):.2f}N"
+                    if yaw_idx is not None:
+                        yaw_biases = [t['estimator_yaw_bias'] for t in succ if t.get('estimator_yaw_bias') is not None]
+                        if yaw_biases:
+                            line += f"  τyaw_bias={np.mean(yaw_biases):+.2f}Nm  τyaw_MAE={np.mean([t['estimator_yaw_mae'] for t in succ if t.get('estimator_yaw_mae') is not None]):.2f}Nm"
             print(line)
         else:
             print(f"  {mag:.0f}N: 0/{n_total} success")
@@ -559,6 +577,10 @@ def main():
     if has_estimator:
         headers.extend(["MAE (N)", "Median AE (N)", "RMSE (N)", "Rel Err %",
                          "MAE x (N)", "MAE y (N)", "Ang Err med (°)"])
+        if est_dim >= 3:
+            headers.extend(["Fz bias (N)", "Fz MAE (N)"])
+        if yaw_idx is not None:
+            headers.extend(["τyaw bias (Nm)", "τyaw MAE (Nm)"])
     rows = []
     for mag in magnitudes:
         mag_str = str(float(mag))
@@ -592,11 +614,19 @@ def main():
                     f"{_avg('estimator_mae_y'):.2f}",
                     f"{_avg('estimator_angle_err_median'):.1f}",
                 ])
+                if est_dim >= 3:
+                    row.extend([f"{_avg('estimator_fz_bias'):+.2f}", f"{_avg('estimator_fz_mae'):.2f}"])
+                if yaw_idx is not None:
+                    row.extend([f"{_avg('estimator_yaw_bias'):+.2f}", f"{_avg('estimator_yaw_mae'):.2f}"])
             rows.append(row)
         else:
             row = [f"{mag:.0f}", "0%", "N/A", "N/A", "N/A", "N/A"]
             if has_estimator:
                 row.extend(["N/A"] * 7)
+                if est_dim >= 3:
+                    row.extend(["N/A"] * 2)
+                if yaw_idx is not None:
+                    row.extend(["N/A"] * 2)
             rows.append(row)
 
     table = ax.table(cellText=rows, colLabels=headers, loc="center", cellLoc="center")

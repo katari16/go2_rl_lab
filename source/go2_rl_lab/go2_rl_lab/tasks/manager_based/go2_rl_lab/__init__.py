@@ -254,6 +254,35 @@ gym.register(
     },
 )
 
+# H16: 6D, equal loss weights (all 1.0)
+# H17: 6D, linear decay temporal weighting
+# H18: 6D, TCN preprocessor with detached recon loss
+for _id, _cfg in [
+    ("H16-50N", "AblationH16_50Cfg"),
+    ("H17-50N", "AblationH17_50Cfg"),
+    ("H18-50N", "AblationH18_50Cfg"),
+]:
+    gym.register(
+        id=f"Go2-Ablation-{_id}-v0",
+        entry_point="isaaclab.envs:ManagerBasedRLEnv",
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:LowLevelWrenchEnvCfg",
+            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:{_cfg}",
+        },
+    )
+
+# H19: 3D planar wrench (Fx, Fy, τ_yaw) — uses wrench env for torque generation
+gym.register(
+    id="Go2-Ablation-H19-50N-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:LowLevelWrenchEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:AblationH19_50Cfg",
+    },
+)
+
 
 # ── High-level non-linear sweep: 8 variations (R1-R8) ───────────────────────
 # 2x2x2: reward type (penalty/positive) x gravity correction x tracking reward

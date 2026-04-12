@@ -42,6 +42,7 @@ def _est(
     rec_loss_weight: float = 1.0,
     enc_hidden_dims: list[int] | None = None,
     f_head_dims: list[int] | None = None,
+    angle_loss_weight: float = 3.0,
     torque_angle_loss_weight: float = 0.0,
     torque_angle_min: float = 0.3,
     yaw_loss_weight: float = 0.0,
@@ -49,6 +50,8 @@ def _est(
     tcn_channels: list[int] | None = None,
     tcn_kernel_size: int = 3,
     tcn_dilations: list[int] | None = None,
+    temporal_decay: str = "none",
+    force_layout: str = "auto",
 ) -> dict:
     """Build estimator config dict, overriding only what changes."""
     d = {
@@ -60,7 +63,7 @@ def _est(
         "activation": "elu",
         "learning_rate": 1e-3,
         "force_loss_weight": 1.0,
-        "angle_loss_weight": 3.0,
+        "angle_loss_weight": angle_loss_weight,
         "rec_loss_weight": rec_loss_weight,
         "angle_min_force": 1.0,
         "max_grad_norm": 10.0,
@@ -71,6 +74,8 @@ def _est(
         "tcn_channels": tcn_channels,
         "tcn_kernel_size": tcn_kernel_size,
         "tcn_dilations": tcn_dilations,
+        "temporal_decay": temporal_decay,
+        "force_layout": force_layout,
     }
     return d
 
@@ -498,4 +503,65 @@ class AblationH14_50Cfg(LowLevelRunnerCfg):
     estimator: dict = _est(
         temporal_steps=40, force_dim=6, enc_hidden_dims=[256, 128],
         f_head_dims=[64, 32], yaw_loss_weight=3.0, torque_angle_loss_weight=3.0,
+    )
+
+
+# ── H16: 6D, h=40, bigger, EQUAL loss weights (all 1.0) ────────────────────
+
+@configclass
+class AblationH16_50Cfg(LowLevelRunnerCfg):
+    experiment_name: str = "ablation_H16_6d_h40_big_equal_50N"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 50.0
+    max_torque: float = 5.0
+    estimator: dict = _est(
+        temporal_steps=40, force_dim=6, enc_hidden_dims=[256, 128],
+        f_head_dims=[64, 32], angle_loss_weight=1.0,
+        yaw_loss_weight=1.0, torque_angle_loss_weight=1.0,
+    )
+
+
+# ── H17: 6D, h=40, bigger, linear decay temporal weighting ─────────────────
+
+@configclass
+class AblationH17_50Cfg(LowLevelRunnerCfg):
+    experiment_name: str = "ablation_H17_6d_h40_big_lindecay_50N"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 50.0
+    max_torque: float = 5.0
+    estimator: dict = _est(
+        temporal_steps=40, force_dim=6, enc_hidden_dims=[256, 128],
+        f_head_dims=[64, 32], yaw_loss_weight=3.0, torque_angle_loss_weight=3.0,
+        temporal_decay="linear",
+    )
+
+
+# ── H18: 6D, h=40, bigger, TCN preprocessor + detached recon loss ──────────
+
+@configclass
+class AblationH18_50Cfg(LowLevelRunnerCfg):
+    experiment_name: str = "ablation_H18_6d_h40_big_tcnpre_detach_50N"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 50.0
+    max_torque: float = 5.0
+    estimator: dict = _est(
+        temporal_steps=40, force_dim=6, enc_hidden_dims=[256, 128],
+        f_head_dims=[64, 32], yaw_loss_weight=3.0, torque_angle_loss_weight=3.0,
+        tcn_mode="preprocessor", tcn_channels=[64, 64], tcn_kernel_size=3,
+        tcn_dilations=[1, 2],
+    )
+
+
+# ── H19: 3D planar wrench (Fx, Fy, τ_yaw) ─────────────────────────────────
+
+@configclass
+class AblationH19_50Cfg(LowLevelRunnerCfg):
+    experiment_name: str = "ablation_H19_xy_yaw_h40_big_50N"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 50.0
+    max_torque: float = 5.0
+    estimator: dict = _est(
+        temporal_steps=40, force_dim=3, enc_hidden_dims=[256, 128],
+        f_head_dims=[64, 32], yaw_loss_weight=3.0,
+        force_layout="xy_yaw",
     )
