@@ -55,7 +55,10 @@ import go2_rl_lab.tasks  # noqa: F401
 
 
 class EstimatorForwardWrapper(torch.nn.Module):
-    """Thin wrapper that exposes only the forward path for JIT tracing.
+    """Thin wrapper that exposes the full forward path for JIT tracing.
+
+    Delegates to estimator._forward() which handles all variants:
+    plain encoder, temporal decay, TCN preprocessor, TCN replacement.
 
     Input:  obs_history [batch, temporal_steps * obs_dim]
     Output: force_hat   [batch, force_dim]
@@ -63,12 +66,10 @@ class EstimatorForwardWrapper(torch.nn.Module):
 
     def __init__(self, estimator):
         super().__init__()
-        self.encoder = estimator.encoder
-        self.f_head = estimator.f_head
+        self._estimator = estimator
 
     def forward(self, obs_history: torch.Tensor) -> torch.Tensor:
-        z_t = self.encoder(obs_history)
-        force_hat = self.f_head(z_t)
+        _z_t, force_hat = self._estimator._forward(obs_history)
         return force_hat
 
 

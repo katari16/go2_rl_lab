@@ -149,8 +149,19 @@ if __name__ == "__main__":
     control_dt = cfg["control_dt"]
     temporal_steps = cfg["estimator_temporal_steps"]
     compliance_k = cfg.get("compliance_k", 0.0)
+    compliance_k_yaw = cfg.get("compliance_k_yaw", 0.0)
     ema_alpha = cfg.get("ema_alpha", 0.1)
     weak_motor = cfg.get("weak_motor", [])
+    force_layout = cfg.get("force_layout", "auto")
+
+    if force_layout == "xy_yaw":
+        yaw_idx = 2
+    elif force_dim >= 6:
+        yaw_idx = 5
+    elif force_dim >= 4:
+        yaw_idx = 3
+    else:
+        yaw_idx = None
 
     DEFAULT_ANGLES_ISAAC = np.array(
         [0.1, -0.1, 0.1, -0.1, 0.8, 0.8, 1, 1, -1.5, -1.5, -1.5, -1.5],
@@ -375,11 +386,13 @@ if __name__ == "__main__":
             # EMA filter
             force_ema = ema_alpha * force_hat + (1.0 - ema_alpha) * force_ema
 
-            # ── Compliance modulation (XY only) ──────────────────────
+            # ── Compliance modulation (XY force + yaw torque) ────────
             obs_for_policy = raw_obs.copy()
             if compliance_k > 0.0:
                 obs_for_policy[6] += compliance_k * force_ema[0]
                 obs_for_policy[7] += compliance_k * force_ema[1]
+                if compliance_k_yaw > 0.0 and yaw_idx is not None:
+                    obs_for_policy[8] += compliance_k_yaw * force_ema[yaw_idx]
 
             # ── Build full policy input (57 raw + 3 force estimate) ───
             full_obs = np.concatenate([obs_for_policy, force_hat])
@@ -427,8 +440,11 @@ if __name__ == "__main__":
                         or (step_count <= 50 and step_count % 10 == 0)
                         or step_count % 50 == 0)
             if do_print:
+                n_lin = 2 if force_layout == "xy_yaw" else min(force_dim, 3)
+                f_str = ",".join(f"{force_hat[i]:+.1f}" for i in range(n_lin))
+                extra = f"  τ_yaw={force_hat[yaw_idx]:+.2f}" if yaw_idx is not None else ""
                 print(f"[step {step_count}] cmd=[{velocity_cmd[0]:.1f},{velocity_cmd[1]:.1f},{velocity_cmd[2]:.1f}]"
-                      f"  F_hat=[{force_hat[0]:+.1f},{force_hat[1]:+.1f},{force_hat[2]:+.1f}]"
+                      f"  F_hat=[{f_str}]  |F|={np.linalg.norm(force_hat[:n_lin]):.1f}N{extra}"
                       f"  gravity={raw_obs[3:6].round(3)}"
                       f"  action_norm={np.linalg.norm(action):.3f}")
 
@@ -547,7 +563,14 @@ if __name__ == "__main__":
             plt.close(fig)
 
             fig, ax = plt.subplots(figsize=(14, 4))
-            force_labels = ["Fx", "Fy", "Fz"][:force_dim]
+            if force_layout == "xy_yaw":
+                force_labels = ["Fx", "Fy", "τ_yaw"]
+            elif force_dim == 6:
+                force_labels = ["Fx", "Fy", "Fz", "τx", "τy", "τz"]
+            elif force_dim == 4:
+                force_labels = ["Fx", "Fy", "Fz", "τ_yaw"]
+            else:
+                force_labels = ["Fx", "Fy", "Fz"][:force_dim]
             for i in range(force_dim):
                 ax.plot(t, force_hat_arr[:, i], linewidth=0.8, alpha=0.7, label=f"hat {force_labels[i]}")
                 ax.plot(t, force_ema_arr[:, i], linewidth=1.2, alpha=0.9, linestyle="--", label=f"ema {force_labels[i]}")
