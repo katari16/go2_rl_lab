@@ -101,3 +101,16 @@ UNITREE_GO2_LOW_GAIN_PACE_CFG = UNITREE_GO2_CFG.replace(
 )
 """Unitree Go2 with low PD gains (Kp=8, Kd=0.4) and PACE-identified actuator parameters."""
 
+
+# ----- LOW GAIN PACE APRIL GO2 CFG (Kp=8, Kd=0.4, April run params) -----
+UNITREE_GO2_LOW_GAIN_PACE_APRIL_CFG = UNITREE_GO2_CFG.replace(
+    actuators={
+        "GO2HV": unitree_actuators.UnitreeActuatorCfg_Go2PACE_April(
+            joint_names_expr=[".*"],
+            stiffness=8.0,
+            damping=0.4,
+        ),
+    },
+)
+"""Unitree Go2 with low PD gains (Kp=8, Kd=0.4) and April PACE-identified actuator parameters (run 26_04_12_23-04-12)."""
+
