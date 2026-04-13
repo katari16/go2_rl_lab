@@ -74,6 +74,7 @@ def apply_persistent_xyz_force(
     env_ids: torch.Tensor,
     force_range: tuple[float, float],
     fz_scale: float = 0.6,
+    force_free_fraction: float = 0.0,
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names="base"),
 ) -> None:
     """Apply persistent external XYZ force to the robot base (body frame).
@@ -87,6 +88,7 @@ def apply_persistent_xyz_force(
         env_ids: Environment indices to randomize.
         force_range: (min_abs, max_abs) magnitude range for each XY axis.
         fz_scale: Scale factor for Z magnitude range relative to XY (default: 0.6).
+        force_free_fraction: Fraction of envs that get zero force (default: 0.0).
         asset_cfg: Asset and body to apply force to.
     """
     asset: RigidObject | Articulation = env.scene[asset_cfg.name]
@@ -120,6 +122,12 @@ def apply_persistent_xyz_force(
         forces[:, :, 2] = z_force[:, 0:1]
         torques = torch.zeros(num, num_bodies, 3, device=asset.device)
 
+        # Zero out forces for a fraction of envs
+        if force_free_fraction > 0.0:
+            n_free = max(1, int(num * force_free_fraction))
+            free_idx = torch.randperm(num, device=asset.device)[:n_free]
+            forces[free_idx] = 0.0
+
     asset.permanent_wrench_composer.set_forces_and_torques(
         forces=forces,
         torques=torques,
@@ -134,6 +142,7 @@ def apply_persistent_wrench(
     force_range: tuple[float, float],
     fz_scale: float = 0.6,
     torque_range: tuple[float, float] = (0.0, 5.0),
+    force_free_fraction: float = 0.0,
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names="base"),
 ) -> None:
     """Apply persistent external wrench (force + torque) to the robot base.
@@ -148,6 +157,7 @@ def apply_persistent_wrench(
         force_range: (min_abs, max_abs) magnitude range for each XY force axis.
         fz_scale: Scale factor for Z force magnitude relative to XY (default: 0.6).
         torque_range: (min_abs, max_abs) magnitude range for each torque axis (default: 0-5 Nm).
+        force_free_fraction: Fraction of envs that get zero wrench (default: 0.0).
         asset_cfg: Asset and body to apply wrench to.
     """
     asset: RigidObject | Articulation = env.scene[asset_cfg.name]
@@ -191,6 +201,13 @@ def apply_persistent_wrench(
         torques[:, :, 0] = torque_vals[:, 0:1]
         torques[:, :, 1] = torque_vals[:, 1:2]
         torques[:, :, 2] = torque_vals[:, 2:3]
+
+        # Zero out wrench for a fraction of envs
+        if force_free_fraction > 0.0:
+            n_free = max(1, int(num * force_free_fraction))
+            free_idx = torch.randperm(num, device=asset.device)[:n_free]
+            forces[free_idx] = 0.0
+            torques[free_idx] = 0.0
 
     asset.permanent_wrench_composer.set_forces_and_torques(
         forces=forces,

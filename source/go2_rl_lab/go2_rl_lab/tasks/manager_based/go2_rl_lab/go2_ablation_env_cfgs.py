@@ -4,6 +4,7 @@ Variants built on LowLevelEnvCfg:
 
 1. LowLevelWrenchEnvCfg — for B1-B4: 6D wrench event (torque 0-5 Nm) + critic GT
 1b. LowLevelWrenchHighTorqueEnvCfg — for B5: same but torque 0-10 Nm
+1e. LowLevelFrozenWrenchEnvCfg — for S3-S9: wrench event but v3-compatible obs (60/70)
 2. LowLevelComplianceRewardEnvCfg — for E1: baseline + compliance_force_tracking
 3. LowLevelWrenchComplianceRewardEnvCfg — for E2: wrench + both compliance rewards
 """
@@ -140,6 +141,23 @@ class LowLevelWrenchHighTorqueEnvCfg(LowLevelWrenchEnvCfg):
     """6D wrench env with torque_range=(0, 10) Nm — for ablation run B5."""
 
     events: WrenchHighTorqueEventCfg = WrenchHighTorqueEventCfg()
+
+
+# ── 1e. Frozen-policy wrench env (v3-compatible obs, wrench event) ──────────
+
+
+@configclass
+class LowLevelFrozenWrenchEnvCfg(LowLevelEnvCfg):
+    """Wrench event with v3-compatible observations — for S-series frozen-policy runs.
+
+    Inherits LowLevelEnvCfg (60-dim policy, 70-dim critic) so v3 checkpoint
+    loads without dimension mismatch. Only swaps the force event to
+    persistent_wrench so torques are generated for 4D/6D/xy_yaw estimation.
+    Critic keeps 3D force GT (not 6D wrench) — acceptable since the critic
+    is never trained in frozen-policy mode.
+    """
+
+    events: WrenchEventCfg = WrenchEventCfg()
 
 
 # ── 1c. Trapezoid wrench env (PAINT-style force profile) ────────────────────

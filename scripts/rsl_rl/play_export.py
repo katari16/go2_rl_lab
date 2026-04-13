@@ -107,6 +107,9 @@ def main(
     elif runner_class_name == "ForceOnPolicyRunner":
         from go2_rl_lab.estimator.force_runner import ForceOnPolicyRunner
         runner = ForceOnPolicyRunner(env, agent_cfg.to_dict(), log_dir=None, device=agent_cfg.device)
+    elif runner_class_name == "FrozenPolicyEstimatorRunner":
+        from go2_rl_lab.estimator.frozen_policy_estimator_runner import FrozenPolicyEstimatorRunner
+        runner = FrozenPolicyEstimatorRunner(env, agent_cfg.to_dict(), log_dir=None, device=agent_cfg.device)
     else:
         raise ValueError(f"Unsupported runner class for export: {runner_class_name}")
 

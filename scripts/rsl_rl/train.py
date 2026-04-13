@@ -36,6 +36,7 @@ parser.add_argument(
 )
 parser.add_argument("--estimator_checkpoint", type=str, default=None, help="Path to pre-trained estimator checkpoint for compliant training.")
 parser.add_argument("--stage1_checkpoint", type=str, default=None, help="Path to stage-1 checkpoint for HAC-LOCO stage 2 compliance training.")
+parser.add_argument("--policy_checkpoint", type=str, default=None, help="Path to frozen base policy checkpoint for estimator-only training (S-series).")
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -232,6 +233,14 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         if args_cli.stage1_checkpoint is not None:
             train_cfg.setdefault("compliance", {})["stage1_checkpoint"] = args_cli.stage1_checkpoint
         runner = ComplianceOnPolicyRunner(env, train_cfg, log_dir=log_dir, device=agent_cfg.device)
+    elif agent_cfg.class_name == "FrozenPolicyEstimatorRunner":
+        from go2_rl_lab.estimator.frozen_policy_estimator_runner import FrozenPolicyEstimatorRunner
+        runner = FrozenPolicyEstimatorRunner(env, agent_cfg.to_dict(), log_dir=log_dir, device=agent_cfg.device)
+        if args_cli.policy_checkpoint:
+            print(f"[INFO]: Loading frozen base policy from: {args_cli.policy_checkpoint}")
+            runner.load(args_cli.policy_checkpoint, load_optimizer=False)
+        else:
+            raise ValueError("FrozenPolicyEstimatorRunner requires --policy_checkpoint <path>")
     else:
         raise ValueError(f"Unsupported runner class: {agent_cfg.class_name}")
     # write git state to logs

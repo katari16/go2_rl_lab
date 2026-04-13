@@ -25,6 +25,16 @@ gym.register(
 )
 
 gym.register(
+    id="Go2-LowLevel-NoEst-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_lowlevel_env_cfg:LowLevelNoEstEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_lowlevel_cfg:LowLevelNoEstRunnerCfg",
+    },
+)
+
+gym.register(
     id="Go2-LowLevel-PACE-v0",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
@@ -292,6 +302,38 @@ gym.register(
         "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:AblationH19_50Cfg",
     },
 )
+
+
+# ── Group S: Frozen-policy estimator-only training (v3 base) ─────────────────
+
+# S1 (2D), S2 (3D): baseline env (XYZ force only)
+for _id, _cfg in [("S1", "AblationS1Cfg"), ("S2", "AblationS2Cfg")]:
+    gym.register(
+        id=f"Go2-Ablation-{_id}-v0",
+        entry_point="isaaclab.envs:ManagerBasedRLEnv",
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": f"{__name__}.go2_lowlevel_env_cfg:LowLevelEnvCfg",
+            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:{_cfg}",
+        },
+    )
+
+# S3-S9: wrench env (6D/4D/xy_yaw need torque generation)
+for _id, _cfg in [
+    ("S3", "AblationS3Cfg"), ("S4", "AblationS4Cfg"),
+    ("S5", "AblationS5Cfg"), ("S6", "AblationS6Cfg"),
+    ("S7", "AblationS7Cfg"), ("S8", "AblationS8Cfg"),
+    ("S9", "AblationS9Cfg"),
+]:
+    gym.register(
+        id=f"Go2-Ablation-{_id}-v0",
+        entry_point="isaaclab.envs:ManagerBasedRLEnv",
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:LowLevelWrenchEnvCfg",
+            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:{_cfg}",
+        },
+    )
 
 
 # ── High-level non-linear sweep: 8 variations (R1-R8) ───────────────────────
