@@ -67,6 +67,14 @@ def create_runner(env, agent_cfg, args_cli):
         runner = TeacherStudentRunner(env, train_cfg, log_dir=None, device=agent_cfg.device)
         is_stage2 = False
 
+    elif runner_class_name == "FrozenPolicyEstimatorRunner":
+        from go2_rl_lab.estimator.frozen_policy_estimator_runner import FrozenPolicyEstimatorRunner
+
+        if getattr(args_cli, "estimator_checkpoint", None):
+            train_cfg["estimator_checkpoint"] = args_cli.estimator_checkpoint
+        runner = FrozenPolicyEstimatorRunner(env, train_cfg, log_dir=None, device=agent_cfg.device)
+        is_stage2 = False
+
     else:
         from rsl_rl.runners import OnPolicyRunner
 
@@ -87,6 +95,7 @@ def setup_runner_for_eval(runner, env, runner_class_name, is_stage2, device, n):
         "wrapper": None,
         "compliant_raw_obs_dim": None,
         "force_dim": 3,
+        "force_layout": "auto",
         "force_ema": None,  # initialized after force_dim is known
         "has_estimator": False,
     }
@@ -104,10 +113,12 @@ def setup_runner_for_eval(runner, env, runner_class_name, is_stage2, device, n):
         except AttributeError:
             ctx["policy_nn"] = runner.alg.actor_critic
 
-    _estimator_runners = ("CompliantOnPolicyRunner", "TeacherStudentRunner", "PaintRunner")
+    _estimator_runners = ("CompliantOnPolicyRunner", "TeacherStudentRunner",
+                          "PaintRunner", "FrozenPolicyEstimatorRunner")
     if runner_class_name in _estimator_runners:
         ctx["has_estimator"] = True
         ctx["force_dim"] = getattr(runner, "_force_dim", 3)
+        ctx["force_layout"] = getattr(runner.estimator, "force_layout", "auto")
         ctx["compliant_raw_obs_dim"] = runner._num_one_step_obs
         isaac_env = env.unwrapped if hasattr(env, "unwrapped") else env
         isaac_env._force_estimate_xy = torch.zeros(n, ctx["force_dim"], device=device)
@@ -283,7 +294,8 @@ def reset_env(env, ctx, isaac_env, runner, runner_class_name, is_stage2, device,
         )
 
         # Reset estimator history buffer if applicable
-        _estimator_runners = ("CompliantOnPolicyRunner", "TeacherStudentRunner", "PaintRunner")
+        _estimator_runners = ("CompliantOnPolicyRunner", "TeacherStudentRunner",
+                          "PaintRunner", "FrozenPolicyEstimatorRunner")
         if runner_class_name in _estimator_runners and hasattr(runner, "_history_buffer"):
             runner._history_buffer.reset(env_ids)
             ctx["force_ema"] = torch.zeros(n, ctx["force_dim"], device=device)
