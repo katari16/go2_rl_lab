@@ -1,19 +1,16 @@
 """FrozenPolicyEstimatorRunner — train force estimator on a frozen walking policy.
 
-Stage 2 estimator-only training:
-  1. Load a pre-trained policy checkpoint (actor frozen, no PPO).
-  2. Activate forces immediately (no reward gate).
-  3. Train only the force estimator from observation history.
-  4. A fraction of envs (force_free_fraction) always get zero force
-     so the estimator learns to output zeros when nothing is pulling.
+Stage 2 estimator-only training. The base policy has 57-dim obs (no force
+estimate slot), so the estimator is a pure side-channel — its output never
+feeds back into the policy. Training loop:
 
-Usage in runner config:
-    class_name: "FrozenPolicyEstimatorRunner"
-    policy_checkpoint: "logs/rsl_rl/.../model_4000.pt"
-    freeze_policy: true
-    force_free_fraction: 0.1
-    max_force: 50.0
-    estimator: { ... }
+  1. Load a pre-trained 57-dim policy checkpoint via --locomotion_checkpoint.
+  2. Freeze all actor params; actor.eval(); skip PPO updates.
+  3. Verify the actor checksum every 100 iters (catches any accidental drift).
+  4. Activate forces immediately at max_force (no reward gate).
+  5. A fraction of envs (force_free_fraction) always get zero force so the
+     estimator learns to output zeros when nothing is pulling.
+  6. Train only the force estimator via supervised loss against GT wrench.
 """
 
 from __future__ import annotations
@@ -40,15 +37,9 @@ class FrozenPolicyEstimatorRunner(OnPolicyRunner):
         self._max_force: float = train_cfg.get("max_force", 50.0)
         self._max_torque: float = train_cfg.get("max_torque", 5.0)
 
-        # Policy always sees zeros in the 3-dim force estimate slot.
-        # v3 walks fine with zero estimate (phase 1 behavior). The estimator
-        # trains independently via supervised loss — no feedback into the policy.
-        self._policy_force_dim: int = 3
-        env.unwrapped._force_estimate_xy = torch.zeros(env.num_envs, self._policy_force_dim, device=device)
-
+        # 57-dim policy obs has no force estimate slot — full obs is raw history.
         raw_obs = env.get_observations()
-        policy_obs_dim = raw_obs["policy"].shape[-1]
-        self._num_one_step_obs: int = policy_obs_dim - self._policy_force_dim
+        self._num_one_step_obs: int = raw_obs["policy"].shape[-1]
 
         self.estimator = ForceEstimator(
             temporal_steps=self._temporal_steps,
@@ -97,6 +88,8 @@ class FrozenPolicyEstimatorRunner(OnPolicyRunner):
 
         self._est_loss_buf: deque = deque(maxlen=20)
         self._last_est_stats: dict = {}
+        self._actor_checksum: torch.Tensor | None = None
+        self._checksum_interval: int = 100
 
         # Pre-compute force-free env mask (fixed set, resampled each force interval)
         self._num_force_free = int(num_envs * self._force_free_fraction)
@@ -119,17 +112,37 @@ class FrozenPolicyEstimatorRunner(OnPolicyRunner):
         event_cfg.params["force_free_fraction"] = self._force_free_fraction
         print(f"  Forces activated: {self._max_force:.0f}N, event={self._force_event_term}")
 
+    def _get_policy_nn(self):
+        try:
+            return self.alg.policy
+        except AttributeError:
+            return self.alg.actor_critic
+
     def _freeze_actor(self) -> None:
         """Freeze all actor (policy) parameters so PPO doesn't update them."""
-        try:
-            policy_nn = self.alg.policy
-        except AttributeError:
-            policy_nn = self.alg.actor_critic
+        policy_nn = self._get_policy_nn()
         frozen_count = 0
-        for name, param in policy_nn.named_parameters():
+        for _, param in policy_nn.named_parameters():
             param.requires_grad = False
             frozen_count += 1
         print(f"  Actor frozen: {frozen_count} parameters")
+        self._actor_checksum = self._compute_actor_checksum()
+
+    def _compute_actor_checksum(self) -> torch.Tensor:
+        policy_nn = self._get_policy_nn()
+        with torch.no_grad():
+            parts = [p.detach().float().sum() for p in policy_nn.parameters()]
+            return torch.stack(parts).sum().cpu()
+
+    def _verify_actor_frozen(self, it: int) -> None:
+        if self._actor_checksum is None:
+            return
+        current = self._compute_actor_checksum()
+        if not torch.allclose(current, self._actor_checksum, atol=0.0):
+            raise RuntimeError(
+                f"[FrozenEstimatorRunner] Actor weights changed at iter {it}! "
+                f"checksum drift: {(current - self._actor_checksum).item():.6e}"
+            )
 
     # ── Main training loop ────────────────────────────────────────────────
 
@@ -169,15 +182,6 @@ class FrozenPolicyEstimatorRunner(OnPolicyRunner):
 
                     self._history_buffer.insert(raw_obs)
                     self._est_obs_history[step] = self._history_buffer.get_flattened()
-                    force_hat, _ = self.estimator.get_latent(self._history_buffer.get_flattened())
-
-                    # Map estimator output (force_dim) → 3-dim for v3 policy
-                    policy_force = torch.zeros(
-                        force_hat.shape[0], self._policy_force_dim, device=force_hat.device
-                    )
-                    for i, src_idx in enumerate(self._policy_force_indices):
-                        policy_force[:, i] = force_hat[:, src_idx]
-                    self.env.unwrapped._force_estimate_xy = policy_force
 
                     actions = self.alg.act(obs)
 
@@ -213,8 +217,14 @@ class FrozenPolicyEstimatorRunner(OnPolicyRunner):
 
                 # Compute returns (needed for alg.act bookkeeping even though we skip PPO)
                 self.alg.compute_returns(obs)
+                # We skip alg.update() (which would clear the rollout storage),
+                # so clear it manually to prevent overflow on the next rollout.
+                self.alg.storage.clear()
 
             # ── Skip PPO update — only train estimator ──────────────────
+            if it % self._checksum_interval == 0:
+                self._verify_actor_frozen(it)
+
             est_stats = self._train_estimator()
             self._last_est_stats = est_stats
             if "force_loss" in est_stats:
@@ -223,6 +233,9 @@ class FrozenPolicyEstimatorRunner(OnPolicyRunner):
             stop = time.time()
             learn_time = stop - start
             self.current_learning_iteration = it
+
+            # Parent log() expects PPO's loss_dict — provide an empty one since we skip PPO.
+            loss_dict: dict = {}
 
             if self.log_dir is not None and not self.disable_logs:
                 self.log(locals())

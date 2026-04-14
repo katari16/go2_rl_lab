@@ -4,7 +4,8 @@ Variants built on LowLevelEnvCfg:
 
 1. LowLevelWrenchEnvCfg — for B1-B4: 6D wrench event (torque 0-5 Nm) + critic GT
 1b. LowLevelWrenchHighTorqueEnvCfg — for B5: same but torque 0-10 Nm
-1e. LowLevelFrozenWrenchEnvCfg — for S3-S9: wrench event but v3-compatible obs (60/70)
+1e. Stage2NoEstEnvCfg / Stage2NoEstWrenchEnvCfg — for S-series frozen-policy runs
+    (57-dim policy obs, force/wrench event, placeholder for future compliance rewards)
 2. LowLevelComplianceRewardEnvCfg — for E1: baseline + compliance_force_tracking
 3. LowLevelWrenchComplianceRewardEnvCfg — for E2: wrench + both compliance rewards
 """
@@ -19,7 +20,9 @@ from isaaclab.utils import configclass
 from . import mdp
 from .go2_lowlevel_env_cfg import (
     LowLevelEnvCfg,
+    LowLevelNoEstEnvCfg,
     EventCfg,
+    NoEstEventCfg,
     ObservationsCfg,
     RewardsCfg,
 )
@@ -143,21 +146,36 @@ class LowLevelWrenchHighTorqueEnvCfg(LowLevelWrenchEnvCfg):
     events: WrenchHighTorqueEventCfg = WrenchHighTorqueEventCfg()
 
 
-# ── 1e. Frozen-policy wrench env (v3-compatible obs, wrench event) ──────────
+# ── 1e. Stage 2 frozen-policy envs (no-est base, S-series) ──────────────────
 
 
 @configclass
-class LowLevelFrozenWrenchEnvCfg(LowLevelEnvCfg):
-    """Wrench event with v3-compatible observations — for S-series frozen-policy runs.
+class Stage2NoEstEnvCfg(LowLevelNoEstEnvCfg):
+    """Stage 2 env for frozen-policy estimator training — XYZ force event.
 
-    Inherits LowLevelEnvCfg (60-dim policy, 70-dim critic) so v3 checkpoint
-    loads without dimension mismatch. Only swaps the force event to
-    persistent_wrench so torques are generated for 4D/6D/xy_yaw estimation.
-    Critic keeps 3D force GT (not 6D wrench) — acceptable since the critic
-    is never trained in frozen-policy mode.
+    Inherits LowLevelNoEstEnvCfg (57-dim policy, 67-dim critic) so the frozen
+    base policy loads without dimension mismatch. Rewards are inherited from
+    the base env — the RewardsCfg slot is kept as a hook for future compliance
+    reward ablations. The estimator-only runner skips PPO so rewards are only
+    used for episode logging.
+
+    Terrain matches stage 1 (same LowLevelEnvCfg terrain) so the estimator
+    generalizes to the same distribution the frozen policy was trained on.
+    """
+
+    rewards: RewardsCfg = RewardsCfg()
+
+
+@configclass
+class Stage2NoEstWrenchEnvCfg(LowLevelNoEstEnvCfg):
+    """Stage 2 env with wrench event — for S3-S9 (4D/6D/xy_yaw).
+
+    Same 57-dim policy obs as Stage2NoEstEnvCfg, but swaps persistent_xyz_force
+    for persistent_wrench so torques are generated for the estimator GT.
     """
 
     events: WrenchEventCfg = WrenchEventCfg()
+    rewards: RewardsCfg = RewardsCfg()
 
 
 # ── 1c. Trapezoid wrench env (PAINT-style force profile) ────────────────────

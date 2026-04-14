@@ -602,6 +602,7 @@ def _frozen_base(**overrides) -> dict:
 class AblationS1Cfg(LowLevelRunnerCfg):
     experiment_name: str = "ablation_S1_2d_h30_frozen"
     class_name: str = "FrozenPolicyEstimatorRunner"
+    max_iterations: int = 5000
     force_free_fraction: float = 0.1
     force_event_term_name: str = "persistent_xyz_force"
     max_force: float = 50.0
@@ -612,6 +613,7 @@ class AblationS1Cfg(LowLevelRunnerCfg):
 class AblationS2Cfg(LowLevelRunnerCfg):
     experiment_name: str = "ablation_S2_3d_h30_frozen"
     class_name: str = "FrozenPolicyEstimatorRunner"
+    max_iterations: int = 5000
     force_free_fraction: float = 0.1
     force_event_term_name: str = "persistent_xyz_force"
     max_force: float = 50.0
@@ -622,6 +624,7 @@ class AblationS2Cfg(LowLevelRunnerCfg):
 class AblationS3Cfg(LowLevelRunnerCfg):
     experiment_name: str = "ablation_S3_xy_yaw_h30_frozen"
     class_name: str = "FrozenPolicyEstimatorRunner"
+    max_iterations: int = 5000
     force_free_fraction: float = 0.1
     force_event_term_name: str = "persistent_wrench"
     max_force: float = 50.0
@@ -637,6 +640,7 @@ class AblationS3Cfg(LowLevelRunnerCfg):
 class AblationS4Cfg(LowLevelRunnerCfg):
     experiment_name: str = "ablation_S4_4d_h30_frozen"
     class_name: str = "FrozenPolicyEstimatorRunner"
+    max_iterations: int = 5000
     force_free_fraction: float = 0.1
     force_event_term_name: str = "persistent_wrench"
     max_force: float = 50.0
@@ -651,6 +655,7 @@ class AblationS4Cfg(LowLevelRunnerCfg):
 class AblationS5Cfg(LowLevelRunnerCfg):
     experiment_name: str = "ablation_S5_6d_h30_equal_frozen"
     class_name: str = "FrozenPolicyEstimatorRunner"
+    max_iterations: int = 5000
     force_free_fraction: float = 0.1
     force_event_term_name: str = "persistent_wrench"
     max_force: float = 50.0
@@ -665,6 +670,7 @@ class AblationS5Cfg(LowLevelRunnerCfg):
 class AblationS6Cfg(LowLevelRunnerCfg):
     experiment_name: str = "ablation_S6_6d_h30_weighted_frozen"
     class_name: str = "FrozenPolicyEstimatorRunner"
+    max_iterations: int = 5000
     force_free_fraction: float = 0.1
     force_event_term_name: str = "persistent_wrench"
     max_force: float = 50.0
@@ -680,6 +686,7 @@ class AblationS6Cfg(LowLevelRunnerCfg):
 class AblationS7Cfg(LowLevelRunnerCfg):
     experiment_name: str = "ablation_S7_6d_h30_lindecay_frozen"
     class_name: str = "FrozenPolicyEstimatorRunner"
+    max_iterations: int = 5000
     force_free_fraction: float = 0.1
     force_event_term_name: str = "persistent_wrench"
     max_force: float = 50.0
@@ -695,6 +702,7 @@ class AblationS7Cfg(LowLevelRunnerCfg):
 class AblationS8Cfg(LowLevelRunnerCfg):
     experiment_name: str = "ablation_S8_6d_h30_tcnpre_frozen"
     class_name: str = "FrozenPolicyEstimatorRunner"
+    max_iterations: int = 5000
     force_free_fraction: float = 0.1
     force_event_term_name: str = "persistent_wrench"
     max_force: float = 50.0
@@ -712,6 +720,7 @@ class AblationS8Cfg(LowLevelRunnerCfg):
 class AblationS9Cfg(LowLevelRunnerCfg):
     experiment_name: str = "ablation_S9_6d_h30_tcnrep_frozen"
     class_name: str = "FrozenPolicyEstimatorRunner"
+    max_iterations: int = 5000
     force_free_fraction: float = 0.1
     force_event_term_name: str = "persistent_wrench"
     max_force: float = 50.0
