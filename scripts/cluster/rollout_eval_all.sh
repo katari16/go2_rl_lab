@@ -1,25 +1,47 @@
 #!/bin/bash
+#SBATCH --job-name=rollout-eval-all
+#SBATCH --output=slurm_logs/rollout_eval_all_%j.out
+#SBATCH --error=slurm_logs/rollout_eval_all_%j.err
+#SBATCH --time=24:00:00
+#SBATCH --cpus-per-task=8
+#SBATCH --mem-per-cpu=4G
+#SBATCH --gpus=1
+#SBATCH --tmp=10G
+
 # Rollout estimator evaluation for all ablation runs.
-# Runs sequentially on a single GPU overnight.
+# Runs sequentially on a single GPU.
 #
 # 20N series (A/B/C/E): --force_baskets 5 10 15 20
 # 50N series (H):       --force_baskets 10 20 30 40 50
 #
 # Usage:
-#   bash scripts/cluster/rollout_eval_all.sh
+#   sbatch scripts/cluster/rollout_eval_all.sh
 
-set -e
+module load eth_proxy
 
-cd /home/ubuntu/go2_rl_lab
+echo "========================================="
+echo "SLURM Job ID: $SLURM_JOB_ID"
+echo "Running on: $(hostname)"
+echo "Starting at: $(date)"
+echo "GPU allocation: $CUDA_VISIBLE_DEVICES"
+echo "========================================="
+
+nvidia-smi
+
+source /cluster/project/rsl/$USER/miniconda3/bin/activate
+conda activate env_isaaclab
+
+export OMP_NUM_THREADS=$SLURM_CPUS_PER_TASK
+
+cd /cluster/home/habaumann/go2_rl_lab
 
 EVAL_CMD="python scripts/rsl_rl/eval/rollout_estimator_eval.py"
 COMMON="--num_envs 4096 --duration 20 --headless"
 BASKETS_20N="--force_baskets 5 10 15 20"
 BASKETS_50N="--force_baskets 10 20 30 40 50"
 
-echo "========================================="
+echo ""
 echo "Rollout Estimator Eval — All Ablation Runs"
-echo "Started at: $(date)"
 echo "========================================="
 
 # ── 20N series (A/B/C/E) ──────────────────────────────────────────────
