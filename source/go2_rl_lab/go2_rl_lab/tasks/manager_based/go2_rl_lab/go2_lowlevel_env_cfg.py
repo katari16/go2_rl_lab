@@ -70,7 +70,12 @@ from .mdp.rewards import (
     compliant_track_lin_vel_xy_exp,
     standing_pose_penalty,
 )
-from go2_rl_lab.assets.unitree import UNITREE_GO2_LOW_GAIN_CFG, UNITREE_GO2_LOW_GAIN_PACE_CFG, UNITREE_GO2_LOW_GAIN_PACE_APRIL_CFG
+from go2_rl_lab.assets.unitree import (
+    UNITREE_GO2_LOW_GAIN_CFG,
+    UNITREE_GO2_LOW_GAIN_PACE_CFG,
+    UNITREE_GO2_LOW_GAIN_PACE_APRIL_CFG,
+    UNITREE_GO2_LOW_GAIN_PACE_APRIL14_CFG,
+)
 from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG
 
 
@@ -586,3 +591,12 @@ class LowLevelPaceAprilEnvCfg(LowLevelEnvCfg):
     def __post_init__(self):
         super().__post_init__()
         self.scene.robot = UNITREE_GO2_LOW_GAIN_PACE_APRIL_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+
+
+@configclass
+class LowLevelPaceApril14EnvCfg(LowLevelEnvCfg):
+    """V3 low-level env with April-14 PACE actuator params (run 26_04_14_09-41-22)."""
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.scene.robot = UNITREE_GO2_LOW_GAIN_PACE_APRIL14_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")

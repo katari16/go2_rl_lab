@@ -54,6 +54,16 @@ gym.register(
     },
 )
 
+gym.register(
+    id="Go2-LowLevel-PACE-April14-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_lowlevel_env_cfg:LowLevelPaceApril14EnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_lowlevel_cfg:LowLevelPaceApril14RunnerCfg",
+    },
+)
+
 
 # ── High-level non-linear compliance (frozen low-level + trainable high-level) ──
 
