@@ -59,6 +59,7 @@ parser.add_argument("--real-time", action="store_true", default=False, help="Run
 parser.add_argument("--show_est", action="store_true", default=False, help="Show estimated force arrow (blue).")
 parser.add_argument("--show_cmd", action="store_true", default=False, help="Show velocity command arrow (green).")
 parser.add_argument("--show_adj", action="store_true", default=False, help="Show adjusted velocity command arrow (yellow).")
+parser.add_argument("--flat", action="store_true", default=False, help="Use flat ground instead of training terrain.")
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -288,6 +289,23 @@ def main(
     env_cfg.scene.num_envs = args_cli.num_envs
     env_cfg.seed = agent_cfg.seed
     env_cfg.sim.device = args_cli.device if args_cli.device is not None else env_cfg.sim.device
+
+    # Flat ground override
+    if args_cli.flat:
+        import isaaclab.sim as sim_utils
+        from isaaclab.terrains import TerrainImporterCfg
+        env_cfg.scene.terrain = TerrainImporterCfg(
+            prim_path="/World/ground",
+            terrain_type="plane",
+            physics_material=sim_utils.RigidBodyMaterialCfg(
+                friction_combine_mode="multiply",
+                restitution_combine_mode="multiply",
+                static_friction=1.0,
+                dynamic_friction=1.0,
+            ),
+        )
+        if hasattr(env_cfg, "curriculum"):
+            env_cfg.curriculum = None
 
     # Standing robot: zero velocity commands, disable built-in debug arrows
     env_cfg.commands.base_velocity.ranges.lin_vel_x = (0.0, 0.0)
