@@ -835,3 +835,45 @@ class AblationJ8Cfg(LowLevelRunnerCfg):
     max_force: float = _J_BASE["max_force"]
     max_torque: float = _J_BASE["max_torque"]
     estimator: dict = _est(temporal_steps=40, force_dim=4, yaw_loss_weight=3.0)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Group K: B4 re-run (yaw bug fixed) + estimation accuracy reward (20N, 5Nm)
+#
+# | Run | Est-acc weight | Notes                          |
+# |-----|----------------|--------------------------------|
+# | K1  | —              | B4 re-run, yaw bug now fixed   |
+# | K2  | 50             | + est accuracy reward           |
+# | K3  | 100            | + est accuracy reward           |
+# ══════════════════════════════════════════════════════════════════════════════
+
+_K_EST = dict(
+    temporal_steps=40, force_dim=6, rec_loss_weight=1.0,
+    enc_hidden_dims=[256, 128], f_head_dims=[64, 32],
+    torque_angle_loss_weight=3.0, torque_angle_min=0.3,
+    yaw_loss_weight=3.0,
+)
+
+
+@configclass
+class AblationK1Cfg(LowLevelRunnerCfg):
+    experiment_name: str = "ablation_K1_6d_h40_big_yawfix_20N"
+    force_event_term_name: str = "persistent_wrench"
+    max_torque: float = 5.0
+    estimator: dict = _est(**_K_EST)
+
+
+@configclass
+class AblationK2Cfg(LowLevelRunnerCfg):
+    experiment_name: str = "ablation_K2_6d_h40_big_estrew_w50_20N"
+    force_event_term_name: str = "persistent_wrench"
+    max_torque: float = 5.0
+    estimator: dict = _est(**_K_EST)
+
+
+@configclass
+class AblationK3Cfg(LowLevelRunnerCfg):
+    experiment_name: str = "ablation_K3_6d_h40_big_estrew_w100_20N"
+    force_event_term_name: str = "persistent_wrench"
+    max_torque: float = 5.0
+    estimator: dict = _est(**_K_EST)

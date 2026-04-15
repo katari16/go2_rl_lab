@@ -360,6 +360,34 @@ for _id, _cfg, _env_cfg in [
         },
     )
 
+# ── Group K: B4 re-run (yaw fix) + est accuracy reward (20N, 6D) ─────────────
+
+# K1: same env as B4 (wrench, no est accuracy reward)
+gym.register(
+    id="Go2-Ablation-K1-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:LowLevelWrenchEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:AblationK1Cfg",
+    },
+)
+
+# K2, K3: wrench + est accuracy reward (reuse J-series env cfgs)
+for _id, _cfg, _env_cfg in [
+    ("K2", "AblationK2Cfg", "JSeriesWrenchEstAccW50Cfg"),
+    ("K3", "AblationK3Cfg", "JSeriesWrenchEstAccW100Cfg"),
+]:
+    gym.register(
+        id=f"Go2-Ablation-{_id}-v0",
+        entry_point="isaaclab.envs:ManagerBasedRLEnv",
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:{_env_cfg}",
+            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:{_cfg}",
+        },
+    )
+
 # ── Group S: Frozen-policy estimator-only training (no-est base) ─────────────
 
 # S1 (2D), S2 (3D): XYZ force env (no torque)
