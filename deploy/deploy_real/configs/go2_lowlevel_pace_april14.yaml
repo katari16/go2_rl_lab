@@ -5,7 +5,7 @@ lowcmd_topic: "rt/lowcmd"
 lowstate_topic: "rt/lowstate"
 
 # Low-level locomotion policy trained with April-14 PACE motor params (no force estimator)
-policy_path: "deploy/pre_train/policy_lowlevel_pace_april14.pt"
+policy_path: "policy_lowlevel_pace_april14.pt"
 
 leg_joint2motor_idx: [3,0,9,6,4,1,10,7,5,2,11,8]
 default_angles: [-0.1,  0.8, -1.5, 0.1, 0.8, -1.5, -0.1, 1, -1.5, 0.1, 1, -1.5]
