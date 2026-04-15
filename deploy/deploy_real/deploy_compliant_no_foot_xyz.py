@@ -309,6 +309,7 @@ if __name__ == "__main__":
     # ══════════════════════════════════════════════════════════════════════
     print("\n" + "=" * 60)
     print("  STANDING — Press A to start policy")
+    print("  Controls: B=toggle recording, Y=compliance off/on, X=compliance inverted/normal, SELECT=stop")
     print("=" * 60 + "\n")
 
     while remote_controller.button[KeyMap.A] != 1:
@@ -339,6 +340,11 @@ if __name__ == "__main__":
     step_count = 0
     debug_log = []
     should_stop = False
+    compliance_mode = "normal"
+    sim_real_recording = False
+    prev_b_button = 0
+    prev_y_button = 0
+    prev_x_button = 0
     estimator.reset()
 
     try:
@@ -388,14 +394,22 @@ if __name__ == "__main__":
 
             # ── Compliance modulation (XY force + yaw torque) ────────
             obs_for_policy = raw_obs.copy()
-            if compliance_k > 0.0:
+            if compliance_k > 0.0 and compliance_mode == "normal":
                 obs_for_policy[6] += compliance_k * force_ema[0]
                 obs_for_policy[7] += compliance_k * force_ema[1]
                 if compliance_k_yaw > 0.0 and yaw_idx is not None:
                     obs_for_policy[8] += compliance_k_yaw * force_ema[yaw_idx]
+            elif compliance_k > 0.0 and compliance_mode == "inverted":
+                obs_for_policy[6] -= compliance_k * force_ema[0]
+                obs_for_policy[7] -= compliance_k * force_ema[1]
+                if compliance_k_yaw > 0.0 and yaw_idx is not None:
+                    obs_for_policy[8] -= compliance_k_yaw * force_ema[yaw_idx]
 
-            # ── Build full policy input (57 raw + 3 force estimate) ───
-            full_obs = np.concatenate([obs_for_policy, force_hat])
+            # ── Build full policy input (57 raw + force estimate) ─────
+            if compliance_mode == "inverted":
+                full_obs = np.concatenate([obs_for_policy, -force_hat])
+            else:
+                full_obs = np.concatenate([obs_for_policy, force_hat])
 
             # ── Policy inference ──────────────────────────────────────
             obs_tensor = torch.from_numpy(full_obs).float().unsqueeze(0)
@@ -423,11 +437,42 @@ if __name__ == "__main__":
 
             send_cmd()
 
+            # ── B button: toggle recording marker ─────────────────────
+            b_now = remote_controller.button[KeyMap.B]
+            if b_now == 1 and prev_b_button == 0:
+                sim_real_recording = not sim_real_recording
+                tag = "ON" if sim_real_recording else "OFF"
+                print(f"[step {step_count}] *** Recording marker {tag} ***", flush=True)
+            prev_b_button = b_now
+
+            # ── Y button: toggle compliance OFF / normal ──────────────
+            y_now = remote_controller.button[KeyMap.Y]
+            if y_now == 1 and prev_y_button == 0:
+                if compliance_mode == "off":
+                    compliance_mode = "normal"
+                else:
+                    compliance_mode = "off"
+                print(f"[step {step_count}] *** Compliance mode: {compliance_mode} ***", flush=True)
+            prev_y_button = y_now
+
+            # ── X button: toggle compliance INVERTED / normal ─────────
+            x_now = remote_controller.button[KeyMap.X]
+            if x_now == 1 and prev_x_button == 0:
+                if compliance_mode == "inverted":
+                    compliance_mode = "normal"
+                else:
+                    compliance_mode = "inverted"
+                print(f"[step {step_count}] *** Compliance mode: {compliance_mode} ***", flush=True)
+            prev_x_button = x_now
+
             # ── Debug logging ─────────────────────────────────────────
             step_count += 1
             if args.debug:
                 debug_log.append({
                     'step': step_count,
+                    'wall_time': time.time(),
+                    'sim_real_recording': sim_real_recording,
+                    'compliance_mode': compliance_mode,
                     'raw_obs': raw_obs.copy().tolist(),
                     'force_hat': force_hat.tolist(),
                     'force_ema': force_ema.tolist(),
