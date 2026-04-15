@@ -253,6 +253,61 @@ class LowLevelWrenchEstAccuracyEnvCfg(LowLevelWrenchEnvCfg):
     rewards: EstAccuracyRewardsCfg = EstAccuracyRewardsCfg()
 
 
+# ── 1f. J-series: 4D wrench + parameterized estimation accuracy reward ─────
+
+
+def _est_accuracy_rewards(weight: float, sigma: float):
+    """Build a RewardsCfg subclass with the given estimation accuracy params."""
+    @configclass
+    class _Cfg(RewardsCfg):
+        force_est_accuracy = RewTerm(
+            func=force_estimation_accuracy,
+            weight=weight,
+            params={
+                "sigma": sigma,
+                "alpha": 2.0,
+                "asset_cfg": SceneEntityCfg("robot", body_names="base"),
+            },
+        )
+    return _Cfg
+
+
+@configclass
+class JSeriesWrenchEstAccW1Cfg(LowLevelWrenchEnvCfg):
+    """4D wrench + est accuracy weight=1, sigma=1.0."""
+    rewards = _est_accuracy_rewards(1.0, 1.0)()
+
+
+@configclass
+class JSeriesWrenchEstAccW10Cfg(LowLevelWrenchEnvCfg):
+    """4D wrench + est accuracy weight=10, sigma=1.0."""
+    rewards = _est_accuracy_rewards(10.0, 1.0)()
+
+
+@configclass
+class JSeriesWrenchEstAccW50Cfg(LowLevelWrenchEnvCfg):
+    """4D wrench + est accuracy weight=50, sigma=1.0."""
+    rewards = _est_accuracy_rewards(50.0, 1.0)()
+
+
+@configclass
+class JSeriesWrenchEstAccW100Cfg(LowLevelWrenchEnvCfg):
+    """4D wrench + est accuracy weight=100, sigma=1.0."""
+    rewards = _est_accuracy_rewards(100.0, 1.0)()
+
+
+@configclass
+class JSeriesWrenchEstAccW50S025Cfg(LowLevelWrenchEnvCfg):
+    """4D wrench + est accuracy weight=50, sigma=0.25 (sharp)."""
+    rewards = _est_accuracy_rewards(50.0, 0.25)()
+
+
+@configclass
+class JSeriesWrenchEstAccW50S4Cfg(LowLevelWrenchEnvCfg):
+    """4D wrench + est accuracy weight=50, sigma=4.0 (lenient)."""
+    rewards = _est_accuracy_rewards(50.0, 4.0)()
+
+
 # ── 2. Compliance reward env (E1) ───────────────────────────────────────────
 
 

@@ -314,6 +314,52 @@ gym.register(
 )
 
 
+# ── Group J: 4D wrench + estimation accuracy reward sweep (30N) ──────────────
+
+# J1-J4: weight sweep (1, 10, 50, 100), sigma=1.0
+for _id, _cfg, _env_cfg in [
+    ("J1", "AblationJ1Cfg", "JSeriesWrenchEstAccW1Cfg"),
+    ("J2", "AblationJ2Cfg", "JSeriesWrenchEstAccW10Cfg"),
+    ("J3", "AblationJ3Cfg", "JSeriesWrenchEstAccW50Cfg"),
+    ("J4", "AblationJ4Cfg", "JSeriesWrenchEstAccW100Cfg"),
+]:
+    gym.register(
+        id=f"Go2-Ablation-{_id}-v0",
+        entry_point="isaaclab.envs:ManagerBasedRLEnv",
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:{_env_cfg}",
+            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:{_cfg}",
+        },
+    )
+
+# J5 (TCN), J6 (no rec): same env as J3 (weight=50, sigma=1.0)
+for _id, _cfg in [("J5", "AblationJ5Cfg"), ("J6", "AblationJ6Cfg")]:
+    gym.register(
+        id=f"Go2-Ablation-{_id}-v0",
+        entry_point="isaaclab.envs:ManagerBasedRLEnv",
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:JSeriesWrenchEstAccW50Cfg",
+            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:{_cfg}",
+        },
+    )
+
+# J7: sigma=0.25, J8: sigma=4.0
+for _id, _cfg, _env_cfg in [
+    ("J7", "AblationJ7Cfg", "JSeriesWrenchEstAccW50S025Cfg"),
+    ("J8", "AblationJ8Cfg", "JSeriesWrenchEstAccW50S4Cfg"),
+]:
+    gym.register(
+        id=f"Go2-Ablation-{_id}-v0",
+        entry_point="isaaclab.envs:ManagerBasedRLEnv",
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:{_env_cfg}",
+            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:{_cfg}",
+        },
+    )
+
 # ── Group S: Frozen-policy estimator-only training (no-est base) ─────────────
 
 # S1 (2D), S2 (3D): XYZ force env (no torque)

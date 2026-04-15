@@ -732,3 +732,106 @@ class AblationS9Cfg(LowLevelRunnerCfg):
         tcn_mode="replacement", tcn_channels=[64, 64],
         tcn_kernel_size=3, tcn_dilations=[1, 2],
     )
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Group J: 4D wrench + estimation accuracy reward sweep
+#
+# All runs: CompliantOnPolicyRunner, 4D, h=40, 30N force, 10Nm yaw torque
+#
+# | Run | Weight | Sigma | TCN        | Rec loss | Notes              |
+# |-----|--------|-------|------------|----------|--------------------|
+# | J1  | 1      | 1.0   | no         | yes      | weight sweep       |
+# | J2  | 10     | 1.0   | no         | yes      | weight sweep       |
+# | J3  | 50     | 1.0   | no         | yes      | weight sweep (base)|
+# | J4  | 100    | 1.0   | no         | yes      | weight sweep       |
+# | J5  | 50     | 1.0   | preprocess | yes      | TCN detached       |
+# | J6  | 50     | 1.0   | no         | no       | no rec loss        |
+# | J7  | 50     | 0.25  | no         | yes      | sigma sharp        |
+# | J8  | 50     | 4.0   | no         | yes      | sigma lenient      |
+# ══════════════════════════════════════════════════════════════════════════════
+
+_J_BASE = dict(
+    force_event_term_name="persistent_wrench",
+    max_force=30.0,
+    max_torque=10.0,
+)
+
+
+@configclass
+class AblationJ1Cfg(LowLevelRunnerCfg):
+    experiment_name: str = "ablation_J1_4d_h40_estrew_w1_30N"
+    force_event_term_name: str = _J_BASE["force_event_term_name"]
+    max_force: float = _J_BASE["max_force"]
+    max_torque: float = _J_BASE["max_torque"]
+    estimator: dict = _est(temporal_steps=40, force_dim=4, yaw_loss_weight=3.0)
+
+
+@configclass
+class AblationJ2Cfg(LowLevelRunnerCfg):
+    experiment_name: str = "ablation_J2_4d_h40_estrew_w10_30N"
+    force_event_term_name: str = _J_BASE["force_event_term_name"]
+    max_force: float = _J_BASE["max_force"]
+    max_torque: float = _J_BASE["max_torque"]
+    estimator: dict = _est(temporal_steps=40, force_dim=4, yaw_loss_weight=3.0)
+
+
+@configclass
+class AblationJ3Cfg(LowLevelRunnerCfg):
+    experiment_name: str = "ablation_J3_4d_h40_estrew_w50_30N"
+    force_event_term_name: str = _J_BASE["force_event_term_name"]
+    max_force: float = _J_BASE["max_force"]
+    max_torque: float = _J_BASE["max_torque"]
+    estimator: dict = _est(temporal_steps=40, force_dim=4, yaw_loss_weight=3.0)
+
+
+@configclass
+class AblationJ4Cfg(LowLevelRunnerCfg):
+    experiment_name: str = "ablation_J4_4d_h40_estrew_w100_30N"
+    force_event_term_name: str = _J_BASE["force_event_term_name"]
+    max_force: float = _J_BASE["max_force"]
+    max_torque: float = _J_BASE["max_torque"]
+    estimator: dict = _est(temporal_steps=40, force_dim=4, yaw_loss_weight=3.0)
+
+
+@configclass
+class AblationJ5Cfg(LowLevelRunnerCfg):
+    experiment_name: str = "ablation_J5_4d_h40_estrew_w50_tcnpre_30N"
+    force_event_term_name: str = _J_BASE["force_event_term_name"]
+    max_force: float = _J_BASE["max_force"]
+    max_torque: float = _J_BASE["max_torque"]
+    estimator: dict = _est(
+        temporal_steps=40, force_dim=4, yaw_loss_weight=3.0,
+        tcn_mode="preprocessor", tcn_channels=[64, 64],
+        tcn_kernel_size=3, tcn_dilations=[1, 2],
+    )
+
+
+@configclass
+class AblationJ6Cfg(LowLevelRunnerCfg):
+    experiment_name: str = "ablation_J6_4d_h40_estrew_w50_norec_30N"
+    force_event_term_name: str = _J_BASE["force_event_term_name"]
+    max_force: float = _J_BASE["max_force"]
+    max_torque: float = _J_BASE["max_torque"]
+    estimator: dict = _est(
+        temporal_steps=40, force_dim=4, yaw_loss_weight=3.0,
+        rec_loss_weight=0.0,
+    )
+
+
+@configclass
+class AblationJ7Cfg(LowLevelRunnerCfg):
+    experiment_name: str = "ablation_J7_4d_h40_estrew_w50_s025_30N"
+    force_event_term_name: str = _J_BASE["force_event_term_name"]
+    max_force: float = _J_BASE["max_force"]
+    max_torque: float = _J_BASE["max_torque"]
+    estimator: dict = _est(temporal_steps=40, force_dim=4, yaw_loss_weight=3.0)
+
+
+@configclass
+class AblationJ8Cfg(LowLevelRunnerCfg):
+    experiment_name: str = "ablation_J8_4d_h40_estrew_w50_s4_30N"
+    force_event_term_name: str = _J_BASE["force_event_term_name"]
+    max_force: float = _J_BASE["max_force"]
+    max_torque: float = _J_BASE["max_torque"]
+    estimator: dict = _est(temporal_steps=40, force_dim=4, yaw_loss_weight=3.0)
