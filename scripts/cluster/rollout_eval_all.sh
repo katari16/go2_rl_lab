@@ -48,69 +48,69 @@ echo "========================================="
 
 echo ""
 echo ">>> A1: 3D, h=10, rec loss"
-$EVAL_CMD --task Go2-Ablation-A1-v0 --checkpoint logs/rsl_rl/ablation_analysis/batch1/batch1_ablation/ablation_A1_h10_3d_rec/2026-04-06_23-39-14/model_16000.pt $COMMON $BASKETS_20N
+$EVAL_CMD --task Go2-Ablation-A1-v0 --checkpoint logs/rsl_rl/ablation_A1_h10_3d_rec/2026-04-06_23-39-14/model_16000.pt $COMMON $BASKETS_20N
 
 echo ""
 echo ">>> A2: 3D, h=40, rec loss"
-$EVAL_CMD --task Go2-Ablation-A2-v0 --checkpoint logs/rsl_rl/ablation_analysis/batch1/batch1_ablation/ablation_A2_h40_3d_rec/2026-04-06_23-39-11/model_16000.pt $COMMON $BASKETS_20N
+$EVAL_CMD --task Go2-Ablation-A2-v0 --checkpoint logs/rsl_rl/ablation_A2_h40_3d_rec/2026-04-06_23-39-11/model_16000.pt $COMMON $BASKETS_20N
 
 echo ""
 echo ">>> B2: 6D, h=40, rec loss"
-$EVAL_CMD --task Go2-Ablation-B2-v0 --checkpoint logs/rsl_rl/ablation_analysis/batch1/batch1_ablation/ablation_B2_h40_6d_rec/2026-04-06_23-39-11/model_16000.pt $COMMON $BASKETS_20N
+$EVAL_CMD --task Go2-Ablation-B2-v0 --checkpoint logs/rsl_rl/ablation_B2_h40_6d_rec/2026-04-06_23-39-11/model_16000.pt $COMMON $BASKETS_20N
 
 echo ""
 echo ">>> B3: 6D, h=40, rec loss, big network"
-$EVAL_CMD --task Go2-Ablation-B3-v0 --checkpoint logs/rsl_rl/ablation_analysis/batch1/batch1_ablation/ablation_B3_h40_6d_rec_big/2026-04-06_23-39-14/model_16500.pt $COMMON $BASKETS_20N
+$EVAL_CMD --task Go2-Ablation-B3-v0 --checkpoint logs/rsl_rl/ablation_B3_h40_6d_rec_big/2026-04-06_23-39-14/model_16500.pt $COMMON $BASKETS_20N
 
 echo ""
 echo ">>> C1: 3D, h=10, no rec loss"
-$EVAL_CMD --task Go2-Ablation-C1-v0 --checkpoint logs/rsl_rl/ablation_analysis/batch1/batch1_ablation/ablation_C1_h10_3d_norec/2026-04-06_23-39-14/model_16500.pt $COMMON $BASKETS_20N
+$EVAL_CMD --task Go2-Ablation-C1-v0 --checkpoint logs/rsl_rl/ablation_C1_h10_3d_norec/2026-04-06_23-39-14/model_16500.pt $COMMON $BASKETS_20N
 
 echo ""
 echo ">>> C2: 3D, h=40, no rec loss"
-$EVAL_CMD --task Go2-Ablation-C2-v0 --checkpoint logs/rsl_rl/ablation_analysis/batch1/batch1_ablation/ablation_C2_h40_3d_norec/2026-04-06_23-39-15/model_16000.pt $COMMON $BASKETS_20N
+$EVAL_CMD --task Go2-Ablation-C2-v0 --checkpoint logs/rsl_rl/ablation_C2_h40_3d_norec/2026-04-06_23-39-15/model_16000.pt $COMMON $BASKETS_20N
 
 echo ""
 echo ">>> E1: 3D, h=20, compliance reward"
-$EVAL_CMD --task Go2-Ablation-E1-v0 --checkpoint logs/rsl_rl/ablation_analysis/batch1/batch1_ablation/ablation_E1_h20_3d_compliance/2026-04-06_23-39-15/model_16000.pt $COMMON $BASKETS_20N
+$EVAL_CMD --task Go2-Ablation-E1-v0 --checkpoint logs/rsl_rl/ablation_E1_h20_3d_compliance/2026-04-06_23-39-15/model_16000.pt $COMMON $BASKETS_20N
 
 echo ""
 echo ">>> E2: 4D, h=20, compliance reward"
-$EVAL_CMD --task Go2-Ablation-E2-v0 --checkpoint logs/rsl_rl/ablation_analysis/batch1/batch1_ablation/ablation_E2_h20_4d_compliance/2026-04-06_23-39-11/model_17500.pt $COMMON $BASKETS_20N
+$EVAL_CMD --task Go2-Ablation-E2-v0 --checkpoint logs/rsl_rl/ablation_E2_h20_4d_compliance/2026-04-06_23-39-11/model_17500.pt $COMMON $BASKETS_20N
 
 # ── 50N series (H) ────────────────────────────────────────────────────
 
 echo ""
 echo ">>> H12b: 6D, h=40, TCN replace"
-$EVAL_CMD --task Go2-Ablation-H12b-50N-v0 --checkpoint logs/rsl_rl/ablation_analysis/ablation_H12b_6d_h40_tcnrep_50N/2026-04-09_22-50-46/model_12500.pt $COMMON $BASKETS_50N
+$EVAL_CMD --task Go2-Ablation-H12b-50N-v0 --checkpoint logs/rsl_rl/ablation_H12b_6d_h40_tcnrep_50N/2026-04-09_22-50-46/model_12500.pt $COMMON $BASKETS_50N
 
 echo ""
 echo ">>> H13b: 4D, h=30, TCN replace"
-$EVAL_CMD --task Go2-Ablation-H13b-50N-v0 --checkpoint logs/rsl_rl/ablation_analysis/ablation_H13b_4d_h30_tcnrep_50N/2026-04-09_22-55-25/model_12500.pt $COMMON $BASKETS_50N
+$EVAL_CMD --task Go2-Ablation-H13b-50N-v0 --checkpoint logs/rsl_rl/ablation_H13b_4d_h30_tcnrep_50N/2026-04-09_23-01-22/model_12500.pt $COMMON $BASKETS_50N
 
 echo ""
 echo ">>> H14: 6D, h=40, big, yaw trapezoid"
-$EVAL_CMD --task Go2-Ablation-H14-50N-v0 --checkpoint logs/rsl_rl/ablation_analysis/ablation_H14_6d_h40_big_yaw_trap_50N/2026-04-10_20-45-47/model_12500.pt $COMMON $BASKETS_50N
+$EVAL_CMD --task Go2-Ablation-H14-50N-v0 --checkpoint logs/rsl_rl/ablation_H14_6d_h40_big_yaw_trap_50N/2026-04-10_20-45-47/model_12500.pt $COMMON $BASKETS_50N
 
 echo ""
 echo ">>> H15: 6D, h=40, big, yaw fixed (corrected H3a baseline)"
-$EVAL_CMD --task Go2-Ablation-H15-50N-v0 --checkpoint logs/rsl_rl/ablation_analysis/ablation_H15_6d_h40_big_yaw_fixed_50N/2026-04-10_20-45-47/model_12500.pt $COMMON $BASKETS_50N
+$EVAL_CMD --task Go2-Ablation-H15-50N-v0 --checkpoint logs/rsl_rl/ablation_H15_6d_h40_big_yaw_fixed_50N/2026-04-10_20-45-47/model_12500.pt $COMMON $BASKETS_50N
 
 echo ""
 echo ">>> H16: 6D, h=40, big, equal loss weights"
-$EVAL_CMD --task Go2-Ablation-H16-50N-v0 --checkpoint logs/rsl_rl/ablation_H16_6d_h40_big_equal_50N/2026-04-12_22-57-57/model_11500.pt $COMMON $BASKETS_50N
+$EVAL_CMD --task Go2-Ablation-H16-50N-v0 --checkpoint logs/rsl_rl/ablation_H16_6d_h40_big_equal_50N/2026-04-12_22-57-57/model_17000.pt $COMMON $BASKETS_50N
 
 echo ""
 echo ">>> H17: 6D, h=40, big, linear decay"
-$EVAL_CMD --task Go2-Ablation-H17-50N-v0 --checkpoint logs/rsl_rl/ablation_H17_6d_h40_big_lindecay_50N/2026-04-12_22-57-57/model_11500.pt $COMMON $BASKETS_50N
+$EVAL_CMD --task Go2-Ablation-H17-50N-v0 --checkpoint logs/rsl_rl/ablation_H17_6d_h40_big_lindecay_50N/2026-04-12_22-57-57/model_17000.pt $COMMON $BASKETS_50N
 
 echo ""
 echo ">>> H18: 6D, h=40, big, TCN preprocessor detached"
-$EVAL_CMD --task Go2-Ablation-H18-50N-v0 --checkpoint logs/rsl_rl/ablation_H18_6d_h40_big_tcnpre_detach_50N/2026-04-12_22-57-57/model_11000.pt $COMMON $BASKETS_50N
+$EVAL_CMD --task Go2-Ablation-H18-50N-v0 --checkpoint logs/rsl_rl/ablation_H18_6d_h40_big_tcnpre_detach_50N/2026-04-12_22-57-57/model_16500.pt $COMMON $BASKETS_50N
 
 echo ""
 echo ">>> H19: xy_yaw, h=40, big"
-$EVAL_CMD --task Go2-Ablation-H19-50N-v0 --checkpoint logs/rsl_rl/ablation_H19_xy_yaw_h40_big_50N/2026-04-12_22-57-57/model_11500.pt $COMMON $BASKETS_50N
+$EVAL_CMD --task Go2-Ablation-H19-50N-v0 --checkpoint logs/rsl_rl/ablation_H19_xy_yaw_h40_big_50N/2026-04-12_22-57-57/model_17000.pt $COMMON $BASKETS_50N
 
 echo ""
 echo "========================================="
