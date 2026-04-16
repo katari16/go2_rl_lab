@@ -53,6 +53,10 @@ parser.add_argument("--force_min", type=float, default=0.0,
                     help="Optional external force minimum (N). 0=no external force.")
 parser.add_argument("--force_max", type=float, default=0.0,
                     help="Optional external force maximum (N). 0=no external force.")
+parser.add_argument("--no_force", action="store_true", default=False,
+                    help="Explicitly disable all external forces (overrides force_min/max).")
+parser.add_argument("--walk_only", action="store_true", default=False,
+                    help="Skip hold phase — robot walks forward for the full duration.")
 parser.add_argument("--show_est", action="store_true", default=False,
                     help="Show force estimate arrow (blue).")
 parser.add_argument("--show_adj", action="store_true", default=False,
@@ -287,7 +291,8 @@ def main(
     # ── External forces (optional) ────────────────────────────────────────
     force_event_name = agent_cfg.to_dict().get("force_event_term_name", "persistent_xyz_force")
     force_event = getattr(env_cfg.events, force_event_name)
-    if args_cli.force_max > 0:
+    apply_forces = args_cli.force_max > 0 and not args_cli.no_force
+    if apply_forces:
         force_event.params["force_range"] = (args_cli.force_min, args_cli.force_max)
         force_event.interval_range_s = (3.0, 5.0)
     else:
@@ -295,7 +300,7 @@ def main(
         if "torque_range" in force_event.params:
             force_event.params["torque_range"] = (0.0, 0.0)
 
-    total_duration = args_cli.walk_duration + args_cli.hold_duration
+    total_duration = args_cli.walk_duration if args_cli.walk_only else args_cli.walk_duration + args_cli.hold_duration
     env_cfg.episode_length_s = total_duration + 5.0
 
     # ── Checkpoint ────────────────────────────────────────────────────────
@@ -377,8 +382,11 @@ def main(
     print(f"  Slope       : {args_cli.slope_deg:.1f}°  (training max ~17°)")
     print(f"  Force dim   : {force_dim}D")
     print(f"  WALK phase  : {args_cli.walk_speed:.1f} m/s for {args_cli.walk_duration:.0f}s")
-    print(f"  HOLD phase  : zero cmd for {args_cli.hold_duration:.0f}s")
-    if args_cli.force_max > 0:
+    if args_cli.walk_only:
+        print(f"  HOLD phase  : SKIPPED (--walk_only)")
+    else:
+        print(f"  HOLD phase  : zero cmd for {args_cli.hold_duration:.0f}s")
+    if apply_forces:
         print(f"  Ext forces  : [{args_cli.force_min:.0f}, {args_cli.force_max:.0f}] N")
     else:
         print(f"  Ext forces  : NONE — pure slope gravity test")
@@ -392,7 +400,7 @@ def main(
 
             with torch.inference_mode():
                 # Phase transition
-                if step_count == walk_steps and phase == "WALK":
+                if step_count == walk_steps and phase == "WALK" and not args_cli.walk_only:
                     phase = "HOLD"
                     print(f"\n\n  >>> HOLD phase — zero velocity command <<<\n")
 
