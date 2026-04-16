@@ -44,9 +44,9 @@ parser.add_argument("--slope_deg", type=float, default=10.0,
 parser.add_argument("--walk_speed", type=float, default=0.5,
                     help="Forward velocity command during walk phase (m/s).")
 parser.add_argument("--walk_duration", type=float, default=8.0,
-                    help="Seconds to walk uphill.")
+                    help="Seconds to walk uphill. With --walk_only this is the total run duration.")
 parser.add_argument("--hold_duration", type=float, default=20.0,
-                    help="Seconds to hold position on slope.")
+                    help="Seconds to hold position on slope (ignored with --walk_only).")
 parser.add_argument("--compliance_k", type=float, default=0.0,
                     help="Linear compliance gain k for v*=v_cmd+k*F_hat (0=off).")
 parser.add_argument("--force_min", type=float, default=0.0,
@@ -56,9 +56,11 @@ parser.add_argument("--force_max", type=float, default=0.0,
 parser.add_argument("--no_force", action="store_true", default=False,
                     help="Explicitly disable all external forces (overrides force_min/max).")
 parser.add_argument("--walk_only", action="store_true", default=False,
-                    help="Skip hold phase — robot walks forward for the full duration.")
+                    help="Skip hold phase — robot walks forward for full --walk_duration seconds.")
 parser.add_argument("--show_est", action="store_true", default=False,
                     help="Show force estimate arrow (blue).")
+parser.add_argument("--show_cmd", action="store_true", default=False,
+                    help="Show velocity command arrow (green).")
 parser.add_argument("--show_adj", action="store_true", default=False,
                     help="Show compliance adjustment arrow (yellow).")
 parser.add_argument("--real-time", action="store_true", default=False)
@@ -350,7 +352,8 @@ def main(
 
     # ── Arrows ────────────────────────────────────────────────────────────
     gt_markers  = _create_arrow_markers("/World/Visuals/GTForce",  (1.0, 0.0, 0.0))   # red
-    est_markers = _create_arrow_markers("/World/Visuals/EstForce", (0.2, 0.4, 1.0)) if args_cli.show_est else None
+    est_markers = _create_arrow_markers("/World/Visuals/EstForce", (0.2, 0.4, 1.0))  if args_cli.show_est else None
+    cmd_markers = _create_arrow_markers("/World/Visuals/CmdVel",   (0.0, 0.8, 0.2))  if args_cli.show_cmd else None
     adj_markers = _create_arrow_markers("/World/Visuals/AdjVel",   (1.0, 0.85, 0.0)) if args_cli.show_adj else None
 
     # ── Loop setup ────────────────────────────────────────────────────────
@@ -391,7 +394,7 @@ def main(
     else:
         print(f"  Ext forces  : NONE — pure slope gravity test")
     print(f"  Compliance  : k={args_cli.compliance_k:.4f}" if args_cli.compliance_k > 0 else "  Compliance  : OFF")
-    print(f"  Arrows      : RED=GT" + (" BLUE=est" if args_cli.show_est else "") + (" YELLOW=adj" if args_cli.show_adj else ""))
+    print(f"  Arrows      : RED=GT" + (" BLUE=est" if args_cli.show_est else "") + (" GREEN=cmd" if args_cli.show_cmd else "") + (" YELLOW=adj" if args_cli.show_adj else ""))
     print(f"{'=' * 70}\n")
 
     try:
@@ -462,12 +465,22 @@ def main(
                     est_scales[:, 0:1] = (est_world.norm(dim=-1, keepdim=True) * force_scale).clamp(min=0.05)
                     est_markers.visualize(est_pos, _force_to_quat(est_world, device), est_scales)
 
+                if cmd_markers is not None:
+                    cmd_3d = torch.zeros(n, 3, device=device)
+                    cmd_3d[:, 0] = cmd_vel[:, 0]
+                    cmd_3d[:, 1] = cmd_vel[:, 1]
+                    cmd_world = quat_apply(base_quat, cmd_3d)
+                    cmd_pos = base_pos.clone(); cmd_pos[:, 2] += 0.29
+                    cmd_scales = torch.full((n, 3), 0.3, device=device)
+                    cmd_scales[:, 0:1] = (cmd_world.norm(dim=-1, keepdim=True) * vel_scale).clamp(min=0.05)
+                    cmd_markers.visualize(cmd_pos, _force_to_quat(cmd_world, device), cmd_scales)
+
                 if adj_markers is not None:
                     adj_3d = torch.zeros(n, 3, device=device)
                     adj_3d[:, 0] = adj_vx
                     adj_3d[:, 1] = adj_vy
                     adj_world = quat_apply(base_quat, adj_3d)
-                    adj_pos = base_pos.clone(); adj_pos[:, 2] += 0.29
+                    adj_pos = base_pos.clone(); adj_pos[:, 2] += 0.16
                     adj_scales = torch.full((n, 3), 0.3, device=device)
                     adj_scales[:, 0:1] = (adj_world.norm(dim=-1, keepdim=True) * vel_scale).clamp(min=0.05)
                     adj_markers.visualize(adj_pos, _force_to_quat(adj_world, device), adj_scales)
