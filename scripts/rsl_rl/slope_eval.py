@@ -351,7 +351,8 @@ def main(
     n = args_cli.num_envs
 
     # ── Arrows ────────────────────────────────────────────────────────────
-    gt_markers  = _create_arrow_markers("/World/Visuals/GTForce",  (1.0, 0.0, 0.0))   # red
+    # GT force arrow only makes sense when external forces are applied
+    gt_markers  = _create_arrow_markers("/World/Visuals/GTForce",  (1.0, 0.0, 0.0)) if apply_forces else None
     est_markers = _create_arrow_markers("/World/Visuals/EstForce", (0.2, 0.4, 1.0))  if args_cli.show_est else None
     cmd_markers = _create_arrow_markers("/World/Visuals/CmdVel",   (0.0, 0.8, 0.2))  if args_cli.show_cmd else None
     adj_markers = _create_arrow_markers("/World/Visuals/AdjVel",   (1.0, 0.85, 0.0)) if args_cli.show_adj else None
@@ -394,7 +395,8 @@ def main(
     else:
         print(f"  Ext forces  : NONE — pure slope gravity test")
     print(f"  Compliance  : k={args_cli.compliance_k:.4f}" if args_cli.compliance_k > 0 else "  Compliance  : OFF")
-    print(f"  Arrows      : RED=GT" + (" BLUE=est" if args_cli.show_est else "") + (" GREEN=cmd" if args_cli.show_cmd else "") + (" YELLOW=adj" if args_cli.show_adj else ""))
+    arrows = (["RED=GT"] if apply_forces else []) + (["BLUE=est"] if args_cli.show_est else []) + (["GREEN=cmd"] if args_cli.show_cmd else []) + (["YELLOW=adj"] if args_cli.show_adj else [])
+    print(f"  Arrows      : {' '.join(arrows) if arrows else 'none'}")
     print(f"{'=' * 70}\n")
 
     try:
@@ -451,10 +453,11 @@ def main(
                 gt_3d = torch.zeros(n, 3, device=device)
                 gt_3d[:, :fd3] = gt_force_body
                 gt_world = quat_apply(base_quat, gt_3d)
-                gt_pos = base_pos.clone(); gt_pos[:, 2] += 0.55
-                gt_scales = torch.full((n, 3), 0.3, device=device)
-                gt_scales[:, 0:1] = (gt_world.norm(dim=-1, keepdim=True) * force_scale).clamp(min=0.05)
-                gt_markers.visualize(gt_pos, _force_to_quat(gt_world, device), gt_scales)
+                if gt_markers is not None:
+                    gt_pos = base_pos.clone(); gt_pos[:, 2] += 0.55
+                    gt_scales = torch.full((n, 3), 0.3, device=device)
+                    gt_scales[:, 0:1] = (gt_world.norm(dim=-1, keepdim=True) * force_scale).clamp(min=0.05)
+                    gt_markers.visualize(gt_pos, _force_to_quat(gt_world, device), gt_scales)
 
                 if est_markers is not None:
                     est_3d = torch.zeros(n, 3, device=device)
