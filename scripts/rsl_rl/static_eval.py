@@ -174,7 +174,8 @@ def generate_plots(
     adj_vy = np.array(log["adj_vel_y"])
     rerandom = log["rerandom_steps"]
 
-    n_panels = 4 + (1 if has_fz else 0) + (1 if has_torque_yaw else 0)
+    has_torque_rp = "gt_torque_roll" in log and len(log["gt_torque_roll"]) > 0
+    n_panels = 4 + (1 if has_fz else 0) + (1 if has_torque_yaw else 0) + (1 if has_torque_rp else 0)
     fig, axes = plt.subplots(n_panels, 1, figsize=(14, 3 * n_panels), sharex=True)
     k_str = f"k={compliance_k:.4f}" if compliance_k > 0 else "k=0 (disabled)"
     fig.suptitle(
@@ -216,13 +217,30 @@ def generate_plots(
         ax.set_title("Applied Force Z: GT (solid) vs Estimated (dashed)", fontsize=11)
         panel += 1
 
-    # ── Panel: Yaw torque (only if 6D) ──────────────────────────────────
+    # ── Panel: Roll/pitch torque (only if 6D) ───────────────────────────
+    if has_torque_rp:
+        gt_troll  = np.array(log["gt_torque_roll"])
+        gt_tpitch = np.array(log["gt_torque_pitch"])
+        est_troll  = np.array(log["est_torque_roll"])
+        est_tpitch = np.array(log["est_torque_pitch"])
+        ax = axes[panel]
+        ax.plot(t, gt_troll,   color="tab:orange",  linewidth=1.2, alpha=0.9, label="GT τ_roll")
+        ax.plot(t, gt_tpitch,  color="darkorange",  linewidth=1.2, alpha=0.9, label="GT τ_pitch")
+        ax.plot(t, est_troll,  color="tab:orange",  linewidth=0.8, alpha=0.5, linestyle="--", label="Est τ_roll")
+        ax.plot(t, est_tpitch, color="darkorange",  linewidth=0.8, alpha=0.5, linestyle="--", label="Est τ_pitch")
+        ax.set_ylabel("Torque (Nm)")
+        ax.legend(loc="upper right", fontsize=9, ncol=2)
+        ax.grid(True, alpha=0.3)
+        ax.set_title("Roll/Pitch Torque: GT (solid) vs Estimated (dashed)", fontsize=11)
+        panel += 1
+
+    # ── Panel: Yaw torque (only if 4D+) ─────────────────────────────────
     if has_torque_yaw:
         gt_tyaw = np.array(log["gt_torque_yaw"])
         est_tyaw = np.array(log["est_torque_yaw"])
         ax = axes[panel]
-        ax.plot(t, gt_tyaw, color="tab:orange", linewidth=1.2, alpha=0.9, label="GT τ_yaw")
-        ax.plot(t, est_tyaw, color="orange", linewidth=0.8, alpha=0.5, linestyle="--", label="Est τ_yaw")
+        ax.plot(t, gt_tyaw, color="tab:brown", linewidth=1.2, alpha=0.9, label="GT τ_yaw")
+        ax.plot(t, est_tyaw, color="brown", linewidth=0.8, alpha=0.5, linestyle="--", label="Est τ_yaw")
         ax.set_ylabel("Torque (Nm)")
         ax.legend(loc="upper right", fontsize=9)
         ax.grid(True, alpha=0.3)
@@ -472,6 +490,11 @@ def main(
     if force_dim >= 4:
         plot_log["gt_torque_yaw"] = []
         plot_log["est_torque_yaw"] = []
+    if force_dim >= 6:
+        plot_log["gt_torque_roll"] = []
+        plot_log["gt_torque_pitch"] = []
+        plot_log["est_torque_roll"] = []
+        plot_log["est_torque_pitch"] = []
     prev_gt_xy = None
     fd3 = min(force_dim, 3)
     yaw_idx = {4: 3, 6: 5}.get(force_dim, None)
@@ -645,6 +668,11 @@ def main(
                 if yaw_idx is not None:
                     plot_log["gt_torque_yaw"].append(g0[yaw_idx].item())
                     plot_log["est_torque_yaw"].append(e0[yaw_idx].item())
+                if force_dim >= 6:
+                    plot_log["gt_torque_roll"].append(g0[3].item())
+                    plot_log["gt_torque_pitch"].append(g0[4].item())
+                    plot_log["est_torque_roll"].append(e0[3].item())
+                    plot_log["est_torque_pitch"].append(e0[4].item())
                 plot_log["base_vel_x"].append(base_lin_vel[0, 0].item())
                 plot_log["base_vel_y"].append(base_lin_vel[0, 1].item())
                 plot_log["cmd_vel_x"].append(cmd_vel[0, 0].item())

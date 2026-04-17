@@ -44,6 +44,8 @@ parser.add_argument("--basket_band", type=float, default=0.8,
                     help="Lower fraction of basket range (default: 0.8 → [0.8*B, B]).")
 parser.add_argument("--ema_alpha", type=float, default=0.1)
 parser.add_argument("--compliance_k", type=float, default=0.0)
+parser.add_argument("--no_cmd_vis", action="store_true", default=False,
+                    help="Disable built-in velocity command and base velocity debug arrows.")
 parser.add_argument("--estimator_checkpoint", type=str, default=None)
 parser.add_argument("--real-time", action="store_true", default=False)
 cli_args.add_rsl_rl_args(parser)
@@ -64,7 +66,11 @@ import gymnasium as gym
 import numpy as np
 import torch
 
+import isaaclab.sim as sim_utils
 from isaaclab.envs import DirectMARLEnvCfg, DirectRLEnvCfg, ManagerBasedRLEnvCfg
+from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
+from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
+from isaaclab.utils.math import quat_apply, quat_from_matrix
 from isaaclab_rl.rsl_rl import RslRlBaseRunnerCfg, RslRlVecEnvWrapper
 
 import isaaclab_tasks  # noqa: F401
@@ -86,6 +92,41 @@ from eval.eval_utils import (
     step_policy,
 )
 from eval.eval_utils import _NumpyEncoder
+
+
+def _create_arrow_markers(prim_path: str, color: tuple) -> VisualizationMarkers:
+    cfg = VisualizationMarkersCfg(
+        prim_path=prim_path,
+        markers={
+            "arrow": sim_utils.UsdFileCfg(
+                usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/UIElements/arrow_x.usd",
+                scale=(1.0, 0.5, 0.5),
+                visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=color),
+            ),
+        },
+    )
+    return VisualizationMarkers(cfg)
+
+
+def _force_to_quat(force_world: torch.Tensor, device) -> torch.Tensor:
+    n = force_world.shape[0]
+    quats = torch.zeros(n, 4, device=device)
+    quats[:, 0] = 1.0
+    for i in range(n):
+        mag = force_world[i].norm()
+        if mag < 0.1:
+            continue
+        x_ax = force_world[i] / mag
+        up = torch.tensor(
+            [0.0, 0.0, 1.0] if abs(x_ax[2].item()) < 0.9 else [1.0, 0.0, 0.0],
+            device=device,
+        )
+        z_ax = torch.cross(x_ax, up)
+        z_ax = z_ax / z_ax.norm()
+        y_ax = torch.cross(z_ax, x_ax)
+        rot_mat = torch.stack([x_ax, y_ax, z_ax], dim=1)
+        quats[i] = quat_from_matrix(rot_mat)
+    return quats
 
 
 DIM_LABELS = {
@@ -138,14 +179,17 @@ def _compute_metrics(all_gt_np, all_est_np, force_dim, dim_labels):
         dict of metrics
     """
     err = all_est_np - all_gt_np
-    norm_err = np.linalg.norm(err, axis=2)
+    abs_err = np.abs(err)                          # [steps, envs, force_dim]
+    per_sample_mae = abs_err.mean(axis=2)          # [steps, envs] — matches training mae_total
+    norm_err = np.linalg.norm(err, axis=2)         # L2 norm — used only for relative error
     gt_mag = np.linalg.norm(all_gt_np, axis=2)
 
     active_mask = gt_mag > 1.0
     has_active = active_mask.any()
 
-    mae = float(np.mean(norm_err[active_mask])) if has_active else 0.0
-    median_ae = float(np.median(norm_err[active_mask])) if has_active else 0.0
+    # Per-component mean AE — directly comparable to training Estimator/mae_total
+    mae = float(np.mean(per_sample_mae[active_mask])) if has_active else 0.0
+    median_ae = float(np.median(per_sample_mae[active_mask])) if has_active else 0.0
 
     rel_err = 0.0
     if has_active:
@@ -169,6 +213,13 @@ def _compute_metrics(all_gt_np, all_est_np, force_dim, dim_labels):
     force_indices = list(range(min(force_dim, 3)))
     torque_indices = list(range(3, force_dim))
 
+    # Force magnitude error: | ||F_hat_xyz|| - ||F_gt_xyz|| |
+    gt_force_mag = np.linalg.norm(all_gt_np[:, :, :min(force_dim, 3)], axis=2)
+    est_force_mag = np.linalg.norm(all_est_np[:, :, :min(force_dim, 3)], axis=2)
+    force_mag_err = np.abs(est_force_mag - gt_force_mag)
+    force_mag_mask = gt_force_mag > 1.0
+    force_mag_mae = float(np.mean(force_mag_err[force_mag_mask])) if force_mag_mask.any() else 0.0
+
     return {
         "mae": mae,
         "median_ae": median_ae,
@@ -178,6 +229,7 @@ def _compute_metrics(all_gt_np, all_est_np, force_dim, dim_labels):
         "per_axis_mae": per_axis_mae,
         "force_mae": float(np.mean([per_axis_mae[dim_labels[d]] for d in force_indices])),
         "torque_mae": float(np.mean([per_axis_mae[dim_labels[d]] for d in torque_indices])) if torque_indices else None,
+        "force_mag_mae": force_mag_mae,
     }
 
 
@@ -208,6 +260,9 @@ def main(
     disable_force_events(env_cfg, agent_cfg)
     set_long_episode(env_cfg)
 
+    if args_cli.no_cmd_vis:
+        env_cfg.commands.base_velocity.debug_vis = False
+
     resume_path = resolve_checkpoint(agent_cfg, args_cli)
     print(f"[rollout_eval] Checkpoint: {resume_path}")
 
@@ -228,6 +283,12 @@ def main(
 
     force_dim = ctx["force_dim"]
     has_estimator = ctx["has_estimator"]
+
+    # Arrow markers — only when not headless
+    _headless = getattr(args_cli, "headless", True)
+    gt_markers = _create_arrow_markers("/World/Visuals/GTForceArrow", (1.0, 0.0, 0.0)) if not _headless else None
+    est_markers = _create_arrow_markers("/World/Visuals/EstForceArrow", (0.2, 0.4, 1.0)) if not _headless else None
+
     if not has_estimator:
         print("[rollout_eval] ERROR: No estimator found. This eval requires an estimator.")
         env.close()
@@ -278,9 +339,13 @@ def main(
         force_sched_t = torch.from_numpy(force_sched).to(device)
         torque_sched_t = torch.from_numpy(torque_sched).to(device)
 
-        # Pre-allocate tensors for wrench application
-        force_tensor = torch.zeros(n, asset.num_bodies, 3, device=device)
-        torque_tensor = torch.zeros(n, asset.num_bodies, 3, device=device)
+        # Pre-allocate tensors for direct PhysX force application
+        force_buf = torch.zeros(n, asset.num_bodies, 3, device=device)
+        torque_buf = torch.zeros(n, asset.num_bodies, 3, device=device)
+        all_indices = torch.arange(n, dtype=torch.long, device=device)
+        # [OLD — permanent_wrench_composer]:
+        # force_tensor = torch.zeros(n, asset.num_bodies, 3, device=device)
+        # torque_tensor = torch.zeros(n, asset.num_bodies, 3, device=device)
 
         # Reset + warmup
         obs = reset_env(env, ctx, isaac_env, runner, runner_class_name,
@@ -295,12 +360,22 @@ def main(
         all_est = torch.zeros(max_steps, n, force_dim, device=device)
 
         for step in range(max_steps):
-            # Apply scheduled forces
-            force_tensor[:, base_idx, :] = force_sched_t[step]
-            torque_tensor[:, base_idx, :] = torque_sched_t[step]
-            asset.permanent_wrench_composer.set_forces_and_torques(
-                forces=force_tensor, torques=torque_tensor,
+            # Apply scheduled forces directly via PhysX (bypasses WrenchComposer buffers)
+            force_buf[:, base_idx, :] = force_sched_t[step]
+            torque_buf[:, base_idx, :] = torque_sched_t[step]
+            asset.root_physx_view.apply_forces_and_torques_at_position(
+                force_data=force_buf.view(-1, 3),
+                torque_data=torque_buf.view(-1, 3),
+                position_data=None,
+                indices=all_indices,
+                is_global=False,
             )
+            # [OLD — permanent_wrench_composer]:
+            # force_tensor[:, base_idx, :] = force_sched_t[step]
+            # torque_tensor[:, base_idx, :] = torque_sched_t[step]
+            # asset.permanent_wrench_composer.set_forces_and_torques(
+            #     forces=force_tensor, torques=torque_tensor,
+            # )
 
             obs, _ = step_policy(obs, ctx, env, runner, isaac_env, n,
                                  runner_class_name, compliance_k, args_cli.ema_alpha)
@@ -309,6 +384,29 @@ def main(
             est = isaac_env._force_estimate_xy[:n]
             all_gt[step] = gt
             all_est[step] = est
+
+            # ── Force arrows (only when not headless) ───────────────
+            if gt_markers is not None:
+                force_scale = 0.05
+                base_pos = asset.data.root_pos_w[:n]
+                base_quat = asset.data.root_quat_w[:n]
+                fd3 = min(force_dim, 3)
+
+                gt_3d = torch.zeros(n, 3, device=device)
+                gt_3d[:, :fd3] = gt[:, :fd3]
+                gt_world = quat_apply(base_quat, gt_3d)
+                gt_pos = base_pos.clone(); gt_pos[:, 2] += 0.55
+                gt_scales = torch.full((n, 3), 0.3, device=device)
+                gt_scales[:, 0:1] = (gt_world.norm(dim=-1, keepdim=True) * force_scale).clamp(min=0.05)
+                gt_markers.visualize(gt_pos, _force_to_quat(gt_world, device), gt_scales)
+
+                est_3d = torch.zeros(n, 3, device=device)
+                est_3d[:, :fd3] = est[:, :fd3]
+                est_world = quat_apply(base_quat, est_3d)
+                est_pos = base_pos.clone(); est_pos[:, 2] += 0.45
+                est_scales = torch.full((n, 3), 0.3, device=device)
+                est_scales[:, 0:1] = (est_world.norm(dim=-1, keepdim=True) * force_scale).clamp(min=0.05)
+                est_markers.visualize(est_pos, _force_to_quat(est_world, device), est_scales)
 
             if args_cli.real_time:
                 time.sleep(dt)
@@ -321,11 +419,21 @@ def main(
         print(f"\n  Basket {basket:.0f}N done.")
 
         # Clear forces
-        force_tensor.zero_()
-        torque_tensor.zero_()
-        asset.permanent_wrench_composer.set_forces_and_torques(
-            forces=force_tensor, torques=torque_tensor,
+        force_buf.zero_()
+        torque_buf.zero_()
+        asset.root_physx_view.apply_forces_and_torques_at_position(
+            force_data=force_buf.view(-1, 3),
+            torque_data=torque_buf.view(-1, 3),
+            position_data=None,
+            indices=all_indices,
+            is_global=False,
         )
+        # [OLD — permanent_wrench_composer]:
+        # force_tensor.zero_()
+        # torque_tensor.zero_()
+        # asset.permanent_wrench_composer.set_forces_and_torques(
+        #     forces=force_tensor, torques=torque_tensor,
+        # )
 
         # Free schedule tensors
         del force_sched_t, torque_sched_t
@@ -340,8 +448,10 @@ def main(
         all_basket_metrics[f"{basket:.0f}N"] = metrics
 
         # ── Print basket summary ────────────────────────────────────────
-        print(f"  MAE: {metrics['mae']:.3f} N   Median AE: {metrics['median_ae']:.3f} N"
-              f"   Rel Err: {metrics['relative_err_pct']:.1f}%"
+        print(f"  MAE total: {metrics['mae']:.3f}   Force MAE: {metrics['force_mae']:.3f} N"
+              + (f"   Torque MAE: {metrics['torque_mae']:.3f} Nm" if metrics['torque_mae'] is not None else "")
+              + f"   Force mag MAE: {metrics['force_mag_mae']:.3f} N")
+        print(f"  Median AE: {metrics['median_ae']:.3f}   Rel Err: {metrics['relative_err_pct']:.1f}%"
               f"   Ang Err: {metrics['angular_err_xy_deg_mean']:.1f}°")
         for d in range(force_dim):
             unit = "Nm" if d >= 3 else "N"
@@ -455,10 +565,13 @@ def main(
     baskets = list(all_basket_metrics.keys())
     headers = ["Metric"] + baskets
     row_keys = [
-        ("MAE (N)", "mae"),
-        ("Median AE (N)", "median_ae"),
+        ("MAE total (per-dim)", "mae"),
+        ("MAE force (N)", "force_mae"),
+        ("MAE torque (Nm)", "torque_mae"),
+        ("Median AE per-dim", "median_ae"),
         ("Rel Err (%)", "relative_err_pct"),
         ("Ang Err XY (°)", "angular_err_xy_deg_mean"),
+        ("Force mag MAE (N)", "force_mag_mae"),
     ]
     for d in range(force_dim):
         unit = "Nm" if d >= 3 else "N"
@@ -470,7 +583,8 @@ def main(
         for bk in baskets:
             m = all_basket_metrics[bk]
             if key is not None:
-                row.append(f"{m[key]:.3f}" if isinstance(m[key], float) else str(m[key]))
+                v = m[key]
+                row.append(f"{v:.3f}" if isinstance(v, float) else ("—" if v is None else str(v)))
             else:
                 d_label = label.split("MAE ")[1].split(" (")[0]
                 row.append(f"{m['per_axis_mae'][d_label]:.3f}")

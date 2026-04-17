@@ -148,7 +148,7 @@ def generate_plots(log: dict, args, checkpoint_path: str) -> None:
     force_dim = log["force_dim"]
     fd3 = min(force_dim, 3)
 
-    n_panels = 3 + (1 if force_dim >= 3 else 0)
+    n_panels = 3 + (1 if force_dim >= 3 else 0) + (1 if force_dim >= 6 else 0)
     fig, axes = plt.subplots(n_panels, 1, figsize=(14, 3.5 * n_panels), sharex=True)
 
     ext_str = f" + ext [{args.force_min:.0f}-{args.force_max:.0f}N]" if args.force_max > 0 else " (no ext force)"
@@ -204,23 +204,23 @@ def generate_plots(log: dict, args, checkpoint_path: str) -> None:
     ax.set_title("Base Velocity (body frame)", fontsize=11)
     panel += 1
 
-    # Panel 4: Compliance adjustment
-    ax = axes[panel]
-    ax.plot(t, log["adj_vx"], color="goldenrod", lw=1.2, label="v*x = cmd_x + k·F̂x")
-    ax.plot(t, log["adj_vy"], color="darkgoldenrod", lw=1.2, label="v*y = cmd_y + k·F̂y")
-    ax.plot(t, log["cmd_vx"], color="tab:green", lw=0.7, ls="--", alpha=0.5, label="cmd vx")
-    ax.plot(t, log["cmd_vy"], color="darkgreen", lw=0.7, ls="--", alpha=0.5, label="cmd vy")
-    ax.axhline(0, color="black", lw=0.5, alpha=0.4)
-    _shade_phases(ax)
-    ax.set_ylabel("Velocity (m/s)")
-    ax.set_xlabel("Time (s)")
-    ax.legend(loc="upper right", fontsize=9, ncol=2)
-    ax.grid(True, alpha=0.3)
-    ax.set_title(
-        f"Compliance: v* = v_cmd + {args.compliance_k:.4f} * F̂_xy  "
-        f"(nonzero in HOLD = spurious compensation from gravity bias)",
-        fontsize=11,
-    )
+    axes[panel - 1].set_xlabel("Time (s)")
+
+    # Panel 4: Roll/pitch torque estimates (6D only)
+    if force_dim >= 6:
+        ax = axes[panel]
+        ax.plot(t, log["gt_troll"],  color="tab:orange", lw=1.2, label="GT τ_roll")
+        ax.plot(t, log["gt_tpitch"], color="darkorange",  lw=1.2, label="GT τ_pitch")
+        ax.plot(t, log["est_troll"],  color="tab:orange", lw=0.9, ls="--", alpha=0.6, label="Est τ_roll")
+        ax.plot(t, log["est_tpitch"], color="darkorange",  lw=0.9, ls="--", alpha=0.6, label="Est τ_pitch")
+        ax.axhline(0, color="black", lw=0.5, alpha=0.4)
+        _shade_phases(ax)
+        ax.set_ylabel("Torque (Nm)")
+        ax.set_xlabel("Time (s)")
+        ax.legend(loc="upper right", fontsize=9, ncol=2)
+        ax.grid(True, alpha=0.3)
+        ax.set_title("Roll/Pitch Torque: GT (solid) vs Estimator (dashed)", fontsize=11)
+        panel += 1
 
     plt.tight_layout()
 
@@ -379,6 +379,11 @@ def main(
     if force_dim >= 3:
         log["gt_fz"] = []
         log["est_fz"] = []
+    if force_dim >= 6:
+        log["gt_troll"] = []
+        log["gt_tpitch"] = []
+        log["est_troll"] = []
+        log["est_tpitch"] = []
 
     print(f"\n{'=' * 70}")
     print(f"  Task        : {args_cli.task}")
@@ -438,6 +443,12 @@ def main(
                 gt_force_body = asset.permanent_wrench_composer.composed_force_as_torch[:n, base_idx, :fd3]
                 if gt_force_body.dim() == 3:
                     gt_force_body = gt_force_body.squeeze(1)
+
+                # GT torque (body frame) — only used if force_dim >= 6
+                if force_dim >= 6:
+                    gt_torque_body = asset.permanent_wrench_composer.composed_torque_as_torch[:n, base_idx, :]
+                    if gt_torque_body.dim() == 3:
+                        gt_torque_body = gt_torque_body.squeeze(1)
 
                 # Compliance-adjusted velocity command
                 cmd_vel = isaac_env.command_manager.get_command("base_velocity")[:n]
@@ -507,6 +518,12 @@ def main(
                 if force_dim >= 3:
                     log["gt_fz"].append(g0[2].item() if g0.shape[0] > 2 else 0.0)
                     log["est_fz"].append(e0[2].item() if e0.shape[0] > 2 else 0.0)
+                if force_dim >= 6:
+                    t0 = gt_torque_body[0]
+                    log["gt_troll"].append(t0[0].item())
+                    log["gt_tpitch"].append(t0[1].item())
+                    log["est_troll"].append(e0[3].item() if e0.shape[0] > 3 else 0.0)
+                    log["est_tpitch"].append(e0[4].item() if e0.shape[0] > 4 else 0.0)
 
                 # Terminal readout
                 step_count += 1
