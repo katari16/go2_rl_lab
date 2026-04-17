@@ -15,6 +15,8 @@ from isaaclab.utils.math import euler_xyz_from_quat
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
+from .observations import _gt_force_buf, _gt_torque_buf
+
 """
 Joint penalties.
 """
@@ -477,10 +479,8 @@ def resistance_compliance_reward(
     a_prime_xy = asset.data.root_lin_vel_b[:, :2] - vel_cmd[:, :2]   # [N, 2]
     a_prime_z = asset.data.root_ang_vel_b[:, 2] - vel_cmd[:, 2]      # [N]
 
-    # Ground-truth applied force (body frame) from permanent wrench composer
-    f_xy = asset.permanent_wrench_composer.composed_force_as_torch[
-        :, asset_cfg.body_ids, :2
-    ].squeeze(1)  # [N, 2]
+    # Ground-truth applied force (body frame) from GT buffer
+    f_xy = _gt_force_buf(env, asset)[:, asset_cfg.body_ids, :2].squeeze(1)  # [N, 2]
     f_mag = f_xy.norm(dim=1)  # [N]
 
     # ── Small force: reward resisting (staying on command) ───────────────
@@ -591,10 +591,8 @@ def compliance_force_tracking(
     """
     asset: Articulation = env.scene[asset_cfg.name]
 
-    # GT force from permanent wrench composer (body frame)
-    gt_force = asset.permanent_wrench_composer.composed_force_as_torch[
-        :, asset_cfg.body_ids, :2
-    ].squeeze(1)  # [N, 2]
+    # GT force from GT buffer (body frame)
+    gt_force = _gt_force_buf(env, asset)[:, asset_cfg.body_ids, :2].squeeze(1)  # [N, 2]
 
     gt_mag = gt_force.norm(dim=1)  # [N]
     v_base_xy = asset.data.root_lin_vel_b[:, :2]  # [N, 2]
@@ -636,16 +634,12 @@ def force_estimation_accuracy(
     asset: Articulation = env.scene[asset_cfg.name]
 
     # Get GT force (and torque if wrench env) matching estimator dims
-    gt_force = asset.permanent_wrench_composer.composed_force_as_torch[
-        :, asset_cfg.body_ids, :
-    ].squeeze(1)  # [N, 3]
+    gt_force = _gt_force_buf(env, asset)[:, asset_cfg.body_ids, :].squeeze(1)  # [N, 3]
 
     if force_dim <= 3:
         gt = gt_force[:, :force_dim]
     else:
-        gt_torque = asset.permanent_wrench_composer.composed_torque_as_torch[
-            :, asset_cfg.body_ids, :
-        ].squeeze(1)  # [N, 3]
+        gt_torque = _gt_torque_buf(env, asset)[:, asset_cfg.body_ids, :].squeeze(1)  # [N, 3]
         gt = torch.cat([gt_force, gt_torque], dim=1)[:, :force_dim]
 
     mse = torch.sum(torch.square(gt - force_hat), dim=1)
@@ -677,10 +671,8 @@ def compliance_torque_tracking(
     """
     asset: Articulation = env.scene[asset_cfg.name]
 
-    # GT yaw torque from permanent wrench composer (body frame)
-    gt_tau_yaw = asset.permanent_wrench_composer.composed_torque_as_torch[
-        :, asset_cfg.body_ids, 2
-    ].squeeze(1)  # [N]
+    # GT yaw torque from GT buffer (body frame)
+    gt_tau_yaw = _gt_torque_buf(env, asset)[:, asset_cfg.body_ids, 2].squeeze(1)  # [N]
 
     tau_mag = gt_tau_yaw.abs()  # [N]
     omega_yaw = asset.data.root_ang_vel_b[:, 2]  # [N]

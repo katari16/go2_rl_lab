@@ -243,17 +243,15 @@ class TeacherStudentRunner(OnPolicyRunner):
 
     def _get_gt_force(self) -> torch.Tensor:
         """Get GT force/wrench from the sim."""
-        asset = self.env.unwrapped.scene["robot"]
+        env = self.env.unwrapped
+        gt_f_buf = env._gt_force_buf[:, 0, :] if hasattr(env, "_gt_force_buf") else torch.zeros(env.num_envs, 3, device=self.device)
+        gt_t_buf = env._gt_torque_buf[:, 0, :] if hasattr(env, "_gt_torque_buf") else torch.zeros(env.num_envs, 3, device=self.device)
         if self._force_dim <= 3:
-            return asset.permanent_wrench_composer.composed_force_as_torch[:, 0, :self._force_dim]
+            return gt_f_buf[:, :self._force_dim]
         elif self._force_dim == 4:
-            gt_f = asset.permanent_wrench_composer.composed_force_as_torch[:, 0, :3]
-            gt_t = asset.permanent_wrench_composer.composed_torque_as_torch[:, 0, 2:3]
-            return torch.cat([gt_f, gt_t], dim=-1)
+            return torch.cat([gt_f_buf[:, :3], gt_t_buf[:, 2:3]], dim=-1)
         else:
-            gt_f = asset.permanent_wrench_composer.composed_force_as_torch[:, 0, :3]
-            gt_t = asset.permanent_wrench_composer.composed_torque_as_torch[:, 0, :3]
-            return torch.cat([gt_f, gt_t], dim=-1)
+            return torch.cat([gt_f_buf[:, :3], gt_t_buf[:, :3]], dim=-1)
 
     def _train_estimator(self) -> dict:
         """Train teacher or student depending on phase."""

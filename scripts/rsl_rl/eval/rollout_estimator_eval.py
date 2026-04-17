@@ -193,8 +193,8 @@ def _compute_metrics(all_gt_np, all_est_np, force_dim, dim_labels):
 
     rel_err = 0.0
     if has_active:
-        rel_per_step = norm_err[active_mask] / gt_mag[active_mask] * 100
-        rel_err = float(np.mean(rel_per_step))
+        mean_gt_mag = float(np.mean(gt_mag[active_mask]))
+        rel_err = mae / mean_gt_mag * 100 if mean_gt_mag > 0 else 0.0
 
     per_axis_mae = {}
     for d in range(force_dim):

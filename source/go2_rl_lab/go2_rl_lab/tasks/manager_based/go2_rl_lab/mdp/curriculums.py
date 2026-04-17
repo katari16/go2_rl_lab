@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
 
+from .observations import _gt_force_buf
+
 
 def force_activation_curriculum(
     env: ManagerBasedRLEnv,
@@ -48,7 +50,7 @@ def force_activation_curriculum(
         env.extras["Curriculum/force_active"] = 1.0
         env.extras["Curriculum/reward_progress_pct"] = 100.0
         asset = env.scene["robot"]
-        f_xy = asset.permanent_wrench_composer.composed_force_as_torch[:, 0, :2]
+        f_xy = _gt_force_buf(env, asset)[:, 0, :2]
         f_mags = f_xy.norm(dim=1)
         f_mean = f_mags.mean().item()
         f_max = f_mags.max().item()

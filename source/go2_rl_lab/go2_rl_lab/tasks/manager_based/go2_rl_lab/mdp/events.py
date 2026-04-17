@@ -417,6 +417,168 @@ def _trap_transition(
         s["target_t"][cycle_ids] = torques
 
 
+_PAINT_RAMP_UP = 0
+_PAINT_HOLD = 1
+_PAINT_RAMP_DOWN = 2
+
+
+def apply_paint_wrench(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    force_range: tuple[float, float],
+    fz_scale: float = 0.6,
+    torque_range: tuple[float, float] = (0.0, 0.0),
+    segment_s_range: tuple[float, float] = (3.0, 5.0),
+    zero_prob: float = 0.05,
+    bucket_fracs: tuple[tuple[float, float], ...] = (
+        (0.0, 0.0), (0.0, 0.2), (0.2, 0.5), (0.5, 1.0),
+    ),
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names="base"),
+) -> None:
+    """PAINT-style trapezoidal wrench with episode-proportional 10/80/10 ramp.
+
+    Each force segment samples duration T ~ segment_s_range, then applies:
+      ramp_up = 0.1T, hold = 0.8T, ramp_down = 0.1T (no zero gap between segments).
+    Zero-force segments are sampled with probability zero_prob.
+
+    Must be used with interval_range_s=(dt, dt) so it fires every step.
+    Writes GT to env._gt_force_buf / env._gt_torque_buf (read by obs/rewards/curriculum).
+    Applies forces directly via root_physx_view — no WrenchComposer.
+    """
+    asset: RigidObject | Articulation = env.scene[asset_cfg.name]
+    device = asset.device
+    N = env.scene.num_envs
+    dt = env.step_dt
+    num_bodies = asset.num_bodies
+    f_max = float(force_range[1])
+    t_max = float(torque_range[1])
+    body_idx = asset_cfg.body_ids[0] if isinstance(asset_cfg.body_ids, list) else asset_cfg.body_ids
+
+    # ── First-call init ──────────────────────────────────────────────────
+    if not hasattr(env, "_paint"):
+        num_buckets = len(bucket_fracs)
+        bucket_size = N // num_buckets
+        bucket_lo = torch.zeros(N, device=device)
+        bucket_hi = torch.zeros(N, device=device)
+        for b, (lo_f, hi_f) in enumerate(bucket_fracs):
+            start = b * bucket_size
+            end = start + bucket_size if b < num_buckets - 1 else N
+            bucket_lo[start:end] = lo_f
+            bucket_hi[start:end] = hi_f
+
+        env._paint = {
+            "target_f":  torch.zeros(N, num_bodies, 3, device=device),
+            "target_t":  torch.zeros(N, num_bodies, 3, device=device),
+            "phase":     torch.full((N,), _PAINT_RAMP_UP, dtype=torch.long, device=device),
+            "timer":     torch.zeros(N, device=device),
+            "duration":  torch.ones(N, device=device) * dt,
+            "ramp_dur":  torch.ones(N, device=device) * dt,
+            "hold_dur":  torch.ones(N, device=device) * dt,
+            "bucket_lo": bucket_lo,
+            "bucket_hi": bucket_hi,
+        }
+        env._gt_force_buf  = torch.zeros(N, num_bodies, 3, device=device)
+        env._gt_torque_buf = torch.zeros(N, num_bodies, 3, device=device)
+        env._paint_indices = torch.arange(N, dtype=torch.long, device=device)
+
+    s = env._paint
+
+    # ── Tick timers ──────────────────────────────────────────────────────
+    s["timer"][env_ids] -= dt
+
+    # ── Transition expired envs ──────────────────────────────────────────
+    expired = s["timer"][env_ids] <= 0
+    if expired.any():
+        exp_ids = env_ids[expired]
+        nxt = (s["phase"][exp_ids] + 1) % 3
+        s["phase"][exp_ids] = nxt
+
+        # Entering RAMP_UP — new cycle, resample force and durations
+        to_rup = nxt == _PAINT_RAMP_UP
+        if to_rup.any():
+            cids = exp_ids[to_rup]
+            nc = len(cids)
+            T = torch.empty(nc, device=device).uniform_(*segment_s_range)
+            ramp = 0.1 * T
+            hold = 0.8 * T
+            s["ramp_dur"][cids] = ramp
+            s["hold_dur"][cids] = hold
+            s["duration"][cids] = ramp
+            s["timer"][cids] = ramp
+
+            # Sample new force target
+            is_zero = torch.rand(nc, device=device) < zero_prob
+            b_lo = s["bucket_lo"][cids] * f_max
+            b_hi = s["bucket_hi"][cids] * f_max
+
+            mag_xy = torch.empty(nc, 2, device=device).uniform_(0, 1) * (b_hi - b_lo).unsqueeze(1) + b_lo.unsqueeze(1)
+            sign_xy = torch.sign(torch.empty(nc, 2, device=device).uniform_(-1, 1))
+            sign_xy[sign_xy == 0] = 1.0
+
+            lo_z = b_lo * fz_scale
+            hi_z = b_hi * fz_scale
+            mag_z = torch.empty(nc, 1, device=device).uniform_(0, 1) * (hi_z - lo_z).unsqueeze(1) + lo_z.unsqueeze(1)
+            sign_z = torch.sign(torch.empty(nc, 1, device=device).uniform_(-1, 1))
+            sign_z[sign_z == 0] = 1.0
+
+            new_f = torch.zeros(nc, num_bodies, 3, device=device)
+            new_f[:, body_idx, 0] = mag_xy[:, 0] * sign_xy[:, 0]
+            new_f[:, body_idx, 1] = mag_xy[:, 1] * sign_xy[:, 1]
+            new_f[:, body_idx, 2] = (mag_z * sign_z).squeeze(1)
+
+            new_t = torch.zeros(nc, num_bodies, 3, device=device)
+            if t_max > 1e-6:
+                mag_t = torch.empty(nc, 3, device=device).uniform_(0, t_max)
+                sign_t = torch.sign(torch.empty(nc, 3, device=device).uniform_(-1, 1))
+                sign_t[sign_t == 0] = 1.0
+                tv = mag_t * sign_t
+                new_t[:, body_idx, 0] = tv[:, 0]
+                new_t[:, body_idx, 1] = tv[:, 1]
+                new_t[:, body_idx, 2] = tv[:, 2]
+
+            new_f[is_zero] = 0.0
+            new_t[is_zero] = 0.0
+            s["target_f"][cids] = new_f
+            s["target_t"][cids] = new_t
+
+        # Entering HOLD
+        to_hold = nxt == _PAINT_HOLD
+        if to_hold.any():
+            hids = exp_ids[to_hold]
+            s["duration"][hids] = s["hold_dur"][hids]
+            s["timer"][hids] = s["hold_dur"][hids]
+
+        # Entering RAMP_DOWN
+        to_rdn = nxt == _PAINT_RAMP_DOWN
+        if to_rdn.any():
+            dids = exp_ids[to_rdn]
+            s["duration"][dids] = s["ramp_dur"][dids]
+            s["timer"][dids] = s["ramp_dur"][dids]
+
+    # ── Compute alpha ∈ [0, 1] ───────────────────────────────────────────
+    alpha = torch.zeros(N, device=device)
+    dur = s["duration"].clamp(min=1e-6)
+
+    is_rup = s["phase"] == _PAINT_RAMP_UP
+    alpha[is_rup] = (1.0 - s["timer"][is_rup] / dur[is_rup]).clamp(0.0, 1.0)
+    alpha[s["phase"] == _PAINT_HOLD] = 1.0
+    is_rdn = s["phase"] == _PAINT_RAMP_DOWN
+    alpha[is_rdn] = (s["timer"][is_rdn] / dur[is_rdn]).clamp(0.0, 1.0)
+
+    # ── Write GT buffers and apply via PhysX ────────────────────────────
+    a = alpha[env_ids].unsqueeze(-1).unsqueeze(-1)
+    env._gt_force_buf[env_ids]  = s["target_f"][env_ids] * a
+    env._gt_torque_buf[env_ids] = s["target_t"][env_ids] * a
+
+    asset.root_physx_view.apply_forces_and_torques_at_position(
+        force_data=env._gt_force_buf.view(-1, 3),
+        torque_data=env._gt_torque_buf.view(-1, 3),
+        position_data=None,
+        indices=env._paint_indices,
+        is_global=False,
+    )
+
+
 def push_by_setting_velocity_with_return(
     env: ManagerBasedEnv,
     env_ids: torch.Tensor,

@@ -122,6 +122,29 @@ class CompliantOnPolicyRunner(OnPolicyRunner):
         self._est_loss_buf: deque = deque(maxlen=20)
         self._last_est_stats: dict = {}
 
+        # ── Force arrow visualization (optional, --vis_force) ────────────
+        self._vis_force: bool = train_cfg.get("vis_force", False)
+        self._gt_markers = None
+        self._est_markers = None
+        if self._vis_force:
+            from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
+            import isaaclab.sim as sim_utils
+            from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR
+            def _make_markers(prim_path, color):
+                cfg = VisualizationMarkersCfg(
+                    prim_path=prim_path,
+                    markers={
+                        "arrow": sim_utils.UsdFileCfg(
+                            usd_path=f"{ISAAC_NUCLEUS_DIR}/Props/UIElements/arrow_x.usd",
+                            scale=(1.0, 0.5, 0.5),
+                            visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=color),
+                        ),
+                    },
+                )
+                return VisualizationMarkers(cfg)
+            self._gt_markers = _make_markers("/World/Visuals/GTForceArrow", (1.0, 0.0, 0.0))
+            self._est_markers = _make_markers("/World/Visuals/EstForceArrow", (0.2, 0.4, 1.0))
+
         print(
             f"[CompliantRunner] Phase gates: "
             f"forces @ reward>={self._force_threshold:.0f}, "
@@ -131,6 +154,51 @@ class CompliantOnPolicyRunner(OnPolicyRunner):
             f"  Estimator: {self._temporal_steps}x{self._num_one_step_obs}="
             f"{self._temporal_steps * self._num_one_step_obs} → force_dim={self._force_dim}"
         )
+
+    # ── Force arrow visualization ─────────────────────────────────────────
+
+    def _update_force_arrows(self, force_hat: torch.Tensor) -> None:
+        from isaaclab.utils.math import quat_apply, quat_from_matrix
+        isaac_env = self.env.unwrapped
+        asset = isaac_env.scene["robot"]
+        n = self.env.num_envs
+        force_scale = 0.05
+        fd3 = min(self._force_dim, 3)
+        base_pos = asset.data.root_pos_w[:n]
+        base_quat = asset.data.root_quat_w[:n]
+
+        gt_f = isaac_env._gt_force_buf[:n, 0, :] if hasattr(isaac_env, "_gt_force_buf") else torch.zeros(n, 3, device=self.device)
+        gt_3d = torch.zeros(n, 3, device=self.device)
+        gt_3d[:, :fd3] = gt_f[:, :fd3]
+        gt_world = quat_apply(base_quat, gt_3d)
+        gt_pos = base_pos.clone(); gt_pos[:, 2] += 0.55
+        gt_scales = torch.full((n, 3), 0.3, device=self.device)
+        gt_scales[:, 0:1] = (gt_world.norm(dim=-1, keepdim=True) * force_scale).clamp(min=0.05)
+
+        est_3d = torch.zeros(n, 3, device=self.device)
+        est_3d[:, :fd3] = force_hat[:, :fd3]
+        est_world = quat_apply(base_quat, est_3d)
+        est_pos = base_pos.clone(); est_pos[:, 2] += 0.45
+        est_scales = torch.full((n, 3), 0.3, device=self.device)
+        est_scales[:, 0:1] = (est_world.norm(dim=-1, keepdim=True) * force_scale).clamp(min=0.05)
+
+        def _force_to_quat(fvec):
+            nv = fvec.shape[0]
+            quats = torch.zeros(nv, 4, device=self.device)
+            quats[:, 0] = 1.0
+            for i in range(nv):
+                mag = fvec[i].norm()
+                if mag < 0.1:
+                    continue
+                x_ax = fvec[i] / mag
+                up = torch.tensor([0.0, 0.0, 1.0] if abs(x_ax[2].item()) < 0.9 else [1.0, 0.0, 0.0], device=self.device)
+                z_ax = torch.cross(x_ax, up); z_ax = z_ax / z_ax.norm()
+                y_ax = torch.cross(z_ax, x_ax)
+                quats[i] = quat_from_matrix(torch.stack([x_ax, y_ax, z_ax], dim=1))
+            return quats
+
+        self._gt_markers.visualize(gt_pos, _force_to_quat(gt_world), gt_scales)
+        self._est_markers.visualize(est_pos, _force_to_quat(est_world), est_scales)
 
     # ── Main training loop ────────────────────────────────────────────────
 
@@ -175,6 +243,9 @@ class CompliantOnPolicyRunner(OnPolicyRunner):
 
                     # Set force estimate on env (obs term reads it, reward reads it)
                     self.env.unwrapped._force_estimate_xy = force_hat
+
+                    if self._vis_force:
+                        self._update_force_arrows(force_hat)
 
                     # Act
                     actions = self.alg.act(obs)
@@ -258,24 +329,20 @@ class CompliantOnPolicyRunner(OnPolicyRunner):
         """Train the estimator on collected rollout data (same as ForceOnPolicyRunner)."""
         isaac_env = self.env.unwrapped
 
-        # Get GT force/wrench from wrench composer
-        asset = isaac_env.scene["robot"]
+        # Get GT force/wrench from GT buffers (written by apply_paint_wrench)
+        env = isaac_env
         force_layout = self.estimator.force_layout
+        gt_f_buf = env._gt_force_buf[:, 0, :] if hasattr(env, "_gt_force_buf") else torch.zeros(env.num_envs, 3, device=self.device)
+        gt_t_buf = env._gt_torque_buf[:, 0, :] if hasattr(env, "_gt_torque_buf") else torch.zeros(env.num_envs, 3, device=self.device)
 
         if force_layout == "xy_yaw":
-            gt_f = asset.permanent_wrench_composer.composed_force_as_torch[:, 0, :2]
-            gt_t = asset.permanent_wrench_composer.composed_torque_as_torch[:, 0, 2:3]
-            gt_force = torch.cat([gt_f, gt_t], dim=-1)
+            gt_force = torch.cat([gt_f_buf[:, :2], gt_t_buf[:, 2:3]], dim=-1)
         elif self._force_dim <= 3:
-            gt_force = asset.permanent_wrench_composer.composed_force_as_torch[:, 0, :self._force_dim]
+            gt_force = gt_f_buf[:, :self._force_dim]
         elif self._force_dim == 4:
-            gt_f = asset.permanent_wrench_composer.composed_force_as_torch[:, 0, :3]
-            gt_t = asset.permanent_wrench_composer.composed_torque_as_torch[:, 0, 2:3]
-            gt_force = torch.cat([gt_f, gt_t], dim=-1)
+            gt_force = torch.cat([gt_f_buf[:, :3], gt_t_buf[:, 2:3]], dim=-1)
         else:
-            gt_f = asset.permanent_wrench_composer.composed_force_as_torch[:, 0, :3]
-            gt_t = asset.permanent_wrench_composer.composed_torque_as_torch[:, 0, :3]
-            gt_force = torch.cat([gt_f, gt_t], dim=-1)
+            gt_force = torch.cat([gt_f_buf[:, :3], gt_t_buf[:, :3]], dim=-1)
 
         # Use stored rollout data
         num_steps = self.num_steps_per_env
@@ -333,23 +400,26 @@ class CompliantOnPolicyRunner(OnPolicyRunner):
             )
 
     def _check_mapping_gate(self, it: int) -> None:
-        """Phase 2 → 3: Activate linear mapping when estimator angular error < threshold."""
-        if self._mapping_active or not self._force_active:
-            return
-        angle_err = self._last_est_stats.get("angle_err_median_deg", 999.0)
-        if angle_err < self._angular_threshold:
-            self._mapping_active = True
-            isaac_env = self.env.unwrapped
-            isaac_env._mapping_active = True
-            isaac_env._compliance_alpha = self._compliance_alpha
-            isaac_env._compliance_beta = self._compliance_beta
-            print(
-                f"\n{'=' * 80}\n"
-                f"  [CompliantRunner] PHASE 3: Angular error {angle_err:.1f}° < {self._angular_threshold:.1f}°\n"
-                f"  Linear mapping activated: k(f) = 0 if |f|<{self._compliance_alpha:.1f} "
-                f"else 1/{self._compliance_beta:.1f}\n"
-                f"{'=' * 80}"
-            )
+        """Phase 2 → 3: Activate linear mapping when estimator angular error < threshold.
+
+        NOTE: disabled — policy learns compliance implicitly via force_estimate in obs.
+        """
+        # if self._mapping_active or not self._force_active:
+        #     return
+        # angle_err = self._last_est_stats.get("angle_err_median_deg", 999.0)
+        # if angle_err < self._angular_threshold:
+        #     self._mapping_active = True
+        #     isaac_env = self.env.unwrapped
+        #     isaac_env._mapping_active = True
+        #     isaac_env._compliance_alpha = self._compliance_alpha
+        #     isaac_env._compliance_beta = self._compliance_beta
+        #     print(
+        #         f"\n{'=' * 80}\n"
+        #         f"  [CompliantRunner] PHASE 3: Angular error {angle_err:.1f}° < {self._angular_threshold:.1f}°\n"
+        #         f"  Linear mapping activated: k(f) = 0 if |f|<{self._compliance_alpha:.1f} "
+        #         f"else 1/{self._compliance_beta:.1f}\n"
+        #         f"{'=' * 80}"
+        #     )
 
     # ── Logging ───────────────────────────────────────────────────────────
 
@@ -361,16 +431,10 @@ class CompliantOnPolicyRunner(OnPolicyRunner):
         isaac_env = self.env.unwrapped
 
         # ── Phase status ─────────────────────────────────────────────────
-        if self._mapping_active:
-            phase = "PHASE 3 (mapping)"
-        elif self._force_active:
-            phase = "PHASE 2 (forces+estimator)"
-        else:
-            phase = "PHASE 1 (walking)"
+        phase = "PHASE 2 (forces+estimator)" if self._force_active else "PHASE 1 (walking)"
 
-        self.writer.add_scalar("Compliant/phase", 3 if self._mapping_active else (2 if self._force_active else 1), it)
+        self.writer.add_scalar("Compliant/phase", 2 if self._force_active else 1, it)
         self.writer.add_scalar("Compliant/force_active", float(self._force_active), it)
-        self.writer.add_scalar("Compliant/mapping_active", float(self._mapping_active), it)
 
         # ── Progress toward force gate ───────────────────────────────────
         if len(rewbuffer) > 0:
@@ -398,8 +462,7 @@ class CompliantOnPolicyRunner(OnPolicyRunner):
 
         # ── Force magnitude (always use force components, not torque) ────
         if self._force_active:
-            asset = isaac_env.scene["robot"]
-            f = asset.permanent_wrench_composer.composed_force_as_torch[:, 0, :3]
+            f = isaac_env._gt_force_buf[:, 0, :3] if hasattr(isaac_env, "_gt_force_buf") else torch.zeros(isaac_env.num_envs, 3, device=self.device)
             f_mags = f.norm(dim=1)
             self.writer.add_scalar("Compliant/force_magnitude_mean", f_mags.mean().item(), it)
 
@@ -421,8 +484,7 @@ class CompliantOnPolicyRunner(OnPolicyRunner):
                 term_str += f" ({ang_pct:.0f}% to mapping)"
 
         if self._mapping_active:
-            asset = isaac_env.scene["robot"]
-            f = asset.permanent_wrench_composer.composed_force_as_torch[:, 0, :3]
+            f = isaac_env._gt_force_buf[:, 0, :3] if hasattr(isaac_env, "_gt_force_buf") else torch.zeros(isaac_env.num_envs, 3, device=self.device)
             f_mean = f.norm(dim=1).mean().item()
             term_str += f"  |f|={f_mean:.1f}N  alpha={self._compliance_alpha:.1f} beta={self._compliance_beta:.1f}"
 

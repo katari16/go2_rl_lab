@@ -179,47 +179,46 @@ def gait_phase(env: ManagerBasedRLEnv, period: float) -> torch.Tensor:
     phase[:, 1] = torch.cos(global_phase * torch.pi * 2.0)
     return phase
 
+def _gt_force_buf(env: ManagerBasedRLEnv, asset: Articulation) -> torch.Tensor:
+    """Returns env._gt_force_buf [N, num_bodies, 3], initializing to zeros if not yet set."""
+    if not hasattr(env, "_gt_force_buf"):
+        env._gt_force_buf = torch.zeros(env.num_envs, asset.num_bodies, 3, device=asset.device)
+    return env._gt_force_buf
+
+
+def _gt_torque_buf(env: ManagerBasedRLEnv, asset: Articulation) -> torch.Tensor:
+    """Returns env._gt_torque_buf [N, num_bodies, 3], initializing to zeros if not yet set."""
+    if not hasattr(env, "_gt_torque_buf"):
+        env._gt_torque_buf = torch.zeros(env.num_envs, asset.num_bodies, 3, device=asset.device)
+    return env._gt_torque_buf
+
+
 def base_applied_force_xy(
     env: ManagerBasedRLEnv,
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names="base"),
 ) -> torch.Tensor:
-    """XY components of persistent external force applied to the base body.
-
-    Reads from the permanent wrench composer buffer (shape: [num_envs, num_bodies, 3]).
-    Returns [num_envs, 2] — ground truth for force estimation head.
-    """
+    """XY components of applied GT force. Reads from env._gt_force_buf."""
     asset: Articulation = env.scene[asset_cfg.name]
-    # composed_force_as_torch: [num_envs, num_bodies, 3] in body frame
-    forces = asset.permanent_wrench_composer.composed_force_as_torch
-    # Select the target body and take XY
-    return forces[:, asset_cfg.body_ids, :2].squeeze(1)
+    return _gt_force_buf(env, asset)[:, asset_cfg.body_ids, :2].squeeze(1)
 
 
 def base_applied_force_xyz(
     env: ManagerBasedRLEnv,
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names="base"),
 ) -> torch.Tensor:
-    """XYZ components of persistent external force applied to the base body.
-
-    Reads from the permanent wrench composer buffer (shape: [num_envs, num_bodies, 3]).
-    Returns [num_envs, 3] — ground truth for 3D force estimation head.
-    """
+    """XYZ components of applied GT force. Reads from env._gt_force_buf."""
     asset: Articulation = env.scene[asset_cfg.name]
-    forces = asset.permanent_wrench_composer.composed_force_as_torch
-    return forces[:, asset_cfg.body_ids, :3].squeeze(1)
+    return _gt_force_buf(env, asset)[:, asset_cfg.body_ids, :3].squeeze(1)
 
 
 def base_applied_wrench(
     env: ManagerBasedRLEnv,
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names="base"),
 ) -> torch.Tensor:
-    """Full 6D wrench [Fx, Fy, Fz, tau_roll, tau_pitch, tau_yaw] from permanent wrench composer.
-
-    Returns [num_envs, 6] — ground truth for 6D wrench estimation.
-    """
+    """Full 6D wrench [Fx, Fy, Fz, tau_roll, tau_pitch, tau_yaw]. Reads from env GT buffers."""
     asset: Articulation = env.scene[asset_cfg.name]
-    forces = asset.permanent_wrench_composer.composed_force_as_torch[:, asset_cfg.body_ids, :3].squeeze(1)
-    torques = asset.permanent_wrench_composer.composed_torque_as_torch[:, asset_cfg.body_ids, :3].squeeze(1)
+    forces  = _gt_force_buf(env, asset)[:, asset_cfg.body_ids, :3].squeeze(1)
+    torques = _gt_torque_buf(env, asset)[:, asset_cfg.body_ids, :3].squeeze(1)
     return torch.cat([forces, torques], dim=-1)
 
 

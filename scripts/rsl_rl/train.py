@@ -35,6 +35,7 @@ parser.add_argument(
     "--ray-proc-id", "-rid", type=int, default=None, help="Automatically configured by Ray integration, otherwise None."
 )
 parser.add_argument("--estimator_checkpoint", type=str, default=None, help="Path to pre-trained estimator checkpoint for compliant training.")
+parser.add_argument("--vis_force", action="store_true", default=False, help="Visualize GT (red) and estimated (blue) force arrows during training.")
 parser.add_argument("--stage1_checkpoint", type=str, default=None, help="Path to stage-1 checkpoint for HAC-LOCO stage 2 compliance training.")
 parser.add_argument("--locomotion_checkpoint", type=str, default=None, help="Path to frozen base locomotion policy checkpoint for estimator-only training (S-series).")
 # append RSL-RL cli arguments
@@ -212,6 +213,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         train_cfg = agent_cfg.to_dict()
         if args_cli.estimator_checkpoint is not None:
             train_cfg["estimator_checkpoint"] = args_cli.estimator_checkpoint
+        train_cfg["vis_force"] = args_cli.vis_force
         runner = CompliantOnPolicyRunner(env, train_cfg, log_dir=log_dir, device=agent_cfg.device)
     elif agent_cfg.class_name == "DistillationRunner":
         runner = DistillationRunner(env, agent_cfg.to_dict(), log_dir=log_dir, device=agent_cfg.device)

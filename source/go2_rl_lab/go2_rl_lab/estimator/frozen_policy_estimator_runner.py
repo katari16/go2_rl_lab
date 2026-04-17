@@ -109,7 +109,6 @@ class FrozenPolicyEstimatorRunner(OnPolicyRunner):
         event_cfg.params["force_range"] = (0.0, self._max_force)
         if "torque_range" in event_cfg.params:
             event_cfg.params["torque_range"] = (0.0, self._max_torque)
-        event_cfg.params["force_free_fraction"] = self._force_free_fraction
         print(f"  Forces activated: {self._max_force:.0f}N, event={self._force_event_term}")
 
     def _get_policy_nn(self):
@@ -261,20 +260,16 @@ class FrozenPolicyEstimatorRunner(OnPolicyRunner):
         asset = isaac_env.scene["robot"]
         force_layout = self.estimator.force_layout
 
+        gt_f_buf = isaac_env._gt_force_buf[:, 0, :] if hasattr(isaac_env, "_gt_force_buf") else torch.zeros(isaac_env.num_envs, 3, device=self.device)
+        gt_t_buf = isaac_env._gt_torque_buf[:, 0, :] if hasattr(isaac_env, "_gt_torque_buf") else torch.zeros(isaac_env.num_envs, 3, device=self.device)
         if force_layout == "xy_yaw":
-            gt_f = asset.permanent_wrench_composer.composed_force_as_torch[:, 0, :2]
-            gt_t = asset.permanent_wrench_composer.composed_torque_as_torch[:, 0, 2:3]
-            gt_force = torch.cat([gt_f, gt_t], dim=-1)
+            gt_force = torch.cat([gt_f_buf[:, :2], gt_t_buf[:, 2:3]], dim=-1)
         elif self._force_dim <= 3:
-            gt_force = asset.permanent_wrench_composer.composed_force_as_torch[:, 0, :self._force_dim]
+            gt_force = gt_f_buf[:, :self._force_dim]
         elif self._force_dim == 4:
-            gt_f = asset.permanent_wrench_composer.composed_force_as_torch[:, 0, :3]
-            gt_t = asset.permanent_wrench_composer.composed_torque_as_torch[:, 0, 2:3]
-            gt_force = torch.cat([gt_f, gt_t], dim=-1)
+            gt_force = torch.cat([gt_f_buf[:, :3], gt_t_buf[:, 2:3]], dim=-1)
         else:
-            gt_f = asset.permanent_wrench_composer.composed_force_as_torch[:, 0, :3]
-            gt_t = asset.permanent_wrench_composer.composed_torque_as_torch[:, 0, :3]
-            gt_force = torch.cat([gt_f, gt_t], dim=-1)
+            gt_force = torch.cat([gt_f_buf[:, :3], gt_t_buf[:, :3]], dim=-1)
 
         num_steps = self.num_steps_per_env
         num_envs = self.env.num_envs
@@ -326,8 +321,7 @@ class FrozenPolicyEstimatorRunner(OnPolicyRunner):
                     "Estimator/force_loss_smooth", statistics.mean(self._est_loss_buf), it
                 )
 
-        asset = isaac_env.scene["robot"]
-        f = asset.permanent_wrench_composer.composed_force_as_torch[:, 0, :3]
+        f = isaac_env._gt_force_buf[:, 0, :3] if hasattr(isaac_env, "_gt_force_buf") else torch.zeros(isaac_env.num_envs, 3, device=self.device)
         f_mags = f.norm(dim=1)
         self.writer.add_scalar("Compliant/force_magnitude_mean", f_mags.mean().item(), it)
 

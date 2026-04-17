@@ -59,7 +59,7 @@ from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR, ISAACLAB_NUCLEUS_DIR
 from isaaclab.utils.noise import AdditiveUniformNoiseCfg as Unoise
 
 from . import mdp
-from .mdp.events import apply_persistent_xyz_force
+from .mdp.events import apply_paint_wrench
 from .mdp.observations import (
     ForceEstimateObsTerm,
     applied_torque,
@@ -277,12 +277,11 @@ class EventCfg:
         },
     )
 
-    # interval — persistent XYZ force (starts at 0, curriculum activates)
-    # fz_scale=0.6 means Z force range is 60% of XY range for stability
+    # interval — PAINT-style wrench (fires every step, manages ramp internally)
     persistent_xyz_force = EventTerm(
-        func=apply_persistent_xyz_force,
+        func=apply_paint_wrench,
         mode="interval",
-        interval_range_s=(3.0, 5.0),
+        interval_range_s=(0.02, 0.02),
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names="base"),
             "force_range": (0.0, 0.0),  # curriculum sets to (0, max_force)
@@ -545,9 +544,9 @@ class NoEstEventCfg(EventCfg):
     """Forces active from the start — no estimator gating needed."""
 
     persistent_xyz_force = EventTerm(
-        func=apply_persistent_xyz_force,
+        func=apply_paint_wrench,
         mode="interval",
-        interval_range_s=(3.0, 5.0),
+        interval_range_s=(0.02, 0.02),
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names="base"),
             "force_range": (0.0, 20.0),

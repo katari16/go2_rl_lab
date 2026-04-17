@@ -26,7 +26,7 @@ from .go2_lowlevel_env_cfg import (
     ObservationsCfg,
     RewardsCfg,
 )
-from .mdp.events import apply_persistent_wrench, apply_trapezoid_wrench
+from .mdp.events import apply_paint_wrench
 from .mdp.observations import (
     ForceEstimateObsTerm,
     applied_torque,
@@ -47,14 +47,14 @@ from .mdp.rewards import (
 
 @configclass
 class WrenchEventCfg(EventCfg):
-    """Swaps persistent_xyz_force → apply_persistent_wrench with torque."""
+    """Swaps persistent_xyz_force → apply_paint_wrench with torque."""
 
     persistent_xyz_force = None  # remove parent's XYZ-only event
 
     persistent_wrench = EventTerm(
-        func=apply_persistent_wrench,
+        func=apply_paint_wrench,
         mode="interval",
-        interval_range_s=(3.0, 5.0),
+        interval_range_s=(0.02, 0.02),
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names="base"),
             "force_range": (0.0, 0.0),  # curriculum sets to (0, max_force)
@@ -127,9 +127,9 @@ class WrenchHighTorqueEventCfg(EventCfg):
     persistent_xyz_force = None
 
     persistent_wrench = EventTerm(
-        func=apply_persistent_wrench,
+        func=apply_paint_wrench,
         mode="interval",
-        interval_range_s=(3.0, 5.0),
+        interval_range_s=(0.02, 0.02),
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names="base"),
             "force_range": (0.0, 0.0),
@@ -183,23 +183,21 @@ class Stage2NoEstWrenchEnvCfg(LowLevelNoEstEnvCfg):
 
 @configclass
 class TrapezoidWrenchEventCfg(EventCfg):
-    """Swaps persistent_xyz_force → trapezoid wrench with stratified buckets."""
+    """Swaps persistent_xyz_force → apply_paint_wrench (PAINT-style profile)."""
 
     persistent_xyz_force = None  # remove parent's XYZ-only event
 
     persistent_wrench = EventTerm(
-        func=apply_trapezoid_wrench,
+        func=apply_paint_wrench,
         mode="interval",
-        interval_range_s=(0.02, 0.02),  # fire every control step
+        interval_range_s=(0.02, 0.02),
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names="base"),
             "force_range": (0.0, 0.0),  # curriculum sets to (0, max_force)
             "fz_scale": 0.6,
             "torque_range": (0.0, 0.0),  # curriculum sets to (0, max_torque)
-            "ramp_s_range": (0.2, 0.8),
-            "hold_s_range": (2.0, 5.0),
-            "zero_s_range": (0.5, 2.0),
-            "zero_prob": 0.02,
+            "segment_s_range": (3.0, 5.0),
+            "zero_prob": 0.05,
             "bucket_fracs": (
                 (0.0, 0.0), (0.0, 0.2), (0.2, 0.5), (0.5, 1.0),
             ),
