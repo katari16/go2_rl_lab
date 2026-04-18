@@ -59,6 +59,8 @@ parser.add_argument("--spawn_yaw", type=float, default=0.0,
                     help="Initial robot yaw orientation in degrees.")
 parser.add_argument("--compliance_k", type=float, default=0.0,
                     help="Linear compliance gain k for v*=v_cmd+k*F_hat (0=off).")
+parser.add_argument("--compliance_deadzone", type=float, default=0.0,
+                    help="Force magnitude threshold (N). Only apply compliance if |F_hat| > threshold.")
 parser.add_argument("--force_min", type=float, default=0.0,
                     help="Optional external force minimum (N). 0=no external force.")
 parser.add_argument("--force_max", type=float, default=0.0,
@@ -499,8 +501,11 @@ def main(
 
                 # Inject compliance into obs velocity command slots
                 if args_cli.compliance_k > 0.0:
-                    obs["policy"][:, 6] = obs["policy"][:, 6] + args_cli.compliance_k * force_hat[:, 0]
-                    obs["policy"][:, 7] = obs["policy"][:, 7] + args_cli.compliance_k * force_hat[:, 1]
+                    # Apply deadzone: only comply if force magnitude exceeds threshold
+                    force_xy_mag = torch.sqrt(force_hat[:, 0]**2 + force_hat[:, 1]**2)
+                    apply_compliance = force_xy_mag > args_cli.compliance_deadzone
+                    obs["policy"][:, 6] = obs["policy"][:, 6] + args_cli.compliance_k * force_hat[:, 0] * apply_compliance
+                    obs["policy"][:, 7] = obs["policy"][:, 7] + args_cli.compliance_k * force_hat[:, 1] * apply_compliance
 
                 # Policy step
                 actions = policy(obs)
