@@ -8,8 +8,8 @@
 **/*.dmp
 **/.thumbs
 
-# No USD files allowed in the repo
-**/*.usd
+# No USD files allowed in the repo (except custom robot assets)
+# **/*.usd
 **/*.usda
 **/*.usdc
 **/*.usdz

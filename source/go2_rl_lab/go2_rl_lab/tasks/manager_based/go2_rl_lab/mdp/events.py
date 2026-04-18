@@ -553,3 +553,32 @@ def _velocity_to_arrow(
     arrow_quat = quat_mul(base_quat_w, arrow_quat)
 
     return arrow_scale, arrow_quat
+
+
+def randomize_payload_mass(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    asset_cfg: SceneEntityCfg,
+    mass_range: tuple[float, float],
+) -> None:
+    """Randomize the mass of the last body (payload_link) uniformly in [min, max].
+
+    Args:
+        env: The environment instance.
+        env_ids: Environment indices to randomize.
+        asset_cfg: Asset configuration (must have root_physx_view).
+        mass_range: (min_mass, max_mass) in kg.
+    """
+    asset: RigidObject | Articulation = env.scene[asset_cfg.name]
+    num_envs = len(env_ids)
+    num_bodies = asset.num_bodies
+
+    random_masses = mass_range[0] + (mass_range[1] - mass_range[0]) * torch.rand(num_envs, 1, device=env.device)
+
+    masses = asset.root_physx_view.get_masses().clone()
+
+    payload_body_idx = num_bodies - 1
+    for i, env_id in enumerate(env_ids):
+        masses[env_id, payload_body_idx] = random_masses[i, 0]
+
+    asset.root_physx_view.set_masses(masses, env_ids.cpu())
