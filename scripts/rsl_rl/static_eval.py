@@ -453,6 +453,11 @@ def main(
         isaac_env._force_estimate_xy = torch.zeros(n, force_dim, device=device)
 
     obs = env.get_observations()
+
+    # Manually trigger the force event once at startup (interval events won't fire until timer elapses)
+    force_event_func = force_event.func
+    force_event_func(isaac_env, env_ids=torch.arange(n, device=device), **force_event.params)
+
     step_count = 0
     max_steps = int(args_cli.duration / dt)
 
