@@ -484,6 +484,11 @@ def main(
                 if phase in ["PAUSE", "HOLD"]:
                     cmd = isaac_env.command_manager.get_command("base_velocity")
                     cmd[:] = 0.0
+                elif phase == "RESUME":
+                    cmd = isaac_env.command_manager.get_command("base_velocity")
+                    cmd[:, 0] = args_cli.walk_speed  # forward velocity
+                    cmd[:, 1] = 0.0  # lateral velocity
+                    cmd[:, 2] = 0.0  # angular velocity
 
                 # Update history + estimator
                 raw_obs = obs["policy"][:, :raw_obs_dim]
