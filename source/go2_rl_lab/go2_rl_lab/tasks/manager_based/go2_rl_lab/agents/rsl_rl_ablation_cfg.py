@@ -880,7 +880,7 @@ class AblationK3Cfg(LowLevelRunnerCfg):
 
 
 # ── Group P: PAINT-profile ablations (P0-P18) ──────────────────────────────
-# P-series uses PaintRunner + PAINT-style trapezoid force profile.
+# P-series uses CompliantOnPolicyRunner + PAINT-style trapezoid force profile.
 # P0-P17: standard env, P18: payload env (randomized 0-4kg)
 
 
@@ -895,7 +895,7 @@ _PAINT_BASE = dict(
 class AblationP0Cfg(LowLevelRunnerCfg):
     """P0: Baseline — h30, 4D, default net, rec loss, no special rewards, PAINT."""
     experiment_name: str = "ablation_P0_baseline_h30_4d_paint"
-    class_name: str = "PaintRunner"
+    class_name: str = "CompliantOnPolicyRunner"
     force_event_term_name: str = "persistent_wrench"
     max_torque: float = 5.0
     estimator: dict = _est(**_PAINT_BASE)
@@ -905,7 +905,7 @@ class AblationP0Cfg(LowLevelRunnerCfg):
 class AblationP1Cfg(LowLevelRunnerCfg):
     """P1: History sweep h10."""
     experiment_name: str = "ablation_P1_h10_4d_paint"
-    class_name: str = "PaintRunner"
+    class_name: str = "CompliantOnPolicyRunner"
     force_event_term_name: str = "persistent_wrench"
     max_torque: float = 5.0
     estimator: dict = _est(**{**_PAINT_BASE, "temporal_steps": 10})
@@ -915,7 +915,7 @@ class AblationP1Cfg(LowLevelRunnerCfg):
 class AblationP2Cfg(LowLevelRunnerCfg):
     """P2: History sweep h20."""
     experiment_name: str = "ablation_P2_h20_4d_paint"
-    class_name: str = "PaintRunner"
+    class_name: str = "CompliantOnPolicyRunner"
     force_event_term_name: str = "persistent_wrench"
     max_torque: float = 5.0
     estimator: dict = _est(**{**_PAINT_BASE, "temporal_steps": 20})
@@ -925,7 +925,7 @@ class AblationP2Cfg(LowLevelRunnerCfg):
 class AblationP3Cfg(LowLevelRunnerCfg):
     """P3: History sweep h30 (same as P0 baseline)."""
     experiment_name: str = "ablation_P3_h30_4d_paint"
-    class_name: str = "PaintRunner"
+    class_name: str = "CompliantOnPolicyRunner"
     force_event_term_name: str = "persistent_wrench"
     max_torque: float = 5.0
     estimator: dict = _est(**_PAINT_BASE)
@@ -935,7 +935,7 @@ class AblationP3Cfg(LowLevelRunnerCfg):
 class AblationP4Cfg(LowLevelRunnerCfg):
     """P4: History sweep h40."""
     experiment_name: str = "ablation_P4_h40_4d_paint"
-    class_name: str = "PaintRunner"
+    class_name: str = "CompliantOnPolicyRunner"
     force_event_term_name: str = "persistent_wrench"
     max_torque: float = 5.0
     estimator: dict = _est(**{**_PAINT_BASE, "temporal_steps": 40})
@@ -945,7 +945,7 @@ class AblationP4Cfg(LowLevelRunnerCfg):
 class AblationP5Cfg(LowLevelRunnerCfg):
     """P5: Network size — half (enc=[64,32], f_head=[16,8])."""
     experiment_name: str = "ablation_P5_h30_4d_half_paint"
-    class_name: str = "PaintRunner"
+    class_name: str = "CompliantOnPolicyRunner"
     force_event_term_name: str = "persistent_wrench"
     max_torque: float = 5.0
     estimator: dict = _est(**{**_PAINT_BASE, "enc_hidden_dims": [64, 32], "f_head_dims": [16, 8]})
@@ -955,7 +955,7 @@ class AblationP5Cfg(LowLevelRunnerCfg):
 class AblationP6Cfg(LowLevelRunnerCfg):
     """P6: Network size — double (enc=[256,128], f_head=[64,32])."""
     experiment_name: str = "ablation_P6_h30_4d_double_paint"
-    class_name: str = "PaintRunner"
+    class_name: str = "CompliantOnPolicyRunner"
     force_event_term_name: str = "persistent_wrench"
     max_torque: float = 5.0
     estimator: dict = _est(**{**_PAINT_BASE, "enc_hidden_dims": [256, 128], "f_head_dims": [64, 32]})
@@ -965,7 +965,7 @@ class AblationP6Cfg(LowLevelRunnerCfg):
 class AblationP7Cfg(LowLevelRunnerCfg):
     """P7: Estimator accuracy reward w=50."""
     experiment_name: str = "ablation_P7_h30_4d_estrew_w50_paint"
-    class_name: str = "PaintRunner"
+    class_name: str = "CompliantOnPolicyRunner"
     force_event_term_name: str = "persistent_wrench"
     max_torque: float = 5.0
     estimator: dict = _est(**_PAINT_BASE)
@@ -975,7 +975,7 @@ class AblationP7Cfg(LowLevelRunnerCfg):
 class AblationP8Cfg(LowLevelRunnerCfg):
     """P8: Compliance weight 0.5."""
     experiment_name: str = "ablation_P8_h30_4d_comp_w0p5_paint"
-    class_name: str = "PaintRunner"
+    class_name: str = "CompliantOnPolicyRunner"
     force_event_term_name: str = "persistent_wrench"
     max_torque: float = 5.0
     estimator: dict = _est(**_PAINT_BASE)
@@ -985,7 +985,7 @@ class AblationP8Cfg(LowLevelRunnerCfg):
 class AblationP9Cfg(LowLevelRunnerCfg):
     """P9: Compliance weight 1.0."""
     experiment_name: str = "ablation_P9_h30_4d_comp_w1p0_paint"
-    class_name: str = "PaintRunner"
+    class_name: str = "CompliantOnPolicyRunner"
     force_event_term_name: str = "persistent_wrench"
     max_torque: float = 5.0
     estimator: dict = _est(**_PAINT_BASE)
@@ -995,7 +995,7 @@ class AblationP9Cfg(LowLevelRunnerCfg):
 class AblationP10Cfg(LowLevelRunnerCfg):
     """P10: Compliance weight 5.0."""
     experiment_name: str = "ablation_P10_h30_4d_comp_w5p0_paint"
-    class_name: str = "PaintRunner"
+    class_name: str = "CompliantOnPolicyRunner"
     force_event_term_name: str = "persistent_wrench"
     max_torque: float = 5.0
     estimator: dict = _est(**_PAINT_BASE)
@@ -1005,7 +1005,7 @@ class AblationP10Cfg(LowLevelRunnerCfg):
 class AblationP11Cfg(LowLevelRunnerCfg):
     """P11: No reconstruction loss."""
     experiment_name: str = "ablation_P11_h30_4d_norec_paint"
-    class_name: str = "PaintRunner"
+    class_name: str = "CompliantOnPolicyRunner"
     force_event_term_name: str = "persistent_wrench"
     max_torque: float = 5.0
     estimator: dict = _est(**{**_PAINT_BASE, "rec_loss_weight": 0.0})
@@ -1015,7 +1015,7 @@ class AblationP11Cfg(LowLevelRunnerCfg):
 class AblationP12Cfg(LowLevelRunnerCfg):
     """P12: TCN encoder."""
     experiment_name: str = "ablation_P12_h30_4d_tcn_paint"
-    class_name: str = "PaintRunner"
+    class_name: str = "CompliantOnPolicyRunner"
     force_event_term_name: str = "persistent_wrench"
     max_torque: float = 5.0
     estimator: dict = _est(**{**_PAINT_BASE, "tcn_mode": "encoder", "tcn_channels": [64, 128], "tcn_kernel_size": 3, "tcn_dilations": [1, 2, 4]})
@@ -1025,7 +1025,7 @@ class AblationP12Cfg(LowLevelRunnerCfg):
 class AblationP13Cfg(LowLevelRunnerCfg):
     """P13: Force dim 2D (fx, fy)."""
     experiment_name: str = "ablation_P13_h30_2d_paint"
-    class_name: str = "PaintRunner"
+    class_name: str = "CompliantOnPolicyRunner"
     force_event_term_name: str = "persistent_wrench"
     max_torque: float = 5.0
     estimator: dict = _est(temporal_steps=30, force_dim=2, rec_loss_weight=1.0, enc_hidden_dims=[128, 64], f_head_dims=[32, 16])
@@ -1035,7 +1035,7 @@ class AblationP13Cfg(LowLevelRunnerCfg):
 class AblationP14Cfg(LowLevelRunnerCfg):
     """P14: Force dim xy_yaw (fx, fy, yaw)."""
     experiment_name: str = "ablation_P14_h30_xy_yaw_paint"
-    class_name: str = "PaintRunner"
+    class_name: str = "CompliantOnPolicyRunner"
     force_event_term_name: str = "persistent_wrench"
     max_torque: float = 5.0
     estimator: dict = _est(temporal_steps=30, force_dim=3, force_layout="xy_yaw", rec_loss_weight=1.0, enc_hidden_dims=[128, 64], f_head_dims=[32, 16], yaw_loss_weight=3.0)
@@ -1045,7 +1045,7 @@ class AblationP14Cfg(LowLevelRunnerCfg):
 class AblationP15Cfg(LowLevelRunnerCfg):
     """P15: Force dim 4D (baseline = P0/P3)."""
     experiment_name: str = "ablation_P15_h30_4d_paint"
-    class_name: str = "PaintRunner"
+    class_name: str = "CompliantOnPolicyRunner"
     force_event_term_name: str = "persistent_wrench"
     max_torque: float = 5.0
     estimator: dict = _est(**_PAINT_BASE)
@@ -1055,7 +1055,7 @@ class AblationP15Cfg(LowLevelRunnerCfg):
 class AblationP16Cfg(LowLevelRunnerCfg):
     """P16: Force dim 6D (default net)."""
     experiment_name: str = "ablation_P16_h30_6d_paint"
-    class_name: str = "PaintRunner"
+    class_name: str = "CompliantOnPolicyRunner"
     force_event_term_name: str = "persistent_wrench"
     max_torque: float = 5.0
     estimator: dict = _est(temporal_steps=30, force_dim=6, rec_loss_weight=1.0, enc_hidden_dims=[128, 64], f_head_dims=[32, 16], torque_angle_loss_weight=3.0, torque_angle_min=0.3, yaw_loss_weight=3.0)
@@ -1065,7 +1065,7 @@ class AblationP16Cfg(LowLevelRunnerCfg):
 class AblationP17Cfg(LowLevelRunnerCfg):
     """P17: Force dim 6D (bigger net)."""
     experiment_name: str = "ablation_P17_h30_6d_big_paint"
-    class_name: str = "PaintRunner"
+    class_name: str = "CompliantOnPolicyRunner"
     force_event_term_name: str = "persistent_wrench"
     max_torque: float = 5.0
     estimator: dict = _est(temporal_steps=30, force_dim=6, rec_loss_weight=1.0, enc_hidden_dims=[256, 128], f_head_dims=[64, 32], torque_angle_loss_weight=3.0, torque_angle_min=0.3, yaw_loss_weight=3.0)
@@ -1075,7 +1075,7 @@ class AblationP17Cfg(LowLevelRunnerCfg):
 class AblationP18Cfg(LowLevelRunnerCfg):
     """P18: Payload (randomized 0-4kg mass per episode)."""
     experiment_name: str = "ablation_P18_h30_4d_payload_paint"
-    class_name: str = "PaintRunner"
+    class_name: str = "CompliantOnPolicyRunner"
     force_event_term_name: str = "persistent_wrench"
     max_torque: float = 5.0
     estimator: dict = _est(**_PAINT_BASE)
