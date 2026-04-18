@@ -342,7 +342,7 @@ def main(
         # Pre-allocate tensors for direct PhysX force application
         force_buf = torch.zeros(n, asset.num_bodies, 3, device=device)
         torque_buf = torch.zeros(n, asset.num_bodies, 3, device=device)
-        all_indices = torch.arange(n, dtype=torch.long, device="cpu")
+        all_indices = torch.arange(n, dtype=torch.long, device=device)
         # [OLD — permanent_wrench_composer]:
         # force_tensor = torch.zeros(n, asset.num_bodies, 3, device=device)
         # torque_tensor = torch.zeros(n, asset.num_bodies, 3, device=device)
