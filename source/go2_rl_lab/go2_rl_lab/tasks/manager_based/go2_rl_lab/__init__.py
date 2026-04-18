@@ -65,6 +65,29 @@ gym.register(
 )
 
 
+# ── Payload variants ───────────────────────────────────────────────────────────
+
+gym.register(
+    id="Go2-LowLevel-Payload3D-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_payload_env_cfg:LowLevelPayload3DEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_lowlevel_cfg:LowLevelRunnerCfg",
+    },
+)
+
+gym.register(
+    id="Go2-LowLevel-Payload-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_payload_env_cfg:LowLevelPayloadEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_lowlevel_cfg:LowLevelRunnerCfg",
+    },
+)
+
+
 # ── High-level non-linear compliance (frozen low-level + trainable high-level) ──
 
 gym.register(
@@ -420,22 +443,23 @@ for _id, _cfg in [
     )
 
 
-# ── Group P: PAINT-profile ablations (P0-P20) ──────────────────────────────
+# ── Group P: Ablations (P1-P21) — constant wrench (P21 = trapezoid) ─────────
 
-# P0-P6, P11-P17: standard trapezoid wrench env
+# P1-P6, P11-P17, P19: constant wrench env
 for _id, _cfg in [
     ("P1", "AblationP1Cfg"), ("P2", "AblationP2Cfg"),
     ("P3", "AblationP3Cfg"), ("P4", "AblationP4Cfg"), ("P5", "AblationP5Cfg"),
     ("P6", "AblationP6Cfg"), ("P11", "AblationP11Cfg"), ("P12", "AblationP12Cfg"),
     ("P13", "AblationP13Cfg"), ("P14", "AblationP14Cfg"), ("P15", "AblationP15Cfg"),
     ("P16", "AblationP16Cfg"), ("P17", "AblationP17Cfg"),
+    ("P19", "AblationP19Cfg"),
 ]:
     gym.register(
         id=f"Go2-Ablation-{_id}-v0",
         entry_point="isaaclab.envs:ManagerBasedRLEnv",
         disable_env_checker=True,
         kwargs={
-            "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:LowLevelWrenchTrapezoidEnvCfg",
+            "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:PSeriesWrenchEnvCfg",
             "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:{_cfg}",
         },
     )
@@ -446,16 +470,16 @@ gym.register(
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
-        "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:PaintEstAccW50EnvCfg",
+        "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:PSeriesEstAccW50EnvCfg",
         "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:AblationP7Cfg",
     },
 )
 
 # P8-P10: compliance reward (varying weights)
 for _id, _cfg, _env_cfg in [
-    ("P8", "AblationP8Cfg", "PaintComplianceW0p5EnvCfg"),
-    ("P9", "AblationP9Cfg", "PaintComplianceW1p0EnvCfg"),
-    ("P10", "AblationP10Cfg", "PaintComplianceW5p0EnvCfg"),
+    ("P8", "AblationP8Cfg", "PSeriesComplianceW0p5EnvCfg"),
+    ("P9", "AblationP9Cfg", "PSeriesComplianceW1p0EnvCfg"),
+    ("P10", "AblationP10Cfg", "PSeriesComplianceW5p0EnvCfg"),
 ]:
     gym.register(
         id=f"Go2-Ablation-{_id}-v0",
@@ -478,25 +502,25 @@ gym.register(
     },
 )
 
-# P19: 5Nm torque (for comparison with 10Nm)
-gym.register(
-    id="Go2-Ablation-P19-v0",
-    entry_point="isaaclab.envs:ManagerBasedRLEnv",
-    disable_env_checker=True,
-    kwargs={
-        "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:LowLevelWrenchTrapezoidEnvCfg",
-        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:AblationP19Cfg",
-    },
-)
-
 # P20: Default PD gains Kp=25, Kd=0.5 (baseline Kp=8, Kd=0.4)
 gym.register(
     id="Go2-Ablation-P20-v0",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
     kwargs={
-        "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:DefaultPDWrenchTrapezoidEnvCfg",
+        "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:DefaultPDPSeriesWrenchEnvCfg",
         "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:AblationP20Cfg",
+    },
+)
+
+# P21: Trapezoid force profile ablation
+gym.register(
+    id="Go2-Ablation-P21-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:LowLevelWrenchTrapezoidEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:AblationP21Cfg",
     },
 )
 

@@ -38,10 +38,16 @@ parser.add_argument("--seed", type=int, default=None)
 parser.add_argument("--num_envs", type=int, default=4096)
 parser.add_argument("--duration", type=float, default=20.0)
 parser.add_argument("--warmup_s", type=float, default=3.0)
-parser.add_argument("--force_baskets", type=float, nargs="+", required=True,
+parser.add_argument("--force_baskets", type=float, nargs="+", default=None,
                     help="Force magnitude baskets in N. Each basket B runs forces in [0.8*B, B] per axis.")
 parser.add_argument("--basket_band", type=float, default=0.8,
                     help="Lower fraction of basket range (default: 0.8 → [0.8*B, B]).")
+parser.add_argument("--training_regime", action="store_true", default=False,
+                    help="Match training force distribution exactly: per-axis uniform(0, max_force), "
+                         "fz_scale, 3-5s resample, force_free_fraction. Reads max_force from runner cfg.")
+parser.add_argument("--no_active_mask", action="store_true", default=False,
+                    help="Disable |F_gt|>1N filter on metrics — average over ALL samples "
+                         "including near-zero GT, matching training tensorboard computation.")
 parser.add_argument("--ema_alpha", type=float, default=0.1)
 parser.add_argument("--compliance_k", type=float, default=0.0)
 parser.add_argument("--no_cmd_vis", action="store_true", default=False,
@@ -141,7 +147,10 @@ SAMPLE_ENVS = [0, 1, 2, 3, 4]
 
 def _generate_force_schedule(rng, max_steps, n, f_min, f_max, fz_scale,
                              is_wrench, torque_range, dt):
-    """Pre-generate deterministic force+torque schedule for all envs.
+    """Pre-generate deterministic force+torque schedule (basket mode).
+
+    All 3 axes get the same magnitude range [f_min, f_max] simultaneously.
+    Resample interval: 1-3s.
 
     Returns:
         forces: [max_steps, n, 3]
@@ -172,8 +181,57 @@ def _generate_force_schedule(rng, max_steps, n, f_min, f_max, fz_scale,
     return forces, torques
 
 
-def _compute_metrics(all_gt_np, all_est_np, force_dim, dim_labels):
+def _generate_training_regime_schedule(rng, max_steps, n, max_force, fz_scale,
+                                       is_wrench, torque_range,
+                                       force_free_fraction, dt):
+    """Pre-generate force schedule matching training distribution exactly.
+
+    Per-axis independent: each of fx, fy sampled from U(0, max_force) with
+    random sign. fz = U(0, max_force * fz_scale) with random sign.
+    Resample interval: 3-5s (same as training event).
+    force_free_fraction: probability of zero wrench per interval.
+
+    Returns:
+        forces: [max_steps, n, 3]
+        torques: [max_steps, n, 3]
+    """
+    forces = np.zeros((max_steps, n, 3), dtype=np.float32)
+    torques = np.zeros((max_steps, n, 3), dtype=np.float32)
+
+    for env_i in range(n):
+        step = 0
+        while step < max_steps:
+            dur = max(1, int(rng.uniform(3.0, 5.0) / dt))
+            end = min(step + dur, max_steps)
+
+            if rng.random() < force_free_fraction:
+                # zero wrench this interval
+                step = end
+                continue
+
+            fx = rng.uniform(0, max_force) * rng.choice([-1.0, 1.0])
+            fy = rng.uniform(0, max_force) * rng.choice([-1.0, 1.0])
+            fz = rng.uniform(0, max_force * fz_scale) * rng.choice([-1.0, 1.0])
+            forces[step:end, env_i, :] = [fx, fy, fz]
+
+            if is_wrench:
+                t_lo, t_hi = torque_range
+                tx = rng.uniform(t_lo, t_hi) * rng.choice([-1.0, 1.0])
+                ty = rng.uniform(t_lo, t_hi) * rng.choice([-1.0, 1.0])
+                tz = rng.uniform(t_lo, t_hi) * rng.choice([-1.0, 1.0])
+                torques[step:end, env_i, :] = [tx, ty, tz]
+
+            step = end
+
+    return forces, torques
+
+
+def _compute_metrics(all_gt_np, all_est_np, force_dim, dim_labels, no_active_mask=False):
     """Compute aggregate estimation metrics.
+
+    Args:
+        no_active_mask: If True, average over ALL samples (matching training
+            tensorboard). If False, only average where |F_gt| > 1N.
 
     Returns:
         dict of metrics
@@ -184,16 +242,19 @@ def _compute_metrics(all_gt_np, all_est_np, force_dim, dim_labels):
     norm_err = np.linalg.norm(err, axis=2)         # L2 norm — used only for relative error
     gt_mag = np.linalg.norm(all_gt_np, axis=2)
 
-    active_mask = gt_mag > 1.0
+    if no_active_mask:
+        active_mask = np.ones_like(gt_mag, dtype=bool)
+    else:
+        active_mask = gt_mag > 1.0
     has_active = active_mask.any()
 
-    # Per-component mean AE — directly comparable to training Estimator/mae_total
     mae = float(np.mean(per_sample_mae[active_mask])) if has_active else 0.0
     median_ae = float(np.median(per_sample_mae[active_mask])) if has_active else 0.0
 
     rel_err = 0.0
-    if has_active:
-        rel_per_step = norm_err[active_mask] / gt_mag[active_mask] * 100
+    rel_mask = gt_mag > 1.0
+    if rel_mask.any():
+        rel_per_step = norm_err[rel_mask] / gt_mag[rel_mask] * 100
         rel_err = float(np.mean(rel_per_step))
 
     per_axis_mae = {}
@@ -201,6 +262,7 @@ def _compute_metrics(all_gt_np, all_est_np, force_dim, dim_labels):
         axis_ae = np.abs(err[:, :, d])
         per_axis_mae[dim_labels[d]] = float(np.mean(axis_ae[active_mask])) if has_active else 0.0
 
+    # Angular error — always uses xy > 1N mask (angle is meaningless near zero)
     gt_angle = np.arctan2(all_gt_np[:, :, 1], all_gt_np[:, :, 0])
     est_angle = np.arctan2(all_est_np[:, :, 1], all_est_np[:, :, 0])
     angle_diff = np.arctan2(np.sin(est_angle - gt_angle), np.cos(est_angle - gt_angle))
@@ -213,7 +275,6 @@ def _compute_metrics(all_gt_np, all_est_np, force_dim, dim_labels):
     force_indices = list(range(min(force_dim, 3)))
     torque_indices = list(range(3, force_dim))
 
-    # Force magnitude error: | ||F_hat_xyz|| - ||F_gt_xyz|| |
     gt_force_mag = np.linalg.norm(all_gt_np[:, :, :min(force_dim, 3)], axis=2)
     est_force_mag = np.linalg.norm(all_est_np[:, :, :min(force_dim, 3)], axis=2)
     force_mag_err = np.abs(est_force_mag - gt_force_mag)
@@ -230,6 +291,7 @@ def _compute_metrics(all_gt_np, all_est_np, force_dim, dim_labels):
         "force_mae": float(np.mean([per_axis_mae[dim_labels[d]] for d in force_indices])),
         "torque_mae": float(np.mean([per_axis_mae[dim_labels[d]] for d in torque_indices])) if torque_indices else None,
         "force_mag_mae": force_mag_mae,
+        "active_mask_used": not no_active_mask,
     }
 
 
@@ -244,17 +306,35 @@ def main(
     env_cfg.seed = agent_cfg.seed
     env_cfg.sim.device = args_cli.device if args_cli.device is not None else env_cfg.sim.device
 
-    force_event_name = agent_cfg.to_dict().get("force_event_term_name", "persistent_xy_force")
+    agent_dict = agent_cfg.to_dict()
+    force_event_name = agent_dict.get("force_event_term_name", "persistent_xy_force")
     is_wrench = "wrench" in force_event_name
 
-    # Read fz_scale and torque_range from env config before disabling events
+    # Read fz_scale, torque_range, force_free_fraction from env config before disabling events
     try:
         force_event = getattr(env_cfg.events, force_event_name)
         fz_scale = force_event.params.get("fz_scale", 0.6)
         torque_range = force_event.params.get("torque_range", (0.0, 5.0))
+        force_free_fraction = force_event.params.get("force_free_fraction", 0.0)
     except AttributeError:
         fz_scale = 0.6
         torque_range = (0.0, 5.0)
+        force_free_fraction = 0.0
+
+    training_regime = args_cli.training_regime
+    max_force_cfg = agent_dict.get("max_force", 20.0)
+    max_torque_cfg = agent_dict.get("max_torque", 5.0)
+
+    if training_regime:
+        if args_cli.force_baskets:
+            print("[rollout_eval] WARNING: --force_baskets ignored in --training_regime mode")
+        baskets_list = [("training", 0.0, max_force_cfg)]
+    else:
+        if not args_cli.force_baskets:
+            print("[rollout_eval] ERROR: --force_baskets required (or use --training_regime)")
+            return
+        band = args_cli.basket_band
+        baskets_list = [(f"{b:.0f}N", band * b, b) for b in args_cli.force_baskets]
 
     # Disable automatic force events — we apply forces manually
     disable_force_events(env_cfg, agent_cfg)
@@ -299,7 +379,6 @@ def main(
     warmup_steps = int(args_cli.warmup_s / dt)
     compliance_k = args_cli.compliance_k
     dim_labels = DIM_LABELS.get(force_dim, [f"d{i}" for i in range(force_dim)])
-    band = args_cli.basket_band
 
     print(f"\n{'=' * 70}")
     print(f"  Rollout Estimator Evaluation")
@@ -307,45 +386,53 @@ def main(
     print(f"  Runner: {runner_class_name}")
     print(f"  Force dim: {force_dim}  ({', '.join(dim_labels)})")
     print(f"  Envs: {n}   Duration: {args_cli.duration}s   Steps: {max_steps}")
-    print(f"  Force baskets: {args_cli.force_baskets} N  (band: [{band:.0%}, 100%])")
+    if training_regime:
+        print(f"  Mode: TRAINING REGIME  max_force: {max_force_cfg}N  fz_scale: {fz_scale}")
+        print(f"  Torque range: {torque_range}  force_free_frac: {force_free_fraction}")
+        print(f"  Resample interval: 3-5s (per-axis independent, matching training)")
+    else:
+        band = args_cli.basket_band
+        print(f"  Mode: BASKETS  {args_cli.force_baskets} N  (band: [{band:.0%}, 100%])")
     print(f"  Wrench mode: {is_wrench}  fz_scale: {fz_scale}  torque_range: {torque_range}")
     print(f"  Sample envs: {SAMPLE_ENVS} (deterministic from seed 42)")
     print(f"{'=' * 70}\n")
 
     # ═══════════════════════════════════════════════════════════════════
-    # Run each force basket
+    # Run each force basket (or single training-regime run)
     # ═══════════════════════════════════════════════════════════════════
 
     all_basket_metrics = {}
     all_sample_data = {}
 
-    for basket_idx, basket in enumerate(args_cli.force_baskets):
-        f_min = band * basket
-        f_max = basket
+    for basket_idx, (basket_key, f_min, f_max) in enumerate(baskets_list):
         print(f"\n{'─' * 60}")
-        print(f"  Basket {basket:.0f}N  (force per axis: [{f_min:.0f}, {f_max:.0f}] N)")
+        if training_regime:
+            print(f"  Training regime: per-axis U(0, {f_max:.0f}N), fz_scale={fz_scale}, "
+                  f"resample 3-5s, zero_prob={force_free_fraction:.0%}")
+        else:
+            print(f"  Basket {basket_key}  (force per axis: [{f_min:.0f}, {f_max:.0f}] N)")
         print(f"{'─' * 60}")
 
-        # Deterministic force schedule: seed = 42 + basket_idx
-        # Same seed + same basket → same GT forces for envs 0-4 across runs
         rng = np.random.default_rng(42 + basket_idx)
-        force_sched, torque_sched = _generate_force_schedule(
-            rng, max_steps, n, f_min, f_max, fz_scale,
-            is_wrench, torque_range, dt,
-        )
+        if training_regime:
+            force_sched, torque_sched = _generate_training_regime_schedule(
+                rng, max_steps, n, f_max, fz_scale,
+                is_wrench, (0.0, max_torque_cfg),
+                force_free_fraction, dt,
+            )
+        else:
+            force_sched, torque_sched = _generate_force_schedule(
+                rng, max_steps, n, f_min, f_max, fz_scale,
+                is_wrench, torque_range, dt,
+            )
         print(f"  Force schedule generated ({force_sched.shape})")
 
         # Convert to torch (on GPU)
         force_sched_t = torch.from_numpy(force_sched).to(device)
         torque_sched_t = torch.from_numpy(torque_sched).to(device)
 
-        # Pre-allocate tensors for direct PhysX force application
-        force_buf = torch.zeros(n, asset.num_bodies, 3, device=device)
-        torque_buf = torch.zeros(n, asset.num_bodies, 3, device=device)
-        all_indices = torch.arange(n, dtype=torch.long, device=device)
-        # [OLD — permanent_wrench_composer]:
-        # force_tensor = torch.zeros(n, asset.num_bodies, 3, device=device)
-        # torque_tensor = torch.zeros(n, asset.num_bodies, 3, device=device)
+        force_tensor = torch.zeros(n, asset.num_bodies, 3, device=device)
+        torque_tensor = torch.zeros(n, asset.num_bodies, 3, device=device)
 
         # Reset + warmup
         obs = reset_env(env, ctx, isaac_env, runner, runner_class_name,
@@ -360,22 +447,11 @@ def main(
         all_est = torch.zeros(max_steps, n, force_dim, device=device)
 
         for step in range(max_steps):
-            # Apply scheduled forces directly via PhysX (bypasses WrenchComposer buffers)
-            force_buf[:, base_idx, :] = force_sched_t[step]
-            torque_buf[:, base_idx, :] = torque_sched_t[step]
-            asset.root_physx_view.apply_forces_and_torques_at_position(
-                force_data=force_buf.view(-1, 3),
-                torque_data=torque_buf.view(-1, 3),
-                position_data=None,
-                indices=all_indices,
-                is_global=False,
+            force_tensor[:, base_idx, :] = force_sched_t[step]
+            torque_tensor[:, base_idx, :] = torque_sched_t[step]
+            asset.permanent_wrench_composer.set_forces_and_torques(
+                forces=force_tensor, torques=torque_tensor,
             )
-            # [OLD — permanent_wrench_composer]:
-            # force_tensor[:, base_idx, :] = force_sched_t[step]
-            # torque_tensor[:, base_idx, :] = torque_sched_t[step]
-            # asset.permanent_wrench_composer.set_forces_and_torques(
-            #     forces=force_tensor, torques=torque_tensor,
-            # )
 
             obs, _ = step_policy(obs, ctx, env, runner, isaac_env, n,
                                  runner_class_name, compliance_k, args_cli.ema_alpha)
@@ -416,24 +492,14 @@ def main(
                 print(f"\r  [{pct:5.1f}%] {(step + 1) * dt:.1f}/{args_cli.duration:.0f}s",
                       end="", flush=True)
 
-        print(f"\n  Basket {basket:.0f}N done.")
+        print(f"\n  {basket_key} done.")
 
         # Clear forces
-        force_buf.zero_()
-        torque_buf.zero_()
-        asset.root_physx_view.apply_forces_and_torques_at_position(
-            force_data=force_buf.view(-1, 3),
-            torque_data=torque_buf.view(-1, 3),
-            position_data=None,
-            indices=all_indices,
-            is_global=False,
+        force_tensor.zero_()
+        torque_tensor.zero_()
+        asset.permanent_wrench_composer.set_forces_and_torques(
+            forces=force_tensor, torques=torque_tensor,
         )
-        # [OLD — permanent_wrench_composer]:
-        # force_tensor.zero_()
-        # torque_tensor.zero_()
-        # asset.permanent_wrench_composer.set_forces_and_torques(
-        #     forces=force_tensor, torques=torque_tensor,
-        # )
 
         # Free schedule tensors
         del force_sched_t, torque_sched_t
@@ -442,17 +508,18 @@ def main(
         gt_np = all_gt.cpu().numpy()
         est_np = all_est.cpu().numpy()
 
-        metrics = _compute_metrics(gt_np, est_np, force_dim, dim_labels)
-        metrics["basket_N"] = basket
+        metrics = _compute_metrics(gt_np, est_np, force_dim, dim_labels, args_cli.no_active_mask)
+        metrics["basket_key"] = basket_key
         metrics["force_range"] = [f_min, f_max]
-        all_basket_metrics[f"{basket:.0f}N"] = metrics
+        all_basket_metrics[basket_key] = metrics
 
         # ── Print basket summary ────────────────────────────────────────
         print(f"  MAE total: {metrics['mae']:.3f}   Force MAE: {metrics['force_mae']:.3f} N"
               + (f"   Torque MAE: {metrics['torque_mae']:.3f} Nm" if metrics['torque_mae'] is not None else "")
               + f"   Force mag MAE: {metrics['force_mag_mae']:.3f} N")
         print(f"  Median AE: {metrics['median_ae']:.3f}   Rel Err: {metrics['relative_err_pct']:.1f}%"
-              f"   Ang Err: {metrics['angular_err_xy_deg_mean']:.1f}°")
+              f"   Ang Err mean: {metrics['angular_err_xy_deg_mean']:.1f}°"
+              f"   Ang Err median: {metrics['angular_err_xy_deg_median']:.1f}°")
         for d in range(force_dim):
             unit = "Nm" if d >= 3 else "N"
             print(f"    {dim_labels[d]:>8s}: {metrics['per_axis_mae'][dim_labels[d]]:.3f} {unit}")
@@ -468,7 +535,7 @@ def main(
                 "gt_force_schedule": force_sched[:, env_i, :].tolist(),
                 "gt_torque_schedule": torque_sched[:, env_i, :].tolist(),
             }
-        all_sample_data[f"{basket:.0f}N"] = sample_data
+        all_sample_data[basket_key] = sample_data
 
         del all_gt, all_est, gt_np, est_np
 
@@ -603,9 +670,12 @@ def main(
 
     # ── Save everything ─────────────────────────────────────────────────
     task_short = args_cli.task.replace("Go2-Ablation-", "").replace("-v0", "")
-    baskets_tag = "_".join(f"{b:.0f}N" for b in args_cli.force_baskets)
+    if training_regime:
+        suffix_tag = f"{task_short}_training_regime"
+    else:
+        suffix_tag = f"{task_short}_{'_'.join(f'{b:.0f}N' for b in args_cli.force_baskets)}"
     output_dir = create_eval_output_dir(agent_cfg.experiment_name, "rollout_estimator",
-                                        suffix=f"{task_short}_{baskets_tag}")
+                                        suffix=suffix_tag)
     save_config(output_dir, args_cli, agent_cfg, dt)
 
     # Metrics
@@ -615,8 +685,17 @@ def main(
         "n_envs": n,
         "duration_s": args_cli.duration,
         "dt": dt,
+        "mode": "training_regime" if training_regime else "baskets",
         "baskets": all_basket_metrics,
     }
+    if training_regime:
+        combined["training_regime"] = {
+            "max_force": max_force_cfg,
+            "max_torque": max_torque_cfg,
+            "fz_scale": fz_scale,
+            "force_free_fraction": force_free_fraction,
+            "resample_interval_s": [3.0, 5.0],
+        }
     with open(os.path.join(output_dir, "metrics.json"), "w") as f:
         json.dump(combined, f, indent=2, cls=_NumpyEncoder)
 

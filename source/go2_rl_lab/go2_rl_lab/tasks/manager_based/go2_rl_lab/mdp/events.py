@@ -143,13 +143,16 @@ def apply_persistent_wrench(
     fz_scale: float = 0.6,
     torque_range: tuple[float, float] = (0.0, 5.0),
     force_free_fraction: float = 0.0,
+    bucket_fracs: tuple[tuple[float, float], ...] | None = None,
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names="base"),
 ) -> None:
     """Apply persistent external wrench (force + torque) to the robot base.
 
     Extends ``apply_persistent_xyz_force`` to also sample roll/pitch/yaw torques.
-    Forces are sampled as in the XYZ version. Torques are sampled independently
-    with random sign for each axis.
+    When ``bucket_fracs`` is provided, envs are divided equally among buckets by
+    index (same scheme as ``apply_trapezoid_wrench``).  Each bucket defines a
+    (lo_frac, hi_frac) range of ``force_range[1]`` so the training distribution
+    is stratified across the full force range.
 
     Args:
         env: The environment instance.
@@ -157,7 +160,9 @@ def apply_persistent_wrench(
         force_range: (min_abs, max_abs) magnitude range for each XY force axis.
         fz_scale: Scale factor for Z force magnitude relative to XY (default: 0.6).
         torque_range: (min_abs, max_abs) magnitude range for each torque axis (default: 0-5 Nm).
-        force_free_fraction: Fraction of envs that get zero wrench (default: 0.0).
+        force_free_fraction: Per-interval probability that an env gets zero wrench (default: 0.0).
+        bucket_fracs: Per-bucket (lo_frac, hi_frac) of max force. Envs are
+            divided equally among buckets by index. None = uniform sampling.
         asset_cfg: Asset and body to apply wrench to.
     """
     asset: RigidObject | Articulation = env.scene[asset_cfg.name]
@@ -167,22 +172,49 @@ def apply_persistent_wrench(
 
     num_bodies = len(asset_cfg.body_ids) if isinstance(asset_cfg.body_ids, list) else asset.num_bodies
 
-    f_lo, f_hi = float(force_range[0]), float(force_range[1])
+    f_hi = float(force_range[1])
     t_lo, t_hi = float(torque_range[0]), float(torque_range[1])
 
     if f_hi < 1e-6 and t_hi < 1e-6:
         forces = torch.zeros(num, num_bodies, 3, device=asset.device)
         torques = torch.zeros(num, num_bodies, 3, device=asset.device)
     else:
-        # Sample XY force with random sign
-        mag_xy = torch.empty(num, 2, device=asset.device).uniform_(f_lo, max(f_lo, f_hi))
+        # Bucket-stratified per-env force range
+        if bucket_fracs is not None:
+            if not hasattr(env, "_pw_buckets"):
+                N = env.scene.num_envs
+                nb = len(bucket_fracs)
+                bsz = N // nb
+                b_lo = torch.zeros(N, device=asset.device)
+                b_hi = torch.zeros(N, device=asset.device)
+                for b, (lf, hf) in enumerate(bucket_fracs):
+                    start = b * bsz
+                    end = start + bsz if b < nb - 1 else N
+                    b_lo[start:end] = lf
+                    b_hi[start:end] = hf
+                env._pw_buckets = {"lo": b_lo, "hi": b_hi}
+
+            f_lo_per = env._pw_buckets["lo"][env_ids] * f_hi  # (num,)
+            f_hi_per = env._pw_buckets["hi"][env_ids] * f_hi
+        else:
+            f_lo = float(force_range[0])
+            f_lo_per = torch.full((num,), f_lo, device=asset.device)
+            f_hi_per = torch.full((num,), f_hi, device=asset.device)
+
+        # Sample XY force per-env within bucket range
+        u_xy = torch.rand(num, 2, device=asset.device)
+        range_xy = (f_hi_per - f_lo_per).unsqueeze(-1)
+        mag_xy = u_xy * range_xy + f_lo_per.unsqueeze(-1)
         sign_xy = torch.sign(torch.empty(num, 2, device=asset.device).uniform_(-1, 1))
         sign_xy[sign_xy == 0] = 1.0
         xy_force = mag_xy * sign_xy
 
         # Sample Z force with scaled range
-        lo_z, hi_z = f_lo * fz_scale, f_hi * fz_scale
-        mag_z = torch.empty(num, 1, device=asset.device).uniform_(lo_z, max(lo_z, hi_z))
+        fz_lo_per = f_lo_per * fz_scale
+        fz_hi_per = f_hi_per * fz_scale
+        u_z = torch.rand(num, 1, device=asset.device)
+        range_z = (fz_hi_per - fz_lo_per).unsqueeze(-1)
+        mag_z = u_z * range_z + fz_lo_per.unsqueeze(-1)
         sign_z = torch.sign(torch.empty(num, 1, device=asset.device).uniform_(-1, 1))
         sign_z[sign_z == 0] = 1.0
         z_force = mag_z * sign_z
@@ -202,12 +234,11 @@ def apply_persistent_wrench(
         torques[:, :, 1] = torque_vals[:, 1:2]
         torques[:, :, 2] = torque_vals[:, 2:3]
 
-        # Zero out wrench for a fraction of envs
+        # Per-interval zero-wrench probability
         if force_free_fraction > 0.0:
-            n_free = max(1, int(num * force_free_fraction))
-            free_idx = torch.randperm(num, device=asset.device)[:n_free]
-            forces[free_idx] = 0.0
-            torques[free_idx] = 0.0
+            zero_mask = torch.rand(num, device=asset.device) < force_free_fraction
+            forces[zero_mask] = 0.0
+            torques[zero_mask] = 0.0
 
     asset.permanent_wrench_composer.set_forces_and_torques(
         forces=forces,
@@ -236,7 +267,7 @@ def apply_trapezoid_wrench(
     zero_s_range: tuple[float, float] = (0.5, 2.0),
     zero_prob: float = 0.02,
     bucket_fracs: tuple[tuple[float, float], ...] = (
-        (0.0, 0.0), (0.0, 0.2), (0.2, 0.5), (0.5, 1.0),
+        (0.0, 0.25), (0.25, 0.5), (0.5, 0.75), (0.75, 1.0),
     ),
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names="base"),
 ) -> None:

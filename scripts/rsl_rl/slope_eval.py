@@ -41,14 +41,26 @@ parser.add_argument("--agent", type=str, default="rsl_rl_cfg_entry_point")
 parser.add_argument("--seed", type=int, default=None)
 parser.add_argument("--slope_deg", type=float, default=10.0,
                     help="Slope inclination in degrees (training max ~17°).")
+parser.add_argument("--terrain", type=str, default="pyramid", choices=["pyramid", "valley", "flat", "rough"],
+                    help="Terrain type: pyramid (uphill slope), valley (inverted pyramid), flat, or rough.")
 parser.add_argument("--walk_speed", type=float, default=0.5,
                     help="Forward velocity command during walk phase (m/s).")
 parser.add_argument("--walk_duration", type=float, default=8.0,
                     help="Seconds to walk uphill. With --walk_only this is the total run duration.")
 parser.add_argument("--hold_duration", type=float, default=20.0,
                     help="Seconds to hold position on slope (ignored with --walk_only).")
+parser.add_argument("--pause_duration", type=float, default=0.0,
+                    help="Seconds to pause (zero velocity cmd) after initial walk phase.")
+parser.add_argument("--resume_duration", type=float, default=0.0,
+                    help="Seconds to resume walking after pause phase.")
+parser.add_argument("--payload_mass", type=float, default=None,
+                    help="Override payload mass (kg). Set via PhysX set_masses at startup.")
+parser.add_argument("--spawn_yaw", type=float, default=0.0,
+                    help="Initial robot yaw orientation in degrees.")
 parser.add_argument("--compliance_k", type=float, default=0.0,
                     help="Linear compliance gain k for v*=v_cmd+k*F_hat (0=off).")
+parser.add_argument("--compliance_deadzone", type=float, default=0.0,
+                    help="Force magnitude threshold (N). Only apply compliance if |F_hat| > threshold.")
 parser.add_argument("--force_min", type=float, default=0.0,
                     help="Optional external force minimum (N). 0=no external force.")
 parser.add_argument("--force_max", type=float, default=0.0,
@@ -86,7 +98,7 @@ from isaaclab.envs import DirectMARLEnvCfg, DirectRLEnvCfg, ManagerBasedRLEnvCfg
 from isaaclab.markers import VisualizationMarkers, VisualizationMarkersCfg
 from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.terrains.terrain_generator_cfg import TerrainGeneratorCfg
-from isaaclab.terrains.height_field.hf_terrains_cfg import HfPyramidSlopedTerrainCfg
+from isaaclab.terrains.height_field.hf_terrains_cfg import HfPyramidSlopedTerrainCfg, HfInvertedPyramidSlopedTerrainCfg
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR, retrieve_file_path
 from isaaclab.utils.math import quat_apply, quat_from_matrix
 from isaaclab_rl.rsl_rl import RslRlBaseRunnerCfg, RslRlVecEnvWrapper
@@ -246,37 +258,53 @@ def main(
     env_cfg.seed = agent_cfg.seed
     env_cfg.sim.device = args_cli.device if args_cli.device is not None else env_cfg.sim.device
 
-    # ── Slope terrain ─────────────────────────────────────────────────────
-    slope_rad = math.radians(args_cli.slope_deg)
-    env_cfg.scene.terrain = TerrainImporterCfg(
-        prim_path="/World/ground",
-        terrain_type="generator",
-        terrain_generator=TerrainGeneratorCfg(
-            size=(12.0, 12.0),
-            border_width=0.0,
-            num_rows=1,
-            num_cols=1,
-            horizontal_scale=0.1,
-            vertical_scale=0.005,
-            slope_threshold=0.75,
-            use_cache=False,
-            sub_terrains={
-                "slope": HfPyramidSlopedTerrainCfg(
-                    proportion=1.0,
-                    slope_range=(slope_rad, slope_rad),
-                    platform_width=1.5,
-                    border_width=0.25,
-                ),
-            },
-        ),
-        max_init_terrain_level=0,
-        physics_material=sim_utils.RigidBodyMaterialCfg(
-            friction_combine_mode="multiply",
-            restitution_combine_mode="multiply",
-            static_friction=1.0,
-            dynamic_friction=1.0,
-        ),
-    )
+    # ── Spawn orientation ─────────────────────────────────────────────────
+    if args_cli.spawn_yaw != 0.0:
+        import math
+        yaw_rad = math.radians(args_cli.spawn_yaw)
+        cos_half = math.cos(yaw_rad / 2.0)
+        sin_half = math.sin(yaw_rad / 2.0)
+        env_cfg.scene.robot.init_state.rot = (cos_half, 0.0, 0.0, sin_half)
+
+    # ── Terrain configuration ─────────────────────────────────────────────
+    if args_cli.terrain == "flat":
+        env_cfg.scene.terrain.terrain_type = "plane"
+    elif args_cli.terrain == "rough":
+        env_cfg.scene.terrain.terrain_type = "generator"
+        # Use existing training terrain config (rough + obstacles)
+    else:
+        # pyramid or valley slopes
+        slope_rad = math.radians(args_cli.slope_deg)
+        terrain_cfg = HfInvertedPyramidSlopedTerrainCfg if args_cli.terrain == "valley" else HfPyramidSlopedTerrainCfg
+        env_cfg.scene.terrain = TerrainImporterCfg(
+            prim_path="/World/ground",
+            terrain_type="generator",
+            terrain_generator=TerrainGeneratorCfg(
+                size=(12.0, 12.0),
+                border_width=0.0,
+                num_rows=1,
+                num_cols=1,
+                horizontal_scale=0.1,
+                vertical_scale=0.005,
+                slope_threshold=0.75,
+                use_cache=False,
+                sub_terrains={
+                    "slope": terrain_cfg(
+                        proportion=1.0,
+                        slope_range=(slope_rad, slope_rad),
+                        platform_width=1.5,
+                        border_width=0.25,
+                    ),
+                },
+            ),
+            max_init_terrain_level=0,
+            physics_material=sim_utils.RigidBodyMaterialCfg(
+                friction_combine_mode="multiply",
+                restitution_combine_mode="multiply",
+                static_friction=1.0,
+                dynamic_friction=1.0,
+            ),
+        )
 
     if hasattr(env_cfg, "curriculum"):
         env_cfg.curriculum = None
@@ -292,17 +320,26 @@ def main(
 
     # ── External forces (optional) ────────────────────────────────────────
     force_event_name = agent_cfg.to_dict().get("force_event_term_name", "persistent_xyz_force")
-    force_event = getattr(env_cfg.events, force_event_name)
+    force_event = getattr(env_cfg.events, force_event_name, None)
     apply_forces = args_cli.force_max > 0 and not args_cli.no_force
-    if apply_forces:
-        force_event.params["force_range"] = (args_cli.force_min, args_cli.force_max)
-        force_event.interval_range_s = (3.0, 5.0)
-    else:
-        force_event.params["force_range"] = (0.0, 0.0)
-        if "torque_range" in force_event.params:
-            force_event.params["torque_range"] = (0.0, 0.0)
+    if force_event is not None:
+        if apply_forces:
+            force_event.params["force_range"] = (args_cli.force_min, args_cli.force_max)
+            force_event.interval_range_s = (3.0, 5.0)
+        else:
+            force_event.params["force_range"] = (0.0, 0.0)
+            if "torque_range" in force_event.params:
+                force_event.params["torque_range"] = (0.0, 0.0)
 
-    total_duration = args_cli.walk_duration if args_cli.walk_only else args_cli.walk_duration + args_cli.hold_duration
+    # Calculate total duration based on phases
+    if args_cli.walk_only:
+        total_duration = args_cli.walk_duration
+    else:
+        total_duration = args_cli.walk_duration + args_cli.hold_duration
+        if args_cli.pause_duration > 0:
+            total_duration += args_cli.pause_duration
+        if args_cli.resume_duration > 0:
+            total_duration += args_cli.resume_duration
     env_cfg.episode_length_s = total_duration + 5.0
 
     # ── Checkpoint ────────────────────────────────────────────────────────
@@ -333,6 +370,18 @@ def main(
     runner.load(resume_path)
     runner.eval_mode()
 
+    # Re-apply force override after load() — checkpoint restores force_active
+    # which overwrites force_range. Must re-zero if no external forces wanted.
+    if force_event is not None and not apply_forces:
+        isaac_env_tmp = env.unwrapped
+        try:
+            ev_cfg = isaac_env_tmp.event_manager.get_term_cfg(force_event_name)
+            ev_cfg.params["force_range"] = (0.0, 0.0)
+            if "torque_range" in ev_cfg.params:
+                ev_cfg.params["torque_range"] = (0.0, 0.0)
+        except Exception:
+            pass
+
     force_dim = getattr(runner, "_force_dim", 2)
     fd3 = min(force_dim, 3)
     raw_obs_dim = runner._num_one_step_obs
@@ -350,6 +399,18 @@ def main(
     base_idx = base_body_ids[0] if isinstance(base_body_ids, (list, tuple)) else int(base_body_ids)
     n = args_cli.num_envs
 
+    # ── Payload mass override ─────────────────────────────────────────────
+    if args_cli.payload_mass is not None:
+        payload_body_ids, _ = asset.find_bodies("payload_link")
+        if len(payload_body_ids) > 0:
+            payload_idx = payload_body_ids[0] if isinstance(payload_body_ids, (list, tuple)) else int(payload_body_ids)
+            masses = asset.root_physx_view.get_masses()
+            print(f"[slope_eval] Overriding payload_link mass: {masses[0, payload_idx]:.3f} → {args_cli.payload_mass:.3f} kg")
+            masses[:, payload_idx] = args_cli.payload_mass
+            asset.root_physx_view.set_masses(masses, torch.arange(n, device="cpu"))
+        else:
+            print(f"[slope_eval] WARNING: --payload_mass specified but payload_link body not found")
+
     # ── Arrows ────────────────────────────────────────────────────────────
     # GT force arrow only makes sense when external forces are applied
     gt_markers  = _create_arrow_markers("/World/Visuals/GTForce",  (1.0, 0.0, 0.0)) if apply_forces else None
@@ -360,6 +421,9 @@ def main(
     # ── Loop setup ────────────────────────────────────────────────────────
     dt = isaac_env.step_dt
     walk_steps  = int(args_cli.walk_duration / dt)
+    pause_steps = int((args_cli.walk_duration + args_cli.pause_duration) / dt) if args_cli.pause_duration > 0 else 0
+    resume_steps = int((args_cli.walk_duration + args_cli.pause_duration + args_cli.resume_duration) / dt) if args_cli.resume_duration > 0 else 0
+    hold_steps = int((args_cli.walk_duration + (args_cli.pause_duration if args_cli.pause_duration > 0 else 0) + (args_cli.resume_duration if args_cli.resume_duration > 0 else 0)) / dt)
     total_steps = int(total_duration / dt)
 
     isaac_env._force_estimate_xy = torch.zeros(n, force_dim, device=device)
@@ -409,14 +473,36 @@ def main(
             start_time = time.time()
 
             with torch.inference_mode():
-                # Phase transition
-                if step_count == walk_steps and phase == "WALK" and not args_cli.walk_only:
+                # Phase transitions
+                if step_count == walk_steps and phase == "WALK":
+                    if args_cli.pause_duration > 0:
+                        phase = "PAUSE"
+                        print(f"\n\n  >>> PAUSE phase — zero velocity command <<<\n")
+                    elif not args_cli.walk_only:
+                        phase = "HOLD"
+                        print(f"\n\n  >>> HOLD phase — zero velocity command <<<\n")
+
+                if pause_steps > 0 and step_count == pause_steps and phase == "PAUSE":
+                    if args_cli.resume_duration > 0:
+                        phase = "RESUME"
+                        print(f"\n\n  >>> RESUME phase — forward velocity command <<<\n")
+                    else:
+                        phase = "HOLD"
+                        print(f"\n\n  >>> HOLD phase — zero velocity command <<<\n")
+
+                if resume_steps > 0 and step_count == resume_steps and phase == "RESUME":
                     phase = "HOLD"
                     print(f"\n\n  >>> HOLD phase — zero velocity command <<<\n")
 
-                if phase == "HOLD":
+                # Apply velocity commands based on phase
+                if phase in ["PAUSE", "HOLD"]:
                     cmd = isaac_env.command_manager.get_command("base_velocity")
                     cmd[:] = 0.0
+                elif phase == "RESUME":
+                    cmd = isaac_env.command_manager.get_command("base_velocity")
+                    cmd[:, 0] = args_cli.walk_speed  # forward velocity
+                    cmd[:, 1] = 0.0  # lateral velocity
+                    cmd[:, 2] = 0.0  # angular velocity
 
                 # Update history + estimator
                 raw_obs = obs["policy"][:, :raw_obs_dim]
@@ -427,8 +513,11 @@ def main(
 
                 # Inject compliance into obs velocity command slots
                 if args_cli.compliance_k > 0.0:
-                    obs["policy"][:, 6] = obs["policy"][:, 6] + args_cli.compliance_k * force_hat[:, 0]
-                    obs["policy"][:, 7] = obs["policy"][:, 7] + args_cli.compliance_k * force_hat[:, 1]
+                    # Apply deadzone: only comply if force magnitude exceeds threshold
+                    force_xy_mag = torch.sqrt(force_hat[:, 0]**2 + force_hat[:, 1]**2)
+                    apply_compliance = force_xy_mag > args_cli.compliance_deadzone
+                    obs["policy"][:, 6] = obs["policy"][:, 6] + args_cli.compliance_k * force_hat[:, 0] * apply_compliance
+                    obs["policy"][:, 7] = obs["policy"][:, 7] + args_cli.compliance_k * force_hat[:, 1] * apply_compliance
 
                 # Policy step
                 actions = policy(obs)
@@ -530,11 +619,24 @@ def main(
                 if step_count % 10 == 0:
                     pct = step_count / total_steps
                     bar = "\u2588" * int(20 * pct) + "\u2591" * (20 - int(20 * pct))
+
+                    # Build GT and Est strings based on force_dim
+                    if force_dim == 2:
+                        gt_str = f"GT:[{g0[0]:+5.1f},{g0[1]:+5.1f}]N"
+                        est_str = f"Est:[{e0[0]:+5.1f},{e0[1]:+5.1f}]N"
+                    elif force_dim == 3:
+                        gt_str = f"GT:[{g0[0]:+5.1f},{g0[1]:+5.1f},{g0[2]:+5.1f}]N"
+                        est_str = f"Est:[{e0[0]:+5.1f},{e0[1]:+5.1f},{e0[2]:+5.1f}]N"
+                    elif force_dim == 4:
+                        gt_str = f"GT:[{g0[0]:+5.1f},{g0[1]:+5.1f},{g0[2]:+5.1f}]N τ:[{g0[3]:+5.1f}]Nm"
+                        est_str = f"Est:[{e0[0]:+5.1f},{e0[1]:+5.1f},{e0[2]:+5.1f}]N τ:[{e0[3]:+5.1f}]Nm"
+                    else:  # 6D
+                        gt_str = f"GT:[{g0[0]:+4.1f},{g0[1]:+4.1f},{g0[2]:+4.1f}]N τ:[{g0[3]:+4.1f},{g0[4]:+4.1f},{g0[5]:+4.1f}]Nm"
+                        est_str = f"Est:[{e0[0]:+4.1f},{e0[1]:+4.1f},{e0[2]:+4.1f}]N τ:[{e0[3]:+4.1f},{e0[4]:+4.1f},{e0[5]:+4.1f}]Nm"
+
                     print(
                         f"\r  [{bar}] {step_count * dt:.0f}/{total_duration:.0f}s [{phase:4s}]  "
-                        f"GT:[{g0[0]:+5.1f},{g0[1]:+5.1f}]N  "
-                        f"Est:[{e0[0]:+5.1f},{e0[1]:+5.1f}]N  "
-                        f"adj:[{adj_vx[0]:+5.2f},{adj_vy[0]:+5.2f}]m/s",
+                        f"{gt_str}  {est_str}  adj:[{adj_vx[0]:+5.2f},{adj_vy[0]:+5.2f}]m/s",
                         end="", flush=True,
                     )
 

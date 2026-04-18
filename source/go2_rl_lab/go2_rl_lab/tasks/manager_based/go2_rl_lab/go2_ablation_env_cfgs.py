@@ -194,14 +194,14 @@ class TrapezoidWrenchEventCfg(EventCfg):
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names="base"),
             "force_range": (0.0, 0.0),  # curriculum sets to (0, max_force)
-            "fz_scale": 0.6,
+            "fz_scale": 0.8,
             "torque_range": (0.0, 0.0),  # curriculum sets to (0, max_torque)
             "ramp_s_range": (0.2, 0.8),
             "hold_s_range": (2.0, 5.0),
             "zero_s_range": (0.5, 2.0),
-            "zero_prob": 0.02,
+            "zero_prob": 0.05,
             "bucket_fracs": (
-                (0.0, 0.0), (0.0, 0.2), (0.2, 0.5), (0.5, 1.0),
+                (0.0, 0.25), (0.25, 0.5), (0.5, 0.75), (0.75, 1.0),
             ),
         },
     )
@@ -377,15 +377,12 @@ class LowLevelWrenchComplianceRewardEnvCfg(LowLevelEnvCfg):
     rewards: WrenchComplianceRewardsCfg = WrenchComplianceRewardsCfg()
 
 
-# ── 4. DefaultPD wrench trapezoid env (P20) ────────────────────────────────
+# ── 4. DefaultPD wrench trapezoid env ──────────────────────────────────────
 
 
 @configclass
 class DefaultPDWrenchTrapezoidEnvCfg(LowLevelWrenchTrapezoidEnvCfg):
-    """Same as LowLevelWrenchTrapezoidEnvCfg but with default PD gains (Kp=25, Kd=0.5).
-
-    Used by P20 ablation to test high stiffness vs baseline (Kp=8, Kd=0.4).
-    """
+    """Same as LowLevelWrenchTrapezoidEnvCfg but with default PD gains (Kp=25, Kd=0.5)."""
 
     def __post_init__(self):
         super().__post_init__()
@@ -393,11 +390,46 @@ class DefaultPDWrenchTrapezoidEnvCfg(LowLevelWrenchTrapezoidEnvCfg):
         self.scene.robot = UNITREE_GO2_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
 
 
-# ── P-series: PAINT-profile env configs ────────────────────────────────────
+# ── P-series: constant wrench env configs ─────────────────────────────────
 
 
-def _paint_est_accuracy_rewards(weight: float, sigma: float = 1.0):
-    """Build RewardsCfg with estimation accuracy reward for PAINT env."""
+@configclass
+class PSeriesWrenchEventCfg(EventCfg):
+    """P-series constant wrench: fz_scale=0.8, stratified buckets, 5% zero probability."""
+
+    persistent_xyz_force = None
+
+    persistent_wrench = EventTerm(
+        func=apply_persistent_wrench,
+        mode="interval",
+        interval_range_s=(3.0, 5.0),
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names="base"),
+            "force_range": (0.0, 0.0),  # curriculum sets to (0, max_force)
+            "fz_scale": 0.8,
+            "torque_range": (0.0, 0.0),  # curriculum sets to (0, max_torque)
+            "force_free_fraction": 0.05,
+            "bucket_fracs": (
+                (0.0, 0.25), (0.25, 0.5), (0.5, 0.75), (0.75, 1.0),
+            ),
+        },
+    )
+
+
+@configclass
+class PSeriesWrenchEnvCfg(LowLevelEnvCfg):
+    """P-series env: constant wrench (fz_scale=0.8, 5% force-free), 6D wrench critic.
+
+    All P-series runs (P1-P20) use this env unless they need extra rewards or payload.
+    max_force=30N and max_torque=10Nm are set in the runner config.
+    """
+
+    events: PSeriesWrenchEventCfg = PSeriesWrenchEventCfg()
+    observations: WrenchObservationsCfg = WrenchObservationsCfg()
+
+
+def _p_est_accuracy_rewards(weight: float, sigma: float = 1.0):
+    """Build RewardsCfg with estimation accuracy reward for P-series env."""
     @configclass
     class _Cfg(RewardsCfg):
         force_est_accuracy = RewTerm(
@@ -412,8 +444,8 @@ def _paint_est_accuracy_rewards(weight: float, sigma: float = 1.0):
     return _Cfg
 
 
-def _paint_compliance_rewards(weight: float):
-    """Build RewardsCfg with compliance force tracking for PAINT env."""
+def _p_compliance_rewards(weight: float):
+    """Build RewardsCfg with compliance force tracking for P-series env."""
     @configclass
     class _Cfg(RewardsCfg):
         compliance_force = RewTerm(
@@ -430,24 +462,34 @@ def _paint_compliance_rewards(weight: float):
 
 
 @configclass
-class PaintEstAccW50EnvCfg(LowLevelWrenchTrapezoidEnvCfg):
-    """PAINT trapezoid wrench + est accuracy reward w=50 — for P7."""
-    rewards = _paint_est_accuracy_rewards(50.0)()
+class PSeriesEstAccW50EnvCfg(PSeriesWrenchEnvCfg):
+    """P-series wrench + est accuracy reward w=50 — for P7."""
+    rewards = _p_est_accuracy_rewards(50.0)()
 
 
 @configclass
-class PaintComplianceW0p5EnvCfg(LowLevelWrenchTrapezoidEnvCfg):
-    """PAINT trapezoid wrench + compliance reward w=0.5 — for P8."""
-    rewards = _paint_compliance_rewards(0.5)()
+class PSeriesComplianceW0p5EnvCfg(PSeriesWrenchEnvCfg):
+    """P-series wrench + compliance reward w=0.5 — for P8."""
+    rewards = _p_compliance_rewards(0.5)()
 
 
 @configclass
-class PaintComplianceW1p0EnvCfg(LowLevelWrenchTrapezoidEnvCfg):
-    """PAINT trapezoid wrench + compliance reward w=1.0 — for P9."""
-    rewards = _paint_compliance_rewards(1.0)()
+class PSeriesComplianceW1p0EnvCfg(PSeriesWrenchEnvCfg):
+    """P-series wrench + compliance reward w=1.0 — for P9."""
+    rewards = _p_compliance_rewards(1.0)()
 
 
 @configclass
-class PaintComplianceW5p0EnvCfg(LowLevelWrenchTrapezoidEnvCfg):
-    """PAINT trapezoid wrench + compliance reward w=5.0 — for P10."""
-    rewards = _paint_compliance_rewards(5.0)()
+class PSeriesComplianceW5p0EnvCfg(PSeriesWrenchEnvCfg):
+    """P-series wrench + compliance reward w=5.0 — for P10."""
+    rewards = _p_compliance_rewards(5.0)()
+
+
+@configclass
+class DefaultPDPSeriesWrenchEnvCfg(PSeriesWrenchEnvCfg):
+    """P-series wrench with default PD gains (Kp=25, Kd=0.5) — for P20."""
+
+    def __post_init__(self):
+        super().__post_init__()
+        from go2_rl_lab.assets.unitree import UNITREE_GO2_CFG
+        self.scene.robot = UNITREE_GO2_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")

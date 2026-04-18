@@ -2,7 +2,7 @@
 
 Two variants:
 - LowLevelPayload3DEnvCfg: Simple 3D force (70-dim critic) for basic payload training
-- LowLevelPayloadEnvCfg: 6D wrench + PAINT + randomized mass (73-dim critic) for P18
+- LowLevelPayloadEnvCfg: 6D wrench + randomized mass (73-dim critic) for P18
 """
 
 from isaaclab.managers import EventTermCfg as EventTerm
@@ -11,7 +11,7 @@ from isaaclab.utils import configclass
 
 from . import mdp
 from .go2_lowlevel_env_cfg import LowLevelEnvCfg
-from .go2_ablation_env_cfgs import LowLevelWrenchTrapezoidEnvCfg, TrapezoidWrenchEventCfg
+from .go2_ablation_env_cfgs import PSeriesWrenchEnvCfg, PSeriesWrenchEventCfg
 from go2_rl_lab.assets.unitree import UNITREE_GO2_PAYLOAD_CFG
 
 
@@ -29,8 +29,8 @@ class LowLevelPayload3DEnvCfg(LowLevelEnvCfg):
 
 
 @configclass
-class PayloadEventCfg(TrapezoidWrenchEventCfg):
-    """PAINT wrench event + randomized payload mass (0-4kg per episode)."""
+class PayloadEventCfg(PSeriesWrenchEventCfg):
+    """P-series wrench event + randomized payload mass (0-4kg per episode)."""
 
     randomize_payload_mass = EventTerm(
         func=mdp.randomize_payload_mass,
@@ -43,10 +43,10 @@ class PayloadEventCfg(TrapezoidWrenchEventCfg):
 
 
 @configclass
-class LowLevelPayloadEnvCfg(LowLevelWrenchTrapezoidEnvCfg):
-    """Go2 low-level locomotion with PAINT wrench + randomized 0-4kg payload (6D wrench, 73-dim critic).
+class LowLevelPayloadEnvCfg(PSeriesWrenchEnvCfg):
+    """Go2 low-level locomotion with P-series wrench + randomized 0-4kg payload (6D wrench, 73-dim critic).
 
-    Changes from LowLevelWrenchTrapezoidEnvCfg:
+    Changes from PSeriesWrenchEnvCfg:
     - Robot: UNITREE_GO2_PAYLOAD_CFG (Go2 + 3kg baseline payload link)
     - Event: randomize_payload_mass (0-4kg uniform per reset)
 
