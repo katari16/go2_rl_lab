@@ -7,11 +7,11 @@
 #SBATCH --mem-per-cpu=4G
 #SBATCH --gpus=1
 #SBATCH --tmp=10G
-#SBATCH --array=0-18
+#SBATCH --array=0-19
 
-# ── PAINT Force Profile Ablation: P0-P18 ───────────────────────────────────
+# ── PAINT Force Profile Ablation: P0-P19 ───────────────────────────────────
 # Base: CompliantOnPolicyRunner + PAINT trapezoid force profile (10/80/10 ramp).
-# Forces: 20N max (XYZ), torque 5Nm, stratified 4-bucket, zero_prob=0.05.
+# Forces: 30N max (XY), 25N (Z), torque 10Nm (5Nm for P19), stratified 4-bucket, zero_prob=0.05.
 #
 # P0:  Baseline — h=30, 4D, default net, rec loss
 # P1:  History h=10
@@ -32,6 +32,7 @@
 # P16: Force dim 6D (default net)
 # P17: Force dim 6D (big net)
 # P18: Payload with randomized mass 0-4kg per episode
+# P19: Lower torque 5Nm (for comparison with 10Nm)
 
 module load eth_proxy
 
@@ -55,6 +56,7 @@ case $SLURM_ARRAY_TASK_ID in
     16) TASK="Go2-Ablation-P16-v0" ;;
     17) TASK="Go2-Ablation-P17-v0" ;;
     18) TASK="Go2-Ablation-P18-v0" ;;
+    19) TASK="Go2-Ablation-P19-v0" ;;
     *) echo "Invalid task ID: $SLURM_ARRAY_TASK_ID"; exit 1 ;;
 esac
 

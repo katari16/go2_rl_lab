@@ -29,7 +29,7 @@ class LowLevelRunnerCfg(RslRlOnPolicyRunnerCfg):
     force_activation_reward_threshold: float = 30.0
     estimator_angular_threshold: float = 6.0
     force_event_term_name: str = "persistent_xyz_force"
-    max_force: float = 20.0
+    max_force: float = 30.0
 
     # Compliance parameters (XY only — fz does not modulate velocity)
     compliance_alpha: float = 5.0

@@ -194,7 +194,7 @@ class TrapezoidWrenchEventCfg(EventCfg):
         params={
             "asset_cfg": SceneEntityCfg("robot", body_names="base"),
             "force_range": (0.0, 0.0),  # curriculum sets to (0, max_force)
-            "fz_scale": 0.6,
+            "fz_scale": 0.833,  # 25N / 30N = 0.833
             "torque_range": (0.0, 0.0),  # curriculum sets to (0, max_torque)
             "segment_s_range": (3.0, 5.0),
             "zero_prob": 0.05,
