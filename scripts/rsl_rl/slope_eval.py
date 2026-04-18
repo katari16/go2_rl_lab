@@ -602,11 +602,24 @@ def main(
                 if step_count % 10 == 0:
                     pct = step_count / total_steps
                     bar = "\u2588" * int(20 * pct) + "\u2591" * (20 - int(20 * pct))
+
+                    # Build GT and Est strings based on force_dim
+                    if force_dim == 2:
+                        gt_str = f"GT:[{g0[0]:+5.1f},{g0[1]:+5.1f}]N"
+                        est_str = f"Est:[{e0[0]:+5.1f},{e0[1]:+5.1f}]N"
+                    elif force_dim == 3:
+                        gt_str = f"GT:[{g0[0]:+5.1f},{g0[1]:+5.1f},{g0[2]:+5.1f}]N"
+                        est_str = f"Est:[{e0[0]:+5.1f},{e0[1]:+5.1f},{e0[2]:+5.1f}]N"
+                    elif force_dim == 4:
+                        gt_str = f"GT:[{g0[0]:+5.1f},{g0[1]:+5.1f},{g0[2]:+5.1f}]N τ:[{g0[3]:+5.1f}]Nm"
+                        est_str = f"Est:[{e0[0]:+5.1f},{e0[1]:+5.1f},{e0[2]:+5.1f}]N τ:[{e0[3]:+5.1f}]Nm"
+                    else:  # 6D
+                        gt_str = f"GT:[{g0[0]:+4.1f},{g0[1]:+4.1f},{g0[2]:+4.1f}]N τ:[{g0[3]:+4.1f},{g0[4]:+4.1f},{g0[5]:+4.1f}]Nm"
+                        est_str = f"Est:[{e0[0]:+4.1f},{e0[1]:+4.1f},{e0[2]:+4.1f}]N τ:[{e0[3]:+4.1f},{e0[4]:+4.1f},{e0[5]:+4.1f}]Nm"
+
                     print(
                         f"\r  [{bar}] {step_count * dt:.0f}/{total_duration:.0f}s [{phase:4s}]  "
-                        f"GT:[{g0[0]:+5.1f},{g0[1]:+5.1f}]N  "
-                        f"Est:[{e0[0]:+5.1f},{e0[1]:+5.1f}]N  "
-                        f"adj:[{adj_vx[0]:+5.2f},{adj_vy[0]:+5.2f}]m/s",
+                        f"{gt_str}  {est_str}  adj:[{adj_vx[0]:+5.2f},{adj_vy[0]:+5.2f}]m/s",
                         end="", flush=True,
                     )
 
