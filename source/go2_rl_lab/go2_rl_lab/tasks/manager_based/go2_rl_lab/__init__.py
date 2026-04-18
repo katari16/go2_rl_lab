@@ -520,6 +520,30 @@ gym.register(
     },
 )
 
+# ── Group PX: PhysX direct wrench baselines ──────────────────────────────────
+
+# PX1: constant wrench (uniform, no buckets)
+gym.register(
+    id="Go2-Ablation-PX1-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:PXConstantWrenchEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:AblationPX1Cfg",
+    },
+)
+
+# PX2: trapezoid wrench (stratified buckets)
+gym.register(
+    id="Go2-Ablation-PX2-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:PXTrapezoidWrenchEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:AblationPX2Cfg",
+    },
+)
+
 
 # ── High-level non-linear sweep: 8 variations (R1-R8) ───────────────────────
 # 2x2x2: reward type (penalty/positive) x gravity correction x tracking reward

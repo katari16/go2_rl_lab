@@ -1099,3 +1099,34 @@ class AblationP20Cfg(LowLevelRunnerCfg):
     force_event_term_name: str = "persistent_wrench"
     max_torque: float = 10.0
     estimator: dict = _est(**_PAINT_BASE)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Group PX: PhysX direct wrench baselines (constant vs trapezoid)
+#
+# | Run | Force profile | fz_scale | Buckets          | zero_prob |
+# |-----|---------------|----------|------------------|-----------|
+# | PX1 | constant      | 0.8      | uniform (0,1)    | 0.05      |
+# | PX2 | trapezoid     | 0.8      | stratified 4-way | 0.05      |
+# ══════════════════════════════════════════════════════════════════════════════
+
+@configclass
+class AblationPX1Cfg(LowLevelRunnerCfg):
+    """PX1: Baseline constant wrench, h30, 4D, 30N, direct PhysX."""
+    experiment_name: str = "ablation_PX1_h30_4d_const_px"
+    class_name: str = "CompliantOnPolicyRunner"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 30.0
+    max_torque: float = 10.0
+    estimator: dict = _est(**_PAINT_BASE)
+
+
+@configclass
+class AblationPX2Cfg(LowLevelRunnerCfg):
+    """PX2: Trapezoid wrench, h30, 4D, 30N, direct PhysX."""
+    experiment_name: str = "ablation_PX2_h30_4d_trap_px"
+    class_name: str = "CompliantOnPolicyRunner"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 30.0
+    max_torque: float = 10.0
+    estimator: dict = _est(**_PAINT_BASE)

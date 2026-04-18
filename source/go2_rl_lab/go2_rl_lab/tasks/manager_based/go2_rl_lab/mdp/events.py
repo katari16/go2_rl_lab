@@ -434,15 +434,18 @@ def apply_paint_wrench(
     torque_range: tuple[float, float] = (0.0, 0.0),
     segment_s_range: tuple[float, float] = (3.0, 5.0),
     zero_prob: float = 0.05,
+    ramp_fraction: float = 0.1,
     bucket_fracs: tuple[tuple[float, float], ...] = (
         (0.0, 0.0), (0.0, 0.2), (0.2, 0.5), (0.5, 1.0),
     ),
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names="base"),
 ) -> None:
-    """PAINT-style trapezoidal wrench with episode-proportional 10/80/10 ramp.
+    """PAINT-style wrench with optional trapezoidal ramp.
 
     Each force segment samples duration T ~ segment_s_range, then applies:
-      ramp_up = 0.1T, hold = 0.8T, ramp_down = 0.1T (no zero gap between segments).
+      ramp_up = ramp_fraction*T, hold = (1-2*ramp_fraction)*T,
+      ramp_down = ramp_fraction*T.
+    Set ramp_fraction=0.0 for constant force (no ramp, instant transitions).
     Zero-force segments are sampled with probability zero_prob.
 
     Must be used with interval_range_s=(dt, dt) so it fires every step.
@@ -503,8 +506,8 @@ def apply_paint_wrench(
             cids = exp_ids[to_rup]
             nc = len(cids)
             T = torch.empty(nc, device=device).uniform_(*segment_s_range)
-            ramp = 0.1 * T
-            hold = 0.8 * T
+            ramp = ramp_fraction * T
+            hold = (1.0 - 2.0 * ramp_fraction) * T
             s["ramp_dur"][cids] = ramp
             s["hold_dur"][cids] = hold
             s["duration"][cids] = ramp

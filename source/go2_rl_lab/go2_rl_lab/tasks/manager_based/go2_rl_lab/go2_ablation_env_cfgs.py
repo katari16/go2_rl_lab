@@ -47,7 +47,7 @@ from .mdp.rewards import (
 
 @configclass
 class WrenchEventCfg(EventCfg):
-    """Swaps persistent_xyz_force → apply_paint_wrench with torque."""
+    """Swaps persistent_xyz_force → apply_paint_wrench with torque (constant, no ramp)."""
 
     persistent_xyz_force = None  # remove parent's XYZ-only event
 
@@ -60,6 +60,7 @@ class WrenchEventCfg(EventCfg):
             "force_range": (0.0, 0.0),  # curriculum sets to (0, max_force)
             "fz_scale": 0.6,
             "torque_range": (0.0, 0.0),  # curriculum sets to (0, max_torque)
+            "ramp_fraction": 0.0,
         },
     )
 
@@ -135,6 +136,7 @@ class WrenchHighTorqueEventCfg(EventCfg):
             "force_range": (0.0, 0.0),
             "fz_scale": 0.6,
             "torque_range": (0.0, 0.0),  # curriculum sets to (0, max_torque)
+            "ramp_fraction": 0.0,
         },
     )
 
@@ -198,6 +200,7 @@ class TrapezoidWrenchEventCfg(EventCfg):
             "torque_range": (0.0, 0.0),  # curriculum sets to (0, max_torque)
             "segment_s_range": (3.0, 5.0),
             "zero_prob": 0.05,
+            "ramp_fraction": 0.1,
             "bucket_fracs": (
                 (0.0, 0.0), (0.0, 0.2), (0.2, 0.5), (0.5, 1.0),
             ),
@@ -426,6 +429,73 @@ def _paint_compliance_rewards(weight: float):
             },
         )
     return _Cfg
+
+
+# ── PX-series: PhysX direct wrench baselines ──────────────────────────────
+# PX1: constant wrench (uniform, no buckets, fz_scale=0.8, zero_prob=0.05)
+# PX2: trapezoid wrench (PAINT-style ramp, stratified buckets)
+
+
+@configclass
+class PXConstantWrenchEventCfg(EventCfg):
+    """Constant wrench via direct PhysX — uniform sampling, no buckets."""
+
+    persistent_xyz_force = None
+
+    persistent_wrench = EventTerm(
+        func=apply_paint_wrench,
+        mode="interval",
+        interval_range_s=(0.02, 0.02),
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names="base"),
+            "force_range": (0.0, 0.0),
+            "fz_scale": 0.8,
+            "torque_range": (0.0, 0.0),
+            "segment_s_range": (3.0, 5.0),
+            "zero_prob": 0.05,
+            "ramp_fraction": 0.0,
+            "bucket_fracs": ((0.0, 1.0),),
+        },
+    )
+
+
+@configclass
+class PXConstantWrenchEnvCfg(LowLevelEnvCfg):
+    """PX1: constant wrench, direct PhysX, uniform sampling."""
+
+    events: PXConstantWrenchEventCfg = PXConstantWrenchEventCfg()
+    observations: WrenchObservationsCfg = WrenchObservationsCfg()
+
+
+@configclass
+class PXTrapezoidWrenchEventCfg(EventCfg):
+    """Trapezoid wrench via direct PhysX — PAINT-style ramp, uniform sampling."""
+
+    persistent_xyz_force = None
+
+    persistent_wrench = EventTerm(
+        func=apply_paint_wrench,
+        mode="interval",
+        interval_range_s=(0.02, 0.02),
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names="base"),
+            "force_range": (0.0, 0.0),
+            "fz_scale": 0.8,
+            "torque_range": (0.0, 0.0),
+            "segment_s_range": (3.0, 5.0),
+            "zero_prob": 0.05,
+            "ramp_fraction": 0.1,
+            "bucket_fracs": ((0.0, 1.0),),
+        },
+    )
+
+
+@configclass
+class PXTrapezoidWrenchEnvCfg(LowLevelEnvCfg):
+    """PX2: trapezoid wrench, direct PhysX, stratified buckets."""
+
+    events: PXTrapezoidWrenchEventCfg = PXTrapezoidWrenchEventCfg()
+    observations: WrenchObservationsCfg = WrenchObservationsCfg()
 
 
 @configclass
