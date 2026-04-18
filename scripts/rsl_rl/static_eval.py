@@ -675,6 +675,8 @@ def main(
                     adj_markers.visualize(adj_pos, adj_quats, adj_scales)
 
                 # Yaw torque visualization (MAGENTA dual tangent arrows)
+                # Positive yaw = CCW rotation (looking down at +Z axis)
+                # Arrow at +Y points -X, arrow at -X points -Y
                 if torque_markers_1 is not None and yaw_idx is not None:
                     gt_torque_yaw = gt_force_body[:, yaw_idx] if yaw_idx < gt_force_body.shape[1] else torch.zeros(n, device=device)
                     radius = torch.abs(gt_torque_yaw) * 0.15
@@ -684,7 +686,7 @@ def main(
                     pos1 = base_pos.clone()
                     pos1[:, 1] += radius
                     pos1[:, 2] += 0.5
-                    arrow1_dir = sign.unsqueeze(-1) * torch.tensor([[1.0, 0.0, 0.0]], device=device).expand(n, 3)
+                    arrow1_dir = sign.unsqueeze(-1) * torch.tensor([[-1.0, 0.0, 0.0]], device=device).expand(n, 3)
                     quat1 = _force_to_quat(arrow1_dir, device)
                     scale1 = torch.full((n, 3), 0.3, device=device)
                     scale1[:, 0] = 0.4
@@ -692,7 +694,7 @@ def main(
                     pos2 = base_pos.clone()
                     pos2[:, 0] -= radius
                     pos2[:, 2] += 0.5
-                    arrow2_dir = sign.unsqueeze(-1) * torch.tensor([[0.0, 1.0, 0.0]], device=device).expand(n, 3)
+                    arrow2_dir = sign.unsqueeze(-1) * torch.tensor([[0.0, -1.0, 0.0]], device=device).expand(n, 3)
                     quat2 = _force_to_quat(arrow2_dir, device)
                     scale2 = torch.full((n, 3), 0.3, device=device)
                     scale2[:, 0] = 0.4
