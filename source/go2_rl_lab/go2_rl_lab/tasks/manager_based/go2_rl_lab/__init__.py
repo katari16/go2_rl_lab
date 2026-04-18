@@ -65,6 +65,16 @@ gym.register(
 )
 
 gym.register(
+    id="Go2-LowLevel-Payload3D-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_payload_env_cfg:LowLevelPayload3DEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_lowlevel_cfg:LowLevelRunnerCfg",
+    },
+)
+
+gym.register(
     id="Go2-LowLevel-Payload-v0",
     entry_point="isaaclab.envs:ManagerBasedRLEnv",
     disable_env_checker=True,
