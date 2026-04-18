@@ -746,5 +746,5 @@ def randomize_payload_mass(
     for i, env_id in enumerate(env_ids):
         masses[env_id, payload_body_idx] = random_masses[i, 0]
 
-    # Write back
-    asset.root_physx_view.set_masses(masses, env_ids)
+    # Write back (PhysX API requires CPU indices)
+    asset.root_physx_view.set_masses(masses, env_ids.cpu())
