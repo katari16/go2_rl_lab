@@ -41,8 +41,8 @@ parser.add_argument("--agent", type=str, default="rsl_rl_cfg_entry_point")
 parser.add_argument("--seed", type=int, default=None)
 parser.add_argument("--slope_deg", type=float, default=10.0,
                     help="Slope inclination in degrees (training max ~17°).")
-parser.add_argument("--valley", action="store_true", default=False,
-                    help="Use inverted-pyramid (valley) terrain instead of pyramid slope.")
+parser.add_argument("--terrain", type=str, default="pyramid", choices=["pyramid", "valley", "flat", "rough"],
+                    help="Terrain type: pyramid (uphill slope), valley (inverted pyramid), flat, or rough.")
 parser.add_argument("--walk_speed", type=float, default=0.5,
                     help="Forward velocity command during walk phase (m/s).")
 parser.add_argument("--walk_duration", type=float, default=8.0,
@@ -264,37 +264,45 @@ def main(
         sin_half = math.sin(yaw_rad / 2.0)
         env_cfg.scene.robot.init_state.rot = (cos_half, 0.0, 0.0, sin_half)
 
-    # ── Slope terrain ─────────────────────────────────────────────────────
-    slope_rad = math.radians(args_cli.slope_deg)
-    env_cfg.scene.terrain = TerrainImporterCfg(
-        prim_path="/World/ground",
-        terrain_type="generator",
-        terrain_generator=TerrainGeneratorCfg(
-            size=(12.0, 12.0),
-            border_width=0.0,
-            num_rows=1,
-            num_cols=1,
-            horizontal_scale=0.1,
-            vertical_scale=0.005,
-            slope_threshold=0.75,
-            use_cache=False,
-            sub_terrains={
-                "slope": (HfInvertedPyramidSlopedTerrainCfg if args_cli.valley else HfPyramidSlopedTerrainCfg)(
-                    proportion=1.0,
-                    slope_range=(slope_rad, slope_rad),
-                    platform_width=1.5,
-                    border_width=0.25,
-                ),
-            },
-        ),
-        max_init_terrain_level=0,
-        physics_material=sim_utils.RigidBodyMaterialCfg(
-            friction_combine_mode="multiply",
-            restitution_combine_mode="multiply",
-            static_friction=1.0,
-            dynamic_friction=1.0,
-        ),
-    )
+    # ── Terrain configuration ─────────────────────────────────────────────
+    if args_cli.terrain == "flat":
+        env_cfg.scene.terrain.terrain_type = "plane"
+    elif args_cli.terrain == "rough":
+        env_cfg.scene.terrain.terrain_type = "generator"
+        # Use existing training terrain config (rough + obstacles)
+    else:
+        # pyramid or valley slopes
+        slope_rad = math.radians(args_cli.slope_deg)
+        terrain_cfg = HfInvertedPyramidSlopedTerrainCfg if args_cli.terrain == "valley" else HfPyramidSlopedTerrainCfg
+        env_cfg.scene.terrain = TerrainImporterCfg(
+            prim_path="/World/ground",
+            terrain_type="generator",
+            terrain_generator=TerrainGeneratorCfg(
+                size=(12.0, 12.0),
+                border_width=0.0,
+                num_rows=1,
+                num_cols=1,
+                horizontal_scale=0.1,
+                vertical_scale=0.005,
+                slope_threshold=0.75,
+                use_cache=False,
+                sub_terrains={
+                    "slope": terrain_cfg(
+                        proportion=1.0,
+                        slope_range=(slope_rad, slope_rad),
+                        platform_width=1.5,
+                        border_width=0.25,
+                    ),
+                },
+            ),
+            max_init_terrain_level=0,
+            physics_material=sim_utils.RigidBodyMaterialCfg(
+                friction_combine_mode="multiply",
+                restitution_combine_mode="multiply",
+                static_friction=1.0,
+                dynamic_friction=1.0,
+            ),
+        )
 
     if hasattr(env_cfg, "curriculum"):
         env_cfg.curriculum = None
