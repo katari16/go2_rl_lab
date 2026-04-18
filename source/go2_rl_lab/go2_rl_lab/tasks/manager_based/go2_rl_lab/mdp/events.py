@@ -15,6 +15,30 @@ if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedEnv
 
 
+def _apply_wrench_and_sync_gt(
+    env: ManagerBasedEnv,
+    asset: RigidObject | Articulation,
+    forces: torch.Tensor,
+    torques: torch.Tensor,
+    body_ids,
+    env_ids: torch.Tensor,
+) -> None:
+    """Write wrench to composer AND mirror into env._gt_force_buf / _gt_torque_buf.
+
+    Observations on this branch read GT from env._gt_{force,torque}_buf, so every
+    event that applies forces must also update those buffers.
+    """
+    asset.permanent_wrench_composer.set_forces_and_torques(
+        forces=forces, torques=torques, body_ids=body_ids, env_ids=env_ids,
+    )
+    if not hasattr(env, "_gt_force_buf"):
+        env._gt_force_buf = torch.zeros(env.scene.num_envs, asset.num_bodies, 3, device=asset.device)
+    if not hasattr(env, "_gt_torque_buf"):
+        env._gt_torque_buf = torch.zeros(env.scene.num_envs, asset.num_bodies, 3, device=asset.device)
+    env._gt_force_buf[env_ids] = forces
+    env._gt_torque_buf[env_ids] = torques
+
+
 def apply_persistent_xy_force(
     env: ManagerBasedEnv,
     env_ids: torch.Tensor,
@@ -61,12 +85,7 @@ def apply_persistent_xy_force(
         forces[:, :, 1] = xy_force[:, 1:2]
         torques = torch.zeros(num, num_bodies, 3, device=asset.device)
 
-    asset.permanent_wrench_composer.set_forces_and_torques(
-        forces=forces,
-        torques=torques,
-        body_ids=asset_cfg.body_ids,
-        env_ids=env_ids,
-    )
+    _apply_wrench_and_sync_gt(env, asset, forces, torques, asset_cfg.body_ids, env_ids)
 
 
 def apply_persistent_xyz_force(
@@ -128,12 +147,7 @@ def apply_persistent_xyz_force(
             free_idx = torch.randperm(num, device=asset.device)[:n_free]
             forces[free_idx] = 0.0
 
-    asset.permanent_wrench_composer.set_forces_and_torques(
-        forces=forces,
-        torques=torques,
-        body_ids=asset_cfg.body_ids,
-        env_ids=env_ids,
-    )
+    _apply_wrench_and_sync_gt(env, asset, forces, torques, asset_cfg.body_ids, env_ids)
 
 
 def apply_persistent_wrench(
@@ -209,12 +223,7 @@ def apply_persistent_wrench(
             forces[free_idx] = 0.0
             torques[free_idx] = 0.0
 
-    asset.permanent_wrench_composer.set_forces_and_torques(
-        forces=forces,
-        torques=torques,
-        body_ids=asset_cfg.body_ids,
-        env_ids=env_ids,
-    )
+    _apply_wrench_and_sync_gt(env, asset, forces, torques, asset_cfg.body_ids, env_ids)
 
 
 # ── Trapezoid force profile (PAINT-style) ────────────────────────────────────
@@ -329,12 +338,7 @@ def apply_trapezoid_wrench(
     forces = s["target_f"][env_ids] * a
     torques = s["target_t"][env_ids] * a
 
-    asset.permanent_wrench_composer.set_forces_and_torques(
-        forces=forces,
-        torques=torques,
-        body_ids=asset_cfg.body_ids,
-        env_ids=env_ids,
-    )
+    _apply_wrench_and_sync_gt(env, asset, forces, torques, asset_cfg.body_ids, env_ids)
 
 
 def _trap_transition(
