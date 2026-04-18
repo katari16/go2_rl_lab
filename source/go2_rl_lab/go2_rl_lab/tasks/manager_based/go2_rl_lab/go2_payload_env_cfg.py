@@ -11,6 +11,7 @@ from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.utils import configclass
 
+from . import mdp
 from .go2_ablation_env_cfgs import LowLevelWrenchTrapezoidEnvCfg, TrapezoidWrenchEventCfg
 from go2_rl_lab.assets.unitree import UNITREE_GO2_PAYLOAD_CFG
 
@@ -20,15 +21,7 @@ class PayloadEventCfg(TrapezoidWrenchEventCfg):
     """PAINT wrench event + randomized payload mass (0-4kg per episode)."""
 
     randomize_payload_mass = EventTerm(
-        func=lambda env, env_ids, asset_cfg, mass_range: setattr(
-            env.scene[asset_cfg.name].root_physx_view,
-            "masses",
-            env.scene[asset_cfg.name].root_physx_view.get_masses().clone().scatter_(
-                1,
-                env_ids.unsqueeze(1) * env.scene[asset_cfg.name].num_bodies + (env.scene[asset_cfg.name].num_bodies - 1),
-                (mass_range[0] + (mass_range[1] - mass_range[0]) * env.torch_rand(len(env_ids), 1, device=env.device)).expand(-1, 1),
-            ),
-        ),
+        func=mdp.randomize_payload_mass,
         mode="reset",
         params={
             "asset_cfg": SceneEntityCfg("robot"),
