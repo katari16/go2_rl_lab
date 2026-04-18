@@ -563,9 +563,9 @@ def main(
                     obs["policy"][:, 7] = obs["policy"][:, 7] + compliance_k * force_ema[:, 1]
 
                 # Yaw compliance: wz* = wz + k_yaw * τ_yaw
-                if args_cli.compliance_k_yaw > 0.0 and yaw_idx is not None:
-                    if yaw_idx < force_hat.shape[1]:
-                        obs["policy"][:, 8] = obs["policy"][:, 8] + args_cli.compliance_k_yaw * force_hat[:, yaw_idx]
+                if args_cli.compliance_k_yaw > 0.0 and yaw_idx is not None and runner_mode == "compliant":
+                    if yaw_idx < force_hat_pre.shape[1]:
+                        obs["policy"][:, 8] = obs["policy"][:, 8] + args_cli.compliance_k_yaw * force_hat_pre[:, yaw_idx]
 
                 # ── Policy step ───────────────────────────────────────
                 actions = policy(obs)
