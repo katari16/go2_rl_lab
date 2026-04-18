@@ -354,34 +354,10 @@ def main(
         force_event.params["force_range"] = (args_cli.force_min, args_cli.force_max)
         if is_wrench and "torque_range" in force_event.params:
             force_event.params["torque_range"] = (args_cli.torque_min, args_cli.torque_max)
-    # Re-randomize frequently for a dynamic demo
-    force_event.interval_range_s = (1.0, 3.0)
-
-    # Override the reset event to also apply forces on episode start.
-    if is_wrench:
-        from go2_rl_lab.tasks.manager_based.go2_rl_lab.mdp.events import apply_persistent_wrench
-        env_cfg.events.base_external_force_torque.func = apply_persistent_wrench
-        env_cfg.events.base_external_force_torque.params = {
-            "asset_cfg": SceneEntityCfg("robot", body_names="base"),
-            "force_range": (0.0, 0.0) if args_cli.torque_only else (args_cli.force_min, args_cli.force_max),
-            "fz_scale": force_event.params.get("fz_scale", 0.6),
-            "torque_range": (args_cli.torque_min, args_cli.torque_max) if args_cli.torque_only or is_wrench else (0.0, 0.0),
-        }
-    elif is_xyz:
-        from go2_rl_lab.tasks.manager_based.go2_rl_lab.mdp.events import apply_persistent_xyz_force
-        env_cfg.events.base_external_force_torque.func = apply_persistent_xyz_force
-        env_cfg.events.base_external_force_torque.params = {
-            "asset_cfg": SceneEntityCfg("robot", body_names="base"),
-            "force_range": (args_cli.force_min, args_cli.force_max),
-            "fz_scale": force_event.params.get("fz_scale", 0.6),
-        }
-    else:
-        from go2_rl_lab.tasks.manager_based.go2_rl_lab.mdp.events import apply_persistent_xy_force
-        env_cfg.events.base_external_force_torque.func = apply_persistent_xy_force
-        env_cfg.events.base_external_force_torque.params = {
-            "asset_cfg": SceneEntityCfg("robot", body_names="base"),
-            "force_range": (args_cli.force_min, args_cli.force_max),
-        }
+    # Keep the PAINT trapezoid profile - don't override the event func
+    # Just ensure the interval fires every control step (0.02s)
+    if hasattr(force_event, 'interval_range_s'):
+        force_event.interval_range_s = (0.02, 0.02)
 
     # ── Resolve checkpoint ────────────────────────────────────────────────
     log_root_path = os.path.abspath(os.path.join("logs", "rsl_rl", agent_cfg.experiment_name))
