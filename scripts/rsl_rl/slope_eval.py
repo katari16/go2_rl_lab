@@ -393,7 +393,7 @@ def main(
             masses = asset.root_physx_view.get_masses()
             print(f"[slope_eval] Overriding payload_link mass: {masses[0, payload_idx]:.3f} → {args_cli.payload_mass:.3f} kg")
             masses[:, payload_idx] = args_cli.payload_mass
-            asset.root_physx_view.set_masses(masses, torch.arange(n, device=device))
+            asset.root_physx_view.set_masses(masses, torch.arange(n, device="cpu"))
         else:
             print(f"[slope_eval] WARNING: --payload_mass specified but payload_link body not found")
 
