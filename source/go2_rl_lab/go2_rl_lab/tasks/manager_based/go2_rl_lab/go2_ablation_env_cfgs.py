@@ -373,3 +373,67 @@ class LowLevelWrenchComplianceRewardEnvCfg(LowLevelEnvCfg):
     events: WrenchEventCfg = WrenchEventCfg()
     observations: WrenchObservationsCfg = WrenchObservationsCfg()
     rewards: WrenchComplianceRewardsCfg = WrenchComplianceRewardsCfg()
+
+
+# ── P-series: PAINT-profile env configs ────────────────────────────────────
+# P0-P6, P11-P17: standard trapezoid wrench (no special rewards)
+# P7: trapezoid wrench + est accuracy reward w=50
+# P8-P10: trapezoid wrench + compliance reward (weight varies)
+# P18: uses go2_payload_env_cfg.LowLevelPayloadEnvCfg
+
+
+def _paint_est_accuracy_rewards(weight: float, sigma: float = 1.0):
+    """Build RewardsCfg with estimation accuracy reward for PAINT env."""
+    @configclass
+    class _Cfg(RewardsCfg):
+        force_est_accuracy = RewTerm(
+            func=force_estimation_accuracy,
+            weight=weight,
+            params={
+                "sigma": sigma,
+                "alpha": 2.0,
+                "asset_cfg": SceneEntityCfg("robot", body_names="base"),
+            },
+        )
+    return _Cfg
+
+
+def _paint_compliance_rewards(weight: float):
+    """Build RewardsCfg with compliance force tracking for PAINT env."""
+    @configclass
+    class _Cfg(RewardsCfg):
+        compliance_force = RewTerm(
+            func=compliance_force_tracking,
+            weight=weight,
+            params={
+                "B_force": 20.0,
+                "sigma": 0.25,
+                "alpha": 2.0,
+                "asset_cfg": SceneEntityCfg("robot", body_names="base"),
+            },
+        )
+    return _Cfg
+
+
+@configclass
+class PaintEstAccW50EnvCfg(LowLevelWrenchTrapezoidEnvCfg):
+    """PAINT trapezoid wrench + est accuracy reward w=50 — for P7."""
+    rewards = _paint_est_accuracy_rewards(50.0)()
+
+
+@configclass
+class PaintComplianceW0p5EnvCfg(LowLevelWrenchTrapezoidEnvCfg):
+    """PAINT trapezoid wrench + compliance reward w=0.5 — for P8."""
+    rewards = _paint_compliance_rewards(0.5)()
+
+
+@configclass
+class PaintComplianceW1p0EnvCfg(LowLevelWrenchTrapezoidEnvCfg):
+    """PAINT trapezoid wrench + compliance reward w=1.0 — for P9."""
+    rewards = _paint_compliance_rewards(1.0)()
+
+
+@configclass
+class PaintComplianceW5p0EnvCfg(LowLevelWrenchTrapezoidEnvCfg):
+    """PAINT trapezoid wrench + compliance reward w=5.0 — for P10."""
+    rewards = _paint_compliance_rewards(5.0)()

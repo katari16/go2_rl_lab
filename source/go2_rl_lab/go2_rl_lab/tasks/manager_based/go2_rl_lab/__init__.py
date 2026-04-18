@@ -420,6 +420,65 @@ for _id, _cfg in [
     )
 
 
+# ── Group P: PAINT-profile ablations (P0-P18) ──────────────────────────────
+
+# P0-P6, P11-P17: standard trapezoid wrench env
+for _id, _cfg in [
+    ("P0", "AblationP0Cfg"), ("P1", "AblationP1Cfg"), ("P2", "AblationP2Cfg"),
+    ("P3", "AblationP3Cfg"), ("P4", "AblationP4Cfg"), ("P5", "AblationP5Cfg"),
+    ("P6", "AblationP6Cfg"), ("P11", "AblationP11Cfg"), ("P12", "AblationP12Cfg"),
+    ("P13", "AblationP13Cfg"), ("P14", "AblationP14Cfg"), ("P15", "AblationP15Cfg"),
+    ("P16", "AblationP16Cfg"), ("P17", "AblationP17Cfg"),
+]:
+    gym.register(
+        id=f"Go2-Ablation-{_id}-v0",
+        entry_point="isaaclab.envs:ManagerBasedRLEnv",
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:LowLevelWrenchTrapezoidEnvCfg",
+            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:{_cfg}",
+        },
+    )
+
+# P7: est accuracy reward w=50
+gym.register(
+    id="Go2-Ablation-P7-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:PaintEstAccW50EnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:AblationP7Cfg",
+    },
+)
+
+# P8-P10: compliance reward (varying weights)
+for _id, _cfg, _env_cfg in [
+    ("P8", "AblationP8Cfg", "PaintComplianceW0p5EnvCfg"),
+    ("P9", "AblationP9Cfg", "PaintComplianceW1p0EnvCfg"),
+    ("P10", "AblationP10Cfg", "PaintComplianceW5p0EnvCfg"),
+]:
+    gym.register(
+        id=f"Go2-Ablation-{_id}-v0",
+        entry_point="isaaclab.envs:ManagerBasedRLEnv",
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:{_env_cfg}",
+            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:{_cfg}",
+        },
+    )
+
+# P18: payload with randomized mass (0-4kg)
+gym.register(
+    id="Go2-Ablation-P18-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_payload_env_cfg:LowLevelPayloadEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:AblationP18Cfg",
+    },
+)
+
+
 # ── High-level non-linear sweep: 8 variations (R1-R8) ───────────────────────
 # 2x2x2: reward type (penalty/positive) x gravity correction x tracking reward
 for _r in range(1, 9):
