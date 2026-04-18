@@ -1117,3 +1117,14 @@ class AblationP21Cfg(LowLevelRunnerCfg):
     max_force: float = 30.0
     max_torque: float = 10.0
     estimator: dict = _est(**_PAINT_BASE)
+
+
+@configclass
+class AblationP22Cfg(LowLevelRunnerCfg):
+    """P22: Stratified force buckets (envs divided into 4 magnitude bands)."""
+    experiment_name: str = "ablation_P22_h30_4d_stratified"
+    class_name: str = "CompliantOnPolicyRunner"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 30.0
+    max_torque: float = 10.0
+    estimator: dict = _est(**_PAINT_BASE)

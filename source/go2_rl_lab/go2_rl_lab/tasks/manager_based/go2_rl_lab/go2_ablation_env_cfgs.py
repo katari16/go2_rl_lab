@@ -395,7 +395,7 @@ class DefaultPDWrenchTrapezoidEnvCfg(LowLevelWrenchTrapezoidEnvCfg):
 
 @configclass
 class PSeriesWrenchEventCfg(EventCfg):
-    """P-series constant wrench: fz_scale=0.8, stratified buckets, 5% zero probability."""
+    """P-series constant wrench: fz_scale=0.8, uniform sampling, 5% zero probability."""
 
     persistent_xyz_force = None
 
@@ -409,9 +409,6 @@ class PSeriesWrenchEventCfg(EventCfg):
             "fz_scale": 0.8,
             "torque_range": (0.0, 0.0),  # curriculum sets to (0, max_torque)
             "force_free_fraction": 0.05,
-            "bucket_fracs": (
-                (0.0, 0.25), (0.25, 0.5), (0.5, 0.75), (0.75, 1.0),
-            ),
         },
     )
 
@@ -483,6 +480,36 @@ class PSeriesComplianceW1p0EnvCfg(PSeriesWrenchEnvCfg):
 class PSeriesComplianceW5p0EnvCfg(PSeriesWrenchEnvCfg):
     """P-series wrench + compliance reward w=5.0 — for P10."""
     rewards = _p_compliance_rewards(5.0)()
+
+
+@configclass
+class PSeriesStratifiedWrenchEventCfg(EventCfg):
+    """P-series constant wrench with stratified magnitude buckets — for P22."""
+
+    persistent_xyz_force = None
+
+    persistent_wrench = EventTerm(
+        func=apply_persistent_wrench,
+        mode="interval",
+        interval_range_s=(3.0, 5.0),
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names="base"),
+            "force_range": (0.0, 0.0),
+            "fz_scale": 0.8,
+            "torque_range": (0.0, 0.0),
+            "force_free_fraction": 0.05,
+            "bucket_fracs": (
+                (0.0, 0.25), (0.25, 0.5), (0.5, 0.75), (0.75, 1.0),
+            ),
+        },
+    )
+
+
+@configclass
+class PSeriesStratifiedWrenchEnvCfg(PSeriesWrenchEnvCfg):
+    """P-series env with stratified force buckets — for P22."""
+
+    events: PSeriesStratifiedWrenchEventCfg = PSeriesStratifiedWrenchEventCfg()
 
 
 @configclass
