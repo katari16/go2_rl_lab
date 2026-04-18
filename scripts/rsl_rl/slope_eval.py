@@ -318,15 +318,16 @@ def main(
 
     # ── External forces (optional) ────────────────────────────────────────
     force_event_name = agent_cfg.to_dict().get("force_event_term_name", "persistent_xyz_force")
-    force_event = getattr(env_cfg.events, force_event_name)
+    force_event = getattr(env_cfg.events, force_event_name, None)
     apply_forces = args_cli.force_max > 0 and not args_cli.no_force
-    if apply_forces:
-        force_event.params["force_range"] = (args_cli.force_min, args_cli.force_max)
-        force_event.interval_range_s = (3.0, 5.0)
-    else:
-        force_event.params["force_range"] = (0.0, 0.0)
-        if "torque_range" in force_event.params:
-            force_event.params["torque_range"] = (0.0, 0.0)
+    if force_event is not None:
+        if apply_forces:
+            force_event.params["force_range"] = (args_cli.force_min, args_cli.force_max)
+            force_event.interval_range_s = (3.0, 5.0)
+        else:
+            force_event.params["force_range"] = (0.0, 0.0)
+            if "torque_range" in force_event.params:
+                force_event.params["torque_range"] = (0.0, 0.0)
 
     # Calculate total duration based on phases
     if args_cli.walk_only:
