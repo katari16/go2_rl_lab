@@ -60,6 +60,11 @@ parser.add_argument("--show_est", action="store_true", default=False, help="Show
 parser.add_argument("--show_cmd", action="store_true", default=False, help="Show velocity command arrow (green).")
 parser.add_argument("--show_adj", action="store_true", default=False, help="Show adjusted velocity command arrow (yellow).")
 parser.add_argument("--flat", action="store_true", default=False, help="Use flat ground instead of training terrain.")
+parser.add_argument("--torque_min", type=float, default=3.0, help="Minimum torque magnitude per axis (Nm).")
+parser.add_argument("--torque_max", type=float, default=10.0, help="Maximum torque magnitude per axis (Nm).")
+parser.add_argument("--torque_only", action="store_true", default=False, help="Apply only torques (no forces).")
+parser.add_argument("--compliance_k_yaw", type=float, default=0.0, help="Yaw compliance gain for wz*=wz+k*tau_yaw (0=off).")
+parser.add_argument("--show_torque", action="store_true", default=False, help="Show yaw torque as dual tangent arrows (magenta).")
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -337,11 +342,18 @@ def main(
     is_wrench = "wrench" in force_event_name
     is_xyz = "xyz" in force_event_name or is_wrench
 
-    # Activate forces immediately with user-specified range
+    # Activate forces/torques immediately with user-specified range
     force_event = getattr(env_cfg.events, force_event_name)
-    force_event.params["force_range"] = (args_cli.force_min, args_cli.force_max)
-    if is_wrench and "torque_range" in force_event.params:
-        force_event.params["torque_range"] = (0.0, 5.0)
+    if args_cli.torque_only:
+        # Torque-only mode: zero forces, activate torques
+        force_event.params["force_range"] = (0.0, 0.0)
+        if is_wrench and "torque_range" in force_event.params:
+            force_event.params["torque_range"] = (args_cli.torque_min, args_cli.torque_max)
+    else:
+        # Normal mode: activate forces, optional torques
+        force_event.params["force_range"] = (args_cli.force_min, args_cli.force_max)
+        if is_wrench and "torque_range" in force_event.params:
+            force_event.params["torque_range"] = (args_cli.torque_min, args_cli.torque_max)
     # Re-randomize frequently for a dynamic demo
     force_event.interval_range_s = (1.0, 3.0)
 
@@ -351,9 +363,9 @@ def main(
         env_cfg.events.base_external_force_torque.func = apply_persistent_wrench
         env_cfg.events.base_external_force_torque.params = {
             "asset_cfg": SceneEntityCfg("robot", body_names="base"),
-            "force_range": (args_cli.force_min, args_cli.force_max),
+            "force_range": (0.0, 0.0) if args_cli.torque_only else (args_cli.force_min, args_cli.force_max),
             "fz_scale": force_event.params.get("fz_scale", 0.6),
-            "torque_range": force_event.params.get("torque_range", (0.0, 5.0)),
+            "torque_range": (args_cli.torque_min, args_cli.torque_max) if args_cli.torque_only or is_wrench else (0.0, 0.0),
         }
     elif is_xyz:
         from go2_rl_lab.tasks.manager_based.go2_rl_lab.mdp.events import apply_persistent_xyz_force
@@ -451,6 +463,10 @@ def main(
     est_markers = _create_arrow_markers("/World/Visuals/EstForceArrow", (0.2, 0.4, 1.0)) if args_cli.show_est else None
     cmd_markers = _create_arrow_markers("/World/Visuals/CmdVelArrow", (0.0, 0.8, 0.2)) if args_cli.show_cmd else None
     adj_markers = _create_arrow_markers("/World/Visuals/AdjVelArrow", (1.0, 0.85, 0.0)) if args_cli.show_adj else None
+
+    # Torque arrows: two tangent arrows forming a circle (magenta)
+    torque_markers_1 = _create_arrow_markers("/World/Visuals/TorqueArrow1", (1.0, 0.0, 1.0)) if args_cli.show_torque else None
+    torque_markers_2 = _create_arrow_markers("/World/Visuals/TorqueArrow2", (1.0, 0.0, 1.0)) if args_cli.show_torque else None
 
     # ── Run loop ──────────────────────────────────────────────────────────
     dt = isaac_env.step_dt
@@ -652,6 +668,32 @@ def main(
                     adj_scales = torch.full((n, 3), 0.3, device=device)
                     adj_scales[:, 0:1] = (adj_mag_w * vel_scale).clamp(min=0.05)
                     adj_markers.visualize(adj_pos, adj_quats, adj_scales)
+
+                # Yaw torque visualization (MAGENTA dual tangent arrows)
+                if torque_markers_1 is not None and yaw_idx is not None:
+                    gt_torque_yaw = gt_force_body[:, yaw_idx] if yaw_idx < gt_force_body.shape[1] else torch.zeros(n, device=device)
+                    radius = torch.abs(gt_torque_yaw) * 0.15
+                    sign = torch.sign(gt_torque_yaw)
+                    sign[sign == 0] = 1.0
+
+                    pos1 = base_pos.clone()
+                    pos1[:, 1] += radius
+                    pos1[:, 2] += 0.5
+                    arrow1_dir = sign.unsqueeze(-1) * torch.tensor([[1.0, 0.0, 0.0]], device=device).expand(n, 3)
+                    quat1 = _force_to_quat(arrow1_dir, device)
+                    scale1 = torch.full((n, 3), 0.3, device=device)
+                    scale1[:, 0] = 0.4
+
+                    pos2 = base_pos.clone()
+                    pos2[:, 0] -= radius
+                    pos2[:, 2] += 0.5
+                    arrow2_dir = sign.unsqueeze(-1) * torch.tensor([[0.0, 1.0, 0.0]], device=device).expand(n, 3)
+                    quat2 = _force_to_quat(arrow2_dir, device)
+                    scale2 = torch.full((n, 3), 0.3, device=device)
+                    scale2[:, 0] = 0.4
+
+                    torque_markers_1.visualize(pos1, quat1, scale1)
+                    torque_markers_2.visualize(pos2, quat2, scale2)
 
                 # ── Record data for plots (env 0) ────────────────────
                 g0 = gt_force_body[0]
