@@ -2,7 +2,7 @@
 #SBATCH --job-name=p-series
 #SBATCH --output=slurm_logs/p_series_%a_%j.out
 #SBATCH --error=slurm_logs/p_series_%a_%j.err
-#SBATCH --time=24:00:00
+#SBATCH --time=30:00:00
 #SBATCH --cpus-per-task=8
 #SBATCH --mem-per-cpu=4G
 #SBATCH --gpus=1
