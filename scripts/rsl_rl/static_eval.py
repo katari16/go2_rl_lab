@@ -556,11 +556,16 @@ def main(
                     force_ema = ema_alpha * force_hat_pre[:, :2] + (1.0 - ema_alpha) * force_ema
 
                 # ── Inject adjusted velocity command into obs ─────────
-                # Policy obs layout: [6:8] = velocity_commands (vx, vy)
+                # Policy obs layout: [6:8] = velocity_commands (vx, vy, wz)
                 # v* = v_cmd + k * EMA(F_hat)
                 if compliance_k > 0.0:
                     obs["policy"][:, 6] = obs["policy"][:, 6] + compliance_k * force_ema[:, 0]
                     obs["policy"][:, 7] = obs["policy"][:, 7] + compliance_k * force_ema[:, 1]
+
+                # Yaw compliance: wz* = wz + k_yaw * τ_yaw
+                if args_cli.compliance_k_yaw > 0.0 and yaw_idx is not None:
+                    if yaw_idx < force_hat.shape[1]:
+                        obs["policy"][:, 8] = obs["policy"][:, 8] + args_cli.compliance_k_yaw * force_hat[:, yaw_idx]
 
                 # ── Policy step ───────────────────────────────────────
                 actions = policy(obs)
