@@ -1089,3 +1089,13 @@ class AblationP19Cfg(LowLevelRunnerCfg):
     force_event_term_name: str = "persistent_wrench"
     max_torque: float = 5.0
     estimator: dict = _est(**_PAINT_BASE)
+
+
+@configclass
+class AblationP20Cfg(LowLevelRunnerCfg):
+    """P20: Default PD gains Kp=25, Kd=0.5 (baseline uses Kp=8, Kd=0.4)."""
+    experiment_name: str = "ablation_P20_h30_4d_pd25_paint"
+    class_name: str = "CompliantOnPolicyRunner"
+    force_event_term_name: str = "persistent_wrench"
+    max_torque: float = 10.0
+    estimator: dict = _est(**_PAINT_BASE)

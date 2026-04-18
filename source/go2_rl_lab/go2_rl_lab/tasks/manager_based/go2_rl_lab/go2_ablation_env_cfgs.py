@@ -219,6 +219,19 @@ class LowLevelWrenchTrapezoidEnvCfg(LowLevelEnvCfg):
     observations: WrenchObservationsCfg = WrenchObservationsCfg()
 
 
+@configclass
+class DefaultPDWrenchTrapezoidEnvCfg(LowLevelWrenchTrapezoidEnvCfg):
+    """Same as LowLevelWrenchTrapezoidEnvCfg but with default PD gains (Kp=25, Kd=0.5).
+
+    Used by P20 ablation to test high stiffness vs baseline (Kp=8, Kd=0.4).
+    """
+
+    def __post_init__(self):
+        super().__post_init__()
+        from go2_rl_lab.assets.unitree import UNITREE_GO2_CFG
+        self.scene.robot = UNITREE_GO2_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+
+
 # ── 1d. Force estimation accuracy reward envs (H7, H8) ─────────────────────
 
 
