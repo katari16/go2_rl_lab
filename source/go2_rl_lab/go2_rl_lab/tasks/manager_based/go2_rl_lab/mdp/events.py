@@ -368,6 +368,92 @@ def apply_trapezoid_wrench(
     )
 
 
+def apply_paint_trapezoid_wrench(
+    env: ManagerBasedEnv,
+    env_ids: torch.Tensor,
+    force_range: tuple[float, float],
+    fz_scale: float = 0.8,
+    torque_range: tuple[float, float] = (0.0, 0.0),
+    zero_prob: float = 0.02,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names="base"),
+) -> None:
+    """PAINT-style single-episode trapezoid wrench.
+
+    One ramp-up/hold/ramp-down envelope per episode (Eq. 12 from PAINT paper).
+    Force is sampled once per episode at reset using Cartesian per-axis sampling
+    U(-max, max) independently for each axis — no polar/magnitude bucketing.
+
+    Envelope: ramp up 10% of episode, hold 80%, ramp down 10%.
+    zero_prob: probability of a zero-wrench episode (default 0.02, same as PAINT).
+
+    Must be used with interval_range_s=(0.02, 0.02) so it fires every step.
+    """
+    asset: RigidObject | Articulation = env.scene[asset_cfg.name]
+    device = asset.device
+    N = env.scene.num_envs
+    dt = env.step_dt
+    T = env.max_episode_length * dt
+
+    num_bodies = len(asset_cfg.body_ids) if isinstance(asset_cfg.body_ids, list) else asset.num_bodies
+    f_max = float(force_range[1])
+    t_max = float(torque_range[1])
+
+    if not hasattr(env, "_paint_trap"):
+        env._paint_trap = {
+            "target_f": torch.zeros(N, num_bodies, 3, device=device),
+            "target_t": torch.zeros(N, num_bodies, 3, device=device),
+        }
+
+    s = env._paint_trap
+
+    # Resample at episode start (episode_length_buf == 0 immediately after reset)
+    just_reset = env_ids[env.episode_length_buf[env_ids] == 0]
+    if len(just_reset) > 0 and f_max > 1e-6:
+        nr = len(just_reset)
+        is_zero = torch.rand(nr, device=device) < zero_prob
+
+        fx = (torch.rand(nr, device=device) * 2 - 1) * f_max
+        fy = (torch.rand(nr, device=device) * 2 - 1) * f_max
+        fz = (torch.rand(nr, device=device) * 2 - 1) * f_max * fz_scale
+
+        new_f = torch.zeros(nr, num_bodies, 3, device=device)
+        new_f[:, :, 0] = fx.unsqueeze(-1)
+        new_f[:, :, 1] = fy.unsqueeze(-1)
+        new_f[:, :, 2] = fz.unsqueeze(-1)
+
+        new_t = torch.zeros(nr, num_bodies, 3, device=device)
+        if t_max > 1e-6:
+            tau_yaw = (torch.rand(nr, device=device) * 2 - 1) * t_max
+            new_t[:, :, 2] = tau_yaw.unsqueeze(-1)
+
+        new_f[is_zero] = 0.0
+        new_t[is_zero] = 0.0
+
+        s["target_f"][just_reset] = new_f
+        s["target_t"][just_reset] = new_t
+
+    # Piecewise-linear envelope s(t)
+    t_ep = env.episode_length_buf[env_ids].float() * dt
+    t_up = 0.1 * T
+    t_hold_end = 0.9 * T
+
+    alpha = torch.zeros(len(env_ids), device=device)
+    in_up = t_ep < t_up
+    in_hold = (t_ep >= t_up) & (t_ep < t_hold_end)
+    in_dn = t_ep >= t_hold_end
+    alpha[in_up] = (t_ep[in_up] / t_up).clamp(0.0, 1.0)
+    alpha[in_hold] = 1.0
+    alpha[in_dn] = ((T - t_ep[in_dn]) / (0.1 * T)).clamp(0.0, 1.0)
+
+    a = alpha.view(-1, 1, 1)
+    asset.permanent_wrench_composer.set_forces_and_torques(
+        forces=s["target_f"][env_ids] * a,
+        torques=s["target_t"][env_ids] * a,
+        body_ids=asset_cfg.body_ids,
+        env_ids=env_ids,
+    )
+
+
 def _trap_transition(
     s: dict, exp_ids: torch.Tensor, f_max: float, fz_scale: float,
     t_max: float, ramp_s_range: tuple, hold_s_range: tuple,

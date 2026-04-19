@@ -26,7 +26,7 @@ from .go2_lowlevel_env_cfg import (
     ObservationsCfg,
     RewardsCfg,
 )
-from .mdp.events import apply_persistent_wrench, apply_trapezoid_wrench
+from .mdp.events import apply_paint_trapezoid_wrench, apply_persistent_wrench, apply_trapezoid_wrench
 from .mdp.observations import (
     ForceEstimateObsTerm,
     applied_torque,
@@ -441,7 +441,7 @@ def _p_est_accuracy_rewards(weight: float, sigma: float = 1.0):
     return _Cfg
 
 
-def _p_compliance_rewards(weight: float):
+def _p_compliance_rewards(weight: float, B_force: float = 20.0, sigma: float = 0.25):
     """Build RewardsCfg with compliance force tracking for P-series env."""
     @configclass
     class _Cfg(RewardsCfg):
@@ -449,8 +449,8 @@ def _p_compliance_rewards(weight: float):
             func=compliance_force_tracking,
             weight=weight,
             params={
-                "B_force": 20.0,
-                "sigma": 0.25,
+                "B_force": B_force,
+                "sigma": sigma,
                 "alpha": 2.0,
                 "asset_cfg": SceneEntityCfg("robot", body_names="base"),
             },
@@ -520,3 +520,118 @@ class DefaultPDPSeriesWrenchEnvCfg(PSeriesWrenchEnvCfg):
         super().__post_init__()
         from go2_rl_lab.assets.unitree import UNITREE_GO2_CFG
         self.scene.robot = UNITREE_GO2_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+
+
+# ── P23-P34: PAINT trapezoid profile ablations ──────────────────────────────
+
+
+@configclass
+class PSeriesPaintTrapezoidEventCfg(EventCfg):
+    """PAINT single-episode trapezoid: one ramp per episode, Cartesian per-axis, zero_prob=0.02."""
+
+    persistent_xyz_force = None
+
+    persistent_wrench = EventTerm(
+        func=apply_paint_trapezoid_wrench,
+        mode="interval",
+        interval_range_s=(0.02, 0.02),
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names="base"),
+            "force_range": (0.0, 0.0),
+            "fz_scale": 0.8,
+            "torque_range": (0.0, 0.0),
+            "zero_prob": 0.02,
+        },
+    )
+
+
+@configclass
+class PSeriesPaintTrapezoidEnvCfg(LowLevelEnvCfg):
+    """P-series env with PAINT single-episode trapezoid force profile — for P23-P26, P29, P32-P34."""
+
+    events: PSeriesPaintTrapezoidEventCfg = PSeriesPaintTrapezoidEventCfg()
+    observations: WrenchObservationsCfg = WrenchObservationsCfg()
+
+
+@configclass
+class PSeriesPaintTrapezoidZero20EventCfg(EventCfg):
+    """PAINT trapezoid with 20% zero-wrench probability — for P27."""
+
+    persistent_xyz_force = None
+
+    persistent_wrench = EventTerm(
+        func=apply_paint_trapezoid_wrench,
+        mode="interval",
+        interval_range_s=(0.02, 0.02),
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names="base"),
+            "force_range": (0.0, 0.0),
+            "fz_scale": 0.8,
+            "torque_range": (0.0, 0.0),
+            "zero_prob": 0.20,
+        },
+    )
+
+
+@configclass
+class PSeriesPaintTrapezoidZero20EnvCfg(LowLevelEnvCfg):
+    """PAINT trapezoid env with 20% zero-wrench probability — for P27."""
+
+    events: PSeriesPaintTrapezoidZero20EventCfg = PSeriesPaintTrapezoidZero20EventCfg()
+    observations: WrenchObservationsCfg = WrenchObservationsCfg()
+
+
+@configclass
+class PSeriesPaintTrapezoidComplianceB30S025EnvCfg(PSeriesPaintTrapezoidEnvCfg):
+    """PAINT trapezoid + compliance, B_force=30, sigma=0.25 — for P32a."""
+    rewards = _p_compliance_rewards(1.0, B_force=30.0, sigma=0.25)()
+
+
+@configclass
+class PSeriesPaintTrapezoidComplianceB30S05EnvCfg(PSeriesPaintTrapezoidEnvCfg):
+    """PAINT trapezoid + compliance, B_force=30, sigma=0.5 — for P32b."""
+    rewards = _p_compliance_rewards(1.0, B_force=30.0, sigma=0.5)()
+
+
+@configclass
+class PSeriesPaintTrapezoidComplianceB40S025EnvCfg(PSeriesPaintTrapezoidEnvCfg):
+    """PAINT trapezoid + compliance, B_force=40, sigma=0.25 — for P32c."""
+    rewards = _p_compliance_rewards(1.0, B_force=40.0, sigma=0.25)()
+
+
+@configclass
+class PSeriesPaintTrapezoidComplianceB40S05EnvCfg(PSeriesPaintTrapezoidEnvCfg):
+    """PAINT trapezoid + compliance, B_force=40, sigma=0.5 — for P32d."""
+    rewards = _p_compliance_rewards(1.0, B_force=40.0, sigma=0.5)()
+
+
+@configclass
+class PSeriesPaintTrapezoidEstAccEnvCfg(PSeriesPaintTrapezoidEnvCfg):
+    """PAINT trapezoid + force estimation accuracy reward (w=50) — for P33, P35."""
+    rewards = _p_est_accuracy_rewards(50.0)()
+
+
+def _p_both_rewards_b30():
+    """Compliance(B=30,σ=0.25,w=1) + est acc(w=50,σ=1) — for P34."""
+    @configclass
+    class _Cfg(RewardsCfg):
+        compliance_force = RewTerm(
+            func=compliance_force_tracking,
+            weight=1.0,
+            params={"B_force": 30.0, "sigma": 0.25, "alpha": 2.0,
+                    "asset_cfg": SceneEntityCfg("robot", body_names="base")},
+        )
+        force_est_accuracy = RewTerm(
+            func=force_estimation_accuracy,
+            weight=50.0,
+            params={"sigma": 1.0, "alpha": 2.0,
+                    "asset_cfg": SceneEntityCfg("robot", body_names="base")},
+        )
+    return _Cfg
+
+
+@configclass
+class PSeriesPaintTrapezoidBothRewardsEnvCfg(PSeriesPaintTrapezoidEnvCfg):
+    """PAINT trapezoid + compliance(B=30,σ=0.25) + est acc(w=50) — for P34."""
+
+    rewards = _p_both_rewards_b30()()

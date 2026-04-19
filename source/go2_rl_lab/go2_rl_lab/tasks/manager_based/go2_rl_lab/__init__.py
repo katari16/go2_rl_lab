@@ -535,6 +535,109 @@ gym.register(
     },
 )
 
+# ── P23-P34: PAINT trapezoid + short history ablations ──────────────────────
+
+# P23-P26: PAINT trapezoid, varying history / rec loss
+for _id, _cfg in [
+    ("P23", "AblationP23Cfg"), ("P24", "AblationP24Cfg"),
+    ("P25", "AblationP25Cfg"), ("P26", "AblationP26Cfg"),
+]:
+    gym.register(
+        id=f"Go2-Ablation-{_id}-v0",
+        entry_point="isaaclab.envs:ManagerBasedRLEnv",
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:PSeriesPaintTrapezoidEnvCfg",
+            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:{_cfg}",
+        },
+    )
+
+# P27: PAINT trapezoid, 20% zero-wrench probability
+gym.register(
+    id="Go2-Ablation-P27-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:PSeriesPaintTrapezoidZero20EnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:AblationP27Cfg",
+    },
+)
+
+# P28, P30, P31: constant profile, varying history
+for _id, _cfg in [
+    ("P28", "AblationP28Cfg"), ("P30", "AblationP30Cfg"), ("P31", "AblationP31Cfg"),
+]:
+    gym.register(
+        id=f"Go2-Ablation-{_id}-v0",
+        entry_point="isaaclab.envs:ManagerBasedRLEnv",
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:PSeriesWrenchEnvCfg",
+            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:{_cfg}",
+        },
+    )
+
+# P29: cyclical trapezoid (multi-cycle, our apply_trapezoid_wrench), h=8
+gym.register(
+    id="Go2-Ablation-P29-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:LowLevelWrenchTrapezoidEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:AblationP29Cfg",
+    },
+)
+
+# P32a-P32d: PAINT trapezoid + compliance reward (B_force x sigma sweep)
+for _id, _cfg, _env in [
+    ("P32a", "AblationP32aCfg", "PSeriesPaintTrapezoidComplianceB30S025EnvCfg"),
+    ("P32b", "AblationP32bCfg", "PSeriesPaintTrapezoidComplianceB30S05EnvCfg"),
+    ("P32c", "AblationP32cCfg", "PSeriesPaintTrapezoidComplianceB40S025EnvCfg"),
+    ("P32d", "AblationP32dCfg", "PSeriesPaintTrapezoidComplianceB40S05EnvCfg"),
+]:
+    gym.register(
+        id=f"Go2-Ablation-{_id}-v0",
+        entry_point="isaaclab.envs:ManagerBasedRLEnv",
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:{_env}",
+            "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:{_cfg}",
+        },
+    )
+
+# P33: PAINT trapezoid + est accuracy reward (w=50, sigma=1.0)
+gym.register(
+    id="Go2-Ablation-P33-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:PSeriesPaintTrapezoidEstAccEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:AblationP33Cfg",
+    },
+)
+
+# P34: PAINT trapezoid + compliance(B=30,σ=0.25) + est acc(w=50)
+gym.register(
+    id="Go2-Ablation-P34-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:PSeriesPaintTrapezoidBothRewardsEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:AblationP34Cfg",
+    },
+)
+
+# P35: PAINT trapezoid + est acc (w=50) + TCN preprocessor
+gym.register(
+    id="Go2-Ablation-P35-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:PSeriesPaintTrapezoidEstAccEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:AblationP35Cfg",
+    },
+)
+
 
 # ── High-level non-linear sweep: 8 variations (R1-R8) ───────────────────────
 # 2x2x2: reward type (penalty/positive) x gravity correction x tracking reward

@@ -100,7 +100,7 @@ from isaaclab.terrains import TerrainImporterCfg
 from isaaclab.terrains.terrain_generator_cfg import TerrainGeneratorCfg
 from isaaclab.terrains.height_field.hf_terrains_cfg import HfPyramidSlopedTerrainCfg, HfInvertedPyramidSlopedTerrainCfg
 from isaaclab.utils.assets import ISAAC_NUCLEUS_DIR, retrieve_file_path
-from isaaclab.utils.math import quat_apply, quat_from_matrix
+from isaaclab.utils.math import quat_apply, quat_conjugate, quat_from_matrix
 from isaaclab_rl.rsl_rl import RslRlBaseRunnerCfg, RslRlVecEnvWrapper
 
 import isaaclab_tasks  # noqa: F401
@@ -160,7 +160,7 @@ def generate_plots(log: dict, args, checkpoint_path: str) -> None:
     force_dim = log["force_dim"]
     fd3 = min(force_dim, 3)
 
-    n_panels = 3 + (1 if force_dim >= 3 else 0) + (1 if force_dim >= 6 else 0)
+    n_panels = 3 + (1 if force_dim >= 6 else 0)
     fig, axes = plt.subplots(n_panels, 1, figsize=(14, 3.5 * n_panels), sharex=True)
 
     ext_str = f" + ext [{args.force_min:.0f}-{args.force_max:.0f}N]" if args.force_max > 0 else " (no ext force)"
@@ -175,45 +175,49 @@ def generate_plots(log: dict, args, checkpoint_path: str) -> None:
         ax.axvspan(0, t_switch, alpha=0.04, color="blue")
         ax.axvspan(t_switch, t[-1], alpha=0.04, color="orange")
 
+    use_payload_gt = "payload_gt_fx" in log
+    gt_fx = log["payload_gt_fx"] if use_payload_gt else log["gt_fx"]
+    gt_fy = log["payload_gt_fy"] if use_payload_gt else log["gt_fy"]
+    gt_fz = log["payload_gt_fz"] if use_payload_gt else log.get("gt_fz", [0.0] * len(t))
+    gt_label = "Payload grav GT" if use_payload_gt else "GT"
+
     panel = 0
 
-    # Panel 1: Estimated force XY vs GT XY
+    # Panel 1: Fx
     ax = axes[panel]
-    ax.plot(t, log["gt_fx"], color="tab:red", lw=1.2, label="GT Fx")
-    ax.plot(t, log["gt_fy"], color="darkred", lw=1.2, label="GT Fy")
+    ax.plot(t, gt_fx,         color="tab:red", lw=1.2, label=f"{gt_label} Fx")
     ax.plot(t, log["est_fx"], color="tab:red", lw=0.9, ls="--", alpha=0.6, label="Est Fx")
+    ax.axhline(0, color="black", lw=0.5, alpha=0.4)
+    _shade_phases(ax)
+    ax.set_ylabel("Force (N)")
+    ax.legend(loc="upper right", fontsize=9)
+    ax.grid(True, alpha=0.3)
+    ax.set_title("Fx: GT (solid) vs Estimator (dashed)", fontsize=11)
+    panel += 1
+
+    # Panel 2: Fy
+    ax = axes[panel]
+    ax.plot(t, gt_fy,         color="darkred", lw=1.2, label=f"{gt_label} Fy")
     ax.plot(t, log["est_fy"], color="darkred", lw=0.9, ls="--", alpha=0.6, label="Est Fy")
     ax.axhline(0, color="black", lw=0.5, alpha=0.4)
     _shade_phases(ax)
     ax.set_ylabel("Force (N)")
-    ax.legend(loc="upper right", fontsize=9, ncol=2)
-    ax.grid(True, alpha=0.3)
-    ax.set_title("XY Force: GT (solid) vs Estimator (dashed) — slope gravity bias visible in HOLD", fontsize=11)
-    panel += 1
-
-    # Panel 2: Fz (if 3D+)
-    if force_dim >= 3:
-        ax = axes[panel]
-        ax.plot(t, log["gt_fz"], color="tab:purple", lw=1.2, label="GT Fz")
-        ax.plot(t, log["est_fz"], color="purple", lw=0.9, ls="--", alpha=0.6, label="Est Fz")
-        ax.axhline(0, color="black", lw=0.5, alpha=0.4)
-        _shade_phases(ax)
-        ax.set_ylabel("Force (N)")
-        ax.legend(loc="upper right", fontsize=9)
-        ax.grid(True, alpha=0.3)
-        ax.set_title("Fz: GT (solid) vs Estimated (dashed)", fontsize=11)
-        panel += 1
-
-    # Panel 3: Base velocity
-    ax = axes[panel]
-    ax.plot(t, log["base_vx"], color="tab:blue", lw=1.0, label="base vx")
-    ax.plot(t, log["base_vy"], color="navy", lw=1.0, label="base vy")
-    ax.axhline(0, color="black", lw=0.5, alpha=0.4)
-    _shade_phases(ax)
-    ax.set_ylabel("Velocity (m/s)")
     ax.legend(loc="upper right", fontsize=9)
     ax.grid(True, alpha=0.3)
-    ax.set_title("Base Velocity (body frame)", fontsize=11)
+    ax.set_title("Fy: GT (solid) vs Estimator (dashed)", fontsize=11)
+    panel += 1
+
+    # Panel 3: Fz
+    ax = axes[panel]
+    est_fz = log.get("est_fz", [0.0] * len(t))
+    ax.plot(t, gt_fz,  color="tab:purple", lw=1.2, label=f"{gt_label} Fz")
+    ax.plot(t, est_fz, color="purple",     lw=0.9, ls="--", alpha=0.6, label="Est Fz")
+    ax.axhline(0, color="black", lw=0.5, alpha=0.4)
+    _shade_phases(ax)
+    ax.set_ylabel("Force (N)")
+    ax.legend(loc="upper right", fontsize=9)
+    ax.grid(True, alpha=0.3)
+    ax.set_title("Fz: GT (solid) vs Estimator (dashed)", fontsize=11)
     panel += 1
 
     axes[panel - 1].set_xlabel("Time (s)")
@@ -244,6 +248,52 @@ def generate_plots(log: dict, args, checkpoint_path: str) -> None:
     fig.savefig(fig_path, dpi=150, bbox_inches="tight")
     plt.close(fig)
     print(f"[slope_eval] Plot saved: {fig_path}")
+
+
+def generate_payload_plots(log: dict, args, checkpoint_path: str) -> None:
+    import matplotlib.pyplot as plt
+    from datetime import datetime
+
+    t = np.array(log["time_s"])
+    t_switch = args.walk_duration
+    delta_mass = args.payload_mass - 3.0
+
+    fig, axes = plt.subplots(3, 1, figsize=(14, 10), sharex=True)
+    fig.suptitle(
+        f"Payload Gravity GT vs Estimator — Δm={delta_mass:.1f}kg ({args.payload_mass:.1f}kg loaded, 3.0kg trained)"
+        f" — {args.slope_deg:.0f}° slope",
+        fontsize=13, fontweight="bold",
+    )
+
+    def _shade(ax):
+        ax.axvline(t_switch, color="gray", linestyle="--", alpha=0.6, label="WALK→HOLD")
+        ax.axvspan(0, t_switch, alpha=0.04, color="blue")
+        ax.axvspan(t_switch, t[-1], alpha=0.04, color="orange")
+        ax.axhline(0, color="black", lw=0.5, alpha=0.4)
+
+    labels = [("Fx", "payload_gt_fx", "est_fx", "tab:red"),
+              ("Fy", "payload_gt_fy", "est_fy", "tab:blue"),
+              ("Fz", "payload_gt_fz", "est_fz", "tab:purple")]
+
+    for ax, (name, gt_key, est_key, color) in zip(axes, labels):
+        ax.plot(t, log[gt_key],  color=color, lw=1.4, label=f"GT {name} (Δm·g·proj_grav)")
+        ax.plot(t, log[est_key], color=color, lw=0.9, ls="--", alpha=0.7, label=f"Est {name}")
+        _shade(ax)
+        ax.set_ylabel("Force (N)")
+        ax.legend(loc="upper right", fontsize=9)
+        ax.grid(True, alpha=0.3)
+        ax.set_title(f"{name}: payload gravity GT vs estimator", fontsize=11)
+
+    axes[-1].set_xlabel("Time (s)")
+    plt.tight_layout()
+
+    eval_dir = os.path.join(os.path.dirname(checkpoint_path), "slope_eval")
+    os.makedirs(eval_dir, exist_ok=True)
+    ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    fig_path = os.path.join(eval_dir, f"payload_gt_{args.slope_deg:.0f}deg_dm{delta_mass:.1f}kg_{ts}.png")
+    fig.savefig(fig_path, dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"[slope_eval] Payload plot saved: {fig_path}")
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -411,10 +461,13 @@ def main(
         else:
             print(f"[slope_eval] WARNING: --payload_mass specified but payload_link body not found")
 
+    has_payload_gt = args_cli.payload_mass is not None and args_cli.payload_mass > 3.0
+
     # ── Arrows ────────────────────────────────────────────────────────────
     # GT force arrow only makes sense when external forces are applied
-    gt_markers  = _create_arrow_markers("/World/Visuals/GTForce",  (1.0, 0.0, 0.0)) if apply_forces else None
-    est_markers = _create_arrow_markers("/World/Visuals/EstForce", (0.2, 0.4, 1.0))  if args_cli.show_est else None
+    gt_markers         = _create_arrow_markers("/World/Visuals/GTForce",      (1.0, 0.0, 0.0)) if apply_forces else None
+    est_markers        = _create_arrow_markers("/World/Visuals/EstForce",     (0.2, 0.4, 1.0))  if (args_cli.show_est or has_payload_gt) else None
+    payload_gt_markers = _create_arrow_markers("/World/Visuals/PayloadGTForce", (1.0, 0.5, 0.0)) if has_payload_gt else None
     cmd_markers = _create_arrow_markers("/World/Visuals/CmdVel",   (0.0, 0.8, 0.2))  if args_cli.show_cmd else None
     adj_markers = _create_arrow_markers("/World/Visuals/AdjVel",   (1.0, 0.85, 0.0)) if args_cli.show_adj else None
 
@@ -443,6 +496,10 @@ def main(
     if force_dim >= 3:
         log["gt_fz"] = []
         log["est_fz"] = []
+    if has_payload_gt:
+        log["payload_gt_fx"] = []
+        log["payload_gt_fy"] = []
+        log["payload_gt_fz"] = []
     if force_dim >= 6:
         log["gt_troll"] = []
         log["gt_tpitch"] = []
@@ -547,6 +604,13 @@ def main(
                 # Arrow rendering
                 base_pos  = asset.data.root_pos_w[:n]
                 base_quat = asset.data.root_quat_w[:n]
+
+                # Payload gravity GT: (payload_mass - 3kg) * g * projected_gravity in base frame
+                if has_payload_gt:
+                    delta_mass = args_cli.payload_mass - 3.0
+                    grav_world = torch.zeros(n, 3, device=device)
+                    grav_world[:, 2] = -9.81 * delta_mass
+                    payload_grav_base = quat_apply(quat_conjugate(base_quat), grav_world)
                 force_scale = 0.05
                 vel_scale   = 1.0
 
@@ -562,11 +626,17 @@ def main(
                 if est_markers is not None:
                     est_3d = torch.zeros(n, 3, device=device)
                     est_3d[:, :fd3] = force_hat[:, :fd3]
-                    est_world = quat_apply(base_quat, est_3d)
                     est_pos = base_pos.clone(); est_pos[:, 2] += 0.42
                     est_scales = torch.full((n, 3), 0.3, device=device)
-                    est_scales[:, 0:1] = (est_world.norm(dim=-1, keepdim=True) * force_scale).clamp(min=0.05)
-                    est_markers.visualize(est_pos, _force_to_quat(est_world, device), est_scales)
+                    est_scales[:, 0:1] = (est_3d.norm(dim=-1, keepdim=True) * force_scale).clamp(min=0.05)
+                    est_markers.visualize(est_pos, _force_to_quat(est_3d, device), est_scales)
+
+                if payload_gt_markers is not None:
+                    pg_xy = payload_grav_base.clone(); pg_xy[:, 2] = 0.0
+                    pg_pos = base_pos.clone(); pg_pos[:, 2] += 0.68
+                    pg_scales = torch.full((n, 3), 0.3, device=device)
+                    pg_scales[:, 0:1] = (pg_xy.norm(dim=-1, keepdim=True) * force_scale).clamp(min=0.05)
+                    payload_gt_markers.visualize(pg_pos, _force_to_quat(pg_xy, device), pg_scales)
 
                 if cmd_markers is not None:
                     cmd_3d = torch.zeros(n, 3, device=device)
@@ -607,6 +677,11 @@ def main(
                 if force_dim >= 3:
                     log["gt_fz"].append(g0[2].item() if g0.shape[0] > 2 else 0.0)
                     log["est_fz"].append(e0[2].item() if e0.shape[0] > 2 else 0.0)
+                if has_payload_gt:
+                    pg = payload_grav_base[0]
+                    log["payload_gt_fx"].append(pg[0].item())
+                    log["payload_gt_fy"].append(pg[1].item())
+                    log["payload_gt_fz"].append(pg[2].item())
                 if force_dim >= 6:
                     t0 = gt_torque_body[0]
                     log["gt_troll"].append(t0[0].item())
@@ -659,6 +734,8 @@ def main(
 
     if len(log["time_s"]) > 10:
         generate_plots(log, args_cli, resume_path)
+        if has_payload_gt:
+            generate_payload_plots(log, args_cli, resume_path)
     else:
         print("[slope_eval] Too few steps, skipping plots.")
 

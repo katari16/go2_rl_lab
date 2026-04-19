@@ -1128,3 +1128,185 @@ class AblationP22Cfg(LowLevelRunnerCfg):
     max_force: float = 30.0
     max_torque: float = 10.0
     estimator: dict = _est(**_PAINT_BASE)
+
+
+# ── P23-P34: PAINT trapezoid + short history ablations ───────────────────────
+
+@configclass
+class AblationP23Cfg(LowLevelRunnerCfg):
+    """P23: PAINT trapezoid profile, h=4."""
+    experiment_name: str = "ablation_P23_h4_4d_paint_trap"
+    class_name: str = "CompliantOnPolicyRunner"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 30.0
+    max_torque: float = 10.0
+    estimator: dict = _est(**{**_PAINT_BASE, "temporal_steps": 4})
+
+
+@configclass
+class AblationP24Cfg(LowLevelRunnerCfg):
+    """P24: PAINT trapezoid profile, h=8 (baseline for this series)."""
+    experiment_name: str = "ablation_P24_h8_4d_paint_trap"
+    class_name: str = "CompliantOnPolicyRunner"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 30.0
+    max_torque: float = 10.0
+    estimator: dict = _est(**{**_PAINT_BASE, "temporal_steps": 8})
+
+
+@configclass
+class AblationP25Cfg(LowLevelRunnerCfg):
+    """P25: PAINT trapezoid profile, h=10."""
+    experiment_name: str = "ablation_P25_h10_4d_paint_trap"
+    class_name: str = "CompliantOnPolicyRunner"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 30.0
+    max_torque: float = 10.0
+    estimator: dict = _est(**{**_PAINT_BASE, "temporal_steps": 10})
+
+
+@configclass
+class AblationP26Cfg(LowLevelRunnerCfg):
+    """P26: PAINT trapezoid, h=8, no reconstruction loss."""
+    experiment_name: str = "ablation_P26_h8_4d_paint_trap_norec"
+    class_name: str = "CompliantOnPolicyRunner"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 30.0
+    max_torque: float = 10.0
+    estimator: dict = _est(**{**_PAINT_BASE, "temporal_steps": 8, "rec_loss_weight": 0.0})
+
+
+@configclass
+class AblationP27Cfg(LowLevelRunnerCfg):
+    """P27: PAINT trapezoid, h=8, 20% zero-wrench probability."""
+    experiment_name: str = "ablation_P27_h8_4d_paint_trap_zero20"
+    class_name: str = "CompliantOnPolicyRunner"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 30.0
+    max_torque: float = 10.0
+    estimator: dict = _est(**{**_PAINT_BASE, "temporal_steps": 8})
+
+
+@configclass
+class AblationP28Cfg(LowLevelRunnerCfg):
+    """P28: Constant profile, h=8 (comparison baseline for trapezoid series)."""
+    experiment_name: str = "ablation_P28_h8_4d_constant"
+    class_name: str = "CompliantOnPolicyRunner"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 30.0
+    max_torque: float = 10.0
+    estimator: dict = _est(**{**_PAINT_BASE, "temporal_steps": 8})
+
+
+@configclass
+class AblationP29Cfg(LowLevelRunnerCfg):
+    """P29: Cyclical trapezoid (multi-cycle), h=8."""
+    experiment_name: str = "ablation_P29_h8_4d_cyclic_trap"
+    class_name: str = "CompliantOnPolicyRunner"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 30.0
+    max_torque: float = 10.0
+    estimator: dict = _est(**{**_PAINT_BASE, "temporal_steps": 8})
+
+
+@configclass
+class AblationP30Cfg(LowLevelRunnerCfg):
+    """P30: Constant profile, h=4."""
+    experiment_name: str = "ablation_P30_h4_4d_constant"
+    class_name: str = "CompliantOnPolicyRunner"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 30.0
+    max_torque: float = 10.0
+    estimator: dict = _est(**{**_PAINT_BASE, "temporal_steps": 4})
+
+
+@configclass
+class AblationP31Cfg(LowLevelRunnerCfg):
+    """P31: Constant profile, h=8 (paired with P30 for history isolation)."""
+    experiment_name: str = "ablation_P31_h8_4d_constant_b"
+    class_name: str = "CompliantOnPolicyRunner"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 30.0
+    max_torque: float = 10.0
+    estimator: dict = _est(**{**_PAINT_BASE, "temporal_steps": 8})
+
+
+@configclass
+class AblationP32aCfg(LowLevelRunnerCfg):
+    """P32a: PAINT trapezoid, h=8, compliance B=30, sigma=0.25."""
+    experiment_name: str = "ablation_P32a_h8_4d_paint_trap_comp_b30_s025"
+    class_name: str = "CompliantOnPolicyRunner"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 30.0
+    max_torque: float = 10.0
+    estimator: dict = _est(**{**_PAINT_BASE, "temporal_steps": 8})
+
+
+@configclass
+class AblationP32bCfg(LowLevelRunnerCfg):
+    """P32b: PAINT trapezoid, h=8, compliance B=30, sigma=0.5."""
+    experiment_name: str = "ablation_P32b_h8_4d_paint_trap_comp_b30_s05"
+    class_name: str = "CompliantOnPolicyRunner"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 30.0
+    max_torque: float = 10.0
+    estimator: dict = _est(**{**_PAINT_BASE, "temporal_steps": 8})
+
+
+@configclass
+class AblationP32cCfg(LowLevelRunnerCfg):
+    """P32c: PAINT trapezoid, h=8, compliance B=40, sigma=0.25."""
+    experiment_name: str = "ablation_P32c_h8_4d_paint_trap_comp_b40_s025"
+    class_name: str = "CompliantOnPolicyRunner"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 30.0
+    max_torque: float = 10.0
+    estimator: dict = _est(**{**_PAINT_BASE, "temporal_steps": 8})
+
+
+@configclass
+class AblationP32dCfg(LowLevelRunnerCfg):
+    """P32d: PAINT trapezoid, h=8, compliance B=40, sigma=0.5."""
+    experiment_name: str = "ablation_P32d_h8_4d_paint_trap_comp_b40_s05"
+    class_name: str = "CompliantOnPolicyRunner"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 30.0
+    max_torque: float = 10.0
+    estimator: dict = _est(**{**_PAINT_BASE, "temporal_steps": 8})
+
+
+@configclass
+class AblationP33Cfg(LowLevelRunnerCfg):
+    """P33: PAINT trapezoid, h=8, est accuracy reward (w=50, sigma=1.0)."""
+    experiment_name: str = "ablation_P33_h8_4d_paint_trap_estacc"
+    class_name: str = "CompliantOnPolicyRunner"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 30.0
+    max_torque: float = 10.0
+    estimator: dict = _est(**{**_PAINT_BASE, "temporal_steps": 8})
+
+
+@configclass
+class AblationP34Cfg(LowLevelRunnerCfg):
+    """P34: PAINT trapezoid, h=8, compliance(B=30,σ=0.25) + est acc(w=50)."""
+    experiment_name: str = "ablation_P34_h8_4d_paint_trap_both_b30_s025"
+    class_name: str = "CompliantOnPolicyRunner"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 30.0
+    max_torque: float = 10.0
+    estimator: dict = _est(**{**_PAINT_BASE, "temporal_steps": 8})
+
+
+@configclass
+class AblationP35Cfg(LowLevelRunnerCfg):
+    """P35: PAINT trapezoid, h=8, est acc (w=50) + TCN preprocessor."""
+    experiment_name: str = "ablation_P35_h8_4d_paint_trap_estacc_tcn"
+    class_name: str = "CompliantOnPolicyRunner"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 30.0
+    max_torque: float = 10.0
+    estimator: dict = _est(**{**_PAINT_BASE, "temporal_steps": 8,
+                               "tcn_mode": "preprocessor",
+                               "tcn_channels": [64, 64],
+                               "tcn_kernel_size": 3,
+                               "tcn_dilations": [1, 2]})

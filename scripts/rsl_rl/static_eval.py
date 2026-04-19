@@ -65,6 +65,9 @@ parser.add_argument("--torque_max", type=float, default=10.0, help="Maximum torq
 parser.add_argument("--torque_only", action="store_true", default=False, help="Apply only torques (no forces).")
 parser.add_argument("--compliance_k_yaw", type=float, default=0.0, help="Yaw compliance gain for wz*=wz+k*tau_yaw (0=off).")
 parser.add_argument("--show_torque", action="store_true", default=False, help="Show yaw torque as dual tangent arrows (magenta).")
+parser.add_argument("--trapezoid_cycle", action="store_true", default=False, help="Multi-cycle trapezoid force profile (ramp/hold/zero repeating within episode).")
+parser.add_argument("--trapezoid_paint", action="store_true", default=False, help="PAINT-style trapezoid: one ramp-up/hold/ramp-down per period, Cartesian per-axis sampling.")
+parser.add_argument("--paint_period", type=float, default=10.0, help="Period duration (s) for --trapezoid_paint (default: 10.0).")
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -350,8 +353,24 @@ def main(
         force_event.params["force_range"] = (args_cli.force_min, args_cli.force_max)
     if is_wrench and "torque_range" in force_event.params:
         force_event.params["torque_range"] = (args_cli.torque_min, args_cli.torque_max)
-    # Re-randomize frequently for a dynamic demo
-    force_event.interval_range_s = (1.0, 3.0)
+    # Trapezoid modes
+    if args_cli.trapezoid_cycle and is_wrench:
+        # Multi-cycle: apply_trapezoid_wrench fires every step, manages own state
+        from go2_rl_lab.tasks.manager_based.go2_rl_lab.mdp.events import apply_trapezoid_wrench
+        force_event.func = apply_trapezoid_wrench
+        force_event.params.setdefault("ramp_s_range", (0.2, 0.8))
+        force_event.params.setdefault("hold_s_range", (1.5, 3.0))
+        force_event.params.setdefault("zero_s_range", (0.5, 1.5))
+        force_event.params.setdefault("zero_prob", 0.2)
+        force_event.params.setdefault("bucket_fracs", ((0.0, 1.0),))
+        force_event.interval_range_s = (0.02, 0.02)
+    elif args_cli.trapezoid_paint and is_wrench:
+        # PAINT-style applied manually in the sim loop — disable the interval event
+        force_event.params["force_range"] = (0.0, 0.0)
+        force_event.interval_range_s = (1e6, 1e6)
+    else:
+        # Constant persistent wrench: re-randomize every 1-3s
+        force_event.interval_range_s = (1.0, 3.0)
 
     # Override the reset event to also apply forces on episode start.
     if is_wrench:
@@ -473,6 +492,30 @@ def main(
     if runner_mode == "compliant":
         isaac_env._force_estimate_xy = torch.zeros(n, force_dim, device=device)
 
+    # ── PAINT trapezoid state ─────────────────────────────────────────────
+    paint_active = args_cli.trapezoid_paint and is_wrench
+    if paint_active:
+        paint_T = args_cli.paint_period
+        paint_t = torch.zeros(n, device=device)
+        _paint_body_ids = base_body_ids if isinstance(base_body_ids, list) else [int(base_body_ids)]
+        _paint_fz_scale = force_event.params.get("fz_scale", 0.6)
+        _paint_f = torch.zeros(n, 1, 3, device=device)   # [n, 1-body, xyz]
+        _paint_t = torch.zeros(n, 1, 3, device=device)   # [n, 1-body, xyz]
+        _paint_all_ids = torch.arange(n, device=device)
+
+        def _resample_paint(ids):
+            ni = len(ids)
+            f_max = args_cli.force_max
+            t_max = args_cli.torque_max
+            _paint_f[ids, 0, 0] = (torch.rand(ni, device=device) * 2 - 1) * f_max
+            _paint_f[ids, 0, 1] = (torch.rand(ni, device=device) * 2 - 1) * f_max
+            if is_xyz:
+                _paint_f[ids, 0, 2] = (torch.rand(ni, device=device) * 2 - 1) * f_max * _paint_fz_scale
+            if is_wrench:
+                _paint_t[ids, 0, 2] = (torch.rand(ni, device=device) * 2 - 1) * t_max
+
+        _resample_paint(_paint_all_ids)
+
     obs = env.get_observations()
     step_count = 0
     max_steps = int(args_cli.duration / dt)
@@ -529,6 +572,10 @@ def main(
     if args_cli.torque_only:
         print(f"  Mode        : TORQUE-ONLY (no forces)")
     print(f"  Torque range: [{args_cli.torque_min:.1f}, {args_cli.torque_max:.1f}] Nm")
+    if args_cli.trapezoid_paint:
+        print(f"  Force profile: PAINT trapezoid (T={args_cli.paint_period:.1f}s, Cartesian per-axis)")
+    elif args_cli.trapezoid_cycle:
+        print(f"  Force profile: multi-cycle trapezoid (ramp/hold/zero repeating)")
     arrows = ["RED=GT"]
     if args_cli.show_est:
         arrows.append("BLUE=est")
@@ -581,6 +628,33 @@ def main(
                     done_ids = (dones > 0).nonzero(as_tuple=False).squeeze(-1)
                     if len(done_ids) > 0:
                         runner._history_buffer.reset(done_ids)
+
+                # ── PAINT trapezoid force application ─────────────────
+                if paint_active:
+                    t_up = 0.1 * paint_T
+                    t_hold = 0.8 * paint_T
+                    t_down = 0.1 * paint_T
+                    alpha = torch.zeros(n, device=device)
+                    in_up = paint_t < t_up
+                    in_hold = (paint_t >= t_up) & (paint_t < t_up + t_hold)
+                    in_dn = paint_t >= t_up + t_hold
+                    alpha[in_up] = (paint_t[in_up] / t_up).clamp(0.0, 1.0)
+                    alpha[in_hold] = 1.0
+                    alpha[in_dn] = ((paint_T - paint_t[in_dn]) / t_down).clamp(0.0, 1.0)
+                    a = alpha.view(n, 1, 1)
+                    asset.permanent_wrench_composer.set_forces_and_torques(
+                        forces=_paint_f * a,
+                        torques=_paint_t * a,
+                        body_ids=_paint_body_ids,
+                        env_ids=_paint_all_ids,
+                    )
+                    paint_t += dt
+                    new_period = paint_t >= paint_T
+                    if new_period.any():
+                        np_ids = new_period.nonzero(as_tuple=False).squeeze(-1)
+                        paint_t[np_ids] = 0.0
+                        _resample_paint(np_ids)
+                        plot_log["rerandom_steps"].append(step_count)
 
                 # ── GT force (body frame from wrench composer) ─────────
                 if force_dim <= 3:
