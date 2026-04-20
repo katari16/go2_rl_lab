@@ -135,23 +135,29 @@ def generate_plots(log: dict, args, checkpoint_path: str, force_dim: int, max_fo
     from datetime import datetime
 
     t = np.array(log["time_s"])
-    has_torque = force_dim >= 4
+    has_torque_yaw = force_dim >= 4
+    has_torque_rp  = force_dim >= 6
 
-    n_panels = 3 + (1 if has_torque else 0)
+    specs = [
+        ("Fx (N)",       "gt_fx",     "est_fx",     "tab:red",    max_force),
+        ("Fy (N)",       "gt_fy",     "est_fy",     "darkred",    max_force),
+        ("Fz (N)",       "gt_fz",     "est_fz",     "tab:purple", max_force * fz_scale),
+    ]
+    if has_torque_rp:
+        specs.append(("τ_roll (Nm)",  "gt_troll",  "est_troll",  "tab:orange",  max_torque))
+        specs.append(("τ_pitch (Nm)", "gt_tpitch", "est_tpitch", "darkorange",  max_torque))
+    if has_torque_yaw:
+        specs.append(("τ_yaw (Nm)",   "gt_tyaw",   "est_tyaw",   "tab:brown",   max_torque))
+
+    n_panels = len(specs)
     fig, axes = plt.subplots(n_panels, 1, figsize=(14, 3.5 * n_panels), sharex=True)
+    if n_panels == 1:
+        axes = [axes]
     fig.suptitle(
         f"OU Force Eval — {args.task} — θ={args.ou_theta:.2f} — "
         f"max_force={max_force:.0f}N fz_scale={fz_scale:.1f} max_torque={max_torque:.0f}Nm",
         fontsize=13, fontweight="bold",
     )
-
-    specs = [
-        ("Fx (N)",      "gt_fx",    "est_fx",    "tab:red",    max_force),
-        ("Fy (N)",      "gt_fy",    "est_fy",    "darkred",    max_force),
-        ("Fz (N)",      "gt_fz",    "est_fz",    "tab:purple", max_force * fz_scale),
-    ]
-    if has_torque:
-        specs.append(("τ_yaw (Nm)", "gt_tyaw", "est_tyaw", "tab:orange", max_torque))
 
     for ax, (ylabel, gt_key, est_key, color, ylim) in zip(axes, specs):
         ax.plot(t, log[gt_key],  color=color, lw=1.2, label="GT (applied)")
@@ -250,8 +256,9 @@ def main(
     asset = isaac_env.scene["robot"]
     base_body_ids, _ = asset.find_bodies("base")
     base_idx = base_body_ids[0] if isinstance(base_body_ids, (list, tuple)) else int(base_body_ids)
+    _body_ids = base_body_ids if isinstance(base_body_ids, list) else [int(base_body_ids)]
     n = args_cli.num_envs
-    num_bodies = asset.num_bodies
+    _all_env_ids = torch.arange(n, device=device)
 
     # Force range from training config
     max_force = args_cli.max_force_override or agent_cfg.to_dict().get("max_force", 30.0)
@@ -269,11 +276,15 @@ def main(
     sigma_f = args_cli.ou_sigma_force  or 0.3 * max_force
     sigma_t = args_cli.ou_sigma_torque or 0.3 * max_torque
 
-    # OU processes: one per force axis, one for yaw torque
-    ou_fx  = OUProcess((n,), theta, sigma_f, max_force,           dt, device)
-    ou_fy  = OUProcess((n,), theta, sigma_f, max_force,           dt, device)
-    ou_fz  = OUProcess((n,), theta, sigma_f, max_force * fz_scale, dt, device)
-    ou_yaw = OUProcess((n,), theta, sigma_t, max_torque,          dt, device) if force_dim >= 4 else None
+    # OU processes: one per force axis, one per torque axis
+    ou_fx    = OUProcess((n,), theta, sigma_f, max_force,            dt, device)
+    ou_fy    = OUProcess((n,), theta, sigma_f, max_force,            dt, device)
+    ou_fz    = OUProcess((n,), theta, sigma_f, max_force * fz_scale, dt, device)
+    ou_roll  = OUProcess((n,), theta, sigma_t, max_torque,           dt, device) if force_dim >= 6 else None
+    ou_pitch = OUProcess((n,), theta, sigma_t, max_torque,           dt, device) if force_dim >= 6 else None
+    ou_yaw   = OUProcess((n,), theta, sigma_t, max_torque,           dt, device) if force_dim >= 4 else None
+
+    yaw_idx = {4: 3, 6: 5}.get(force_dim, None)
 
     # Arrow markers
     gt_markers  = _create_arrow_markers("/World/Visuals/OUGTForce",  (1.0, 0.0, 0.0)) if args_cli.show_gt  else None
@@ -289,6 +300,9 @@ def main(
         "gt_fx": [], "gt_fy": [], "gt_fz": [],
         "est_fx": [], "est_fy": [], "est_fz": [],
     }
+    if force_dim >= 6:
+        log["gt_troll"]  = []; log["est_troll"]  = []
+        log["gt_tpitch"] = []; log["est_tpitch"] = []
     if force_dim >= 4:
         log["gt_tyaw"]  = []
         log["est_tyaw"] = []
@@ -311,40 +325,40 @@ def main(
             start_time = time.time()
 
             with torch.inference_mode():
-                # Update OU process
-                fx_ou  = ou_fx.step()
-                fy_ou  = ou_fy.step()
-                fz_ou  = ou_fz.step()
-                yaw_ou = ou_yaw.step() if ou_yaw is not None else torch.zeros(n, device=device)
+                # Update OU processes
+                fx_ou    = ou_fx.step()
+                fy_ou    = ou_fy.step()
+                fz_ou    = ou_fz.step()
+                roll_ou  = ou_roll.step()  if ou_roll  is not None else torch.zeros(n, device=device)
+                pitch_ou = ou_pitch.step() if ou_pitch is not None else torch.zeros(n, device=device)
+                yaw_ou   = ou_yaw.step()   if ou_yaw   is not None else torch.zeros(n, device=device)
 
                 base_quat = asset.data.root_quat_w[:n]
 
-                # Build body-frame force tensor [n, 3]
-                f_body = torch.zeros(n, 3, device=device)
-                f_body[:, 0] = fx_ou
-                f_body[:, 1] = fy_ou
-                f_body[:, 2] = fz_ou
+                # Build body-frame force/torque tensors [n, 1, 3]
+                f_body_w = torch.zeros(n, 1, 3, device=device)
+                f_body_w[:, 0, 0] = fx_ou
+                f_body_w[:, 0, 1] = fy_ou
+                f_body_w[:, 0, 2] = fz_ou
+                t_body_w = torch.zeros(n, 1, 3, device=device)
+                t_body_w[:, 0, 0] = roll_ou
+                t_body_w[:, 0, 1] = pitch_ou
+                t_body_w[:, 0, 2] = yaw_ou
 
-                # Rotate to world frame for PhysX application
-                f_world = quat_apply(base_quat, f_body)
-
-                # Yaw torque: body Z axis rotated to world
-                t_body = torch.zeros(n, 3, device=device)
-                t_body[:, 2] = yaw_ou
-                t_world = quat_apply(base_quat, t_body)
-
-                # Apply via PhysX
-                forces_buf  = torch.zeros(n, num_bodies, 3, device=device)
-                torques_buf = torch.zeros(n, num_bodies, 3, device=device)
-                forces_buf[:, base_idx, :]  = f_world
-                torques_buf[:, base_idx, :] = t_world
-                asset.root_physx_view.apply_forces_and_torques_at_position(
-                    forces_buf.view(n, num_bodies, 3),
-                    torques_buf.view(n, num_bodies, 3),
-                    None,
-                    torch.arange(n, device=device),
-                    is_global=True,
+                # Apply via permanent wrench composer (same as training)
+                asset.permanent_wrench_composer.set_forces_and_torques(
+                    forces=f_body_w,
+                    torques=t_body_w,
+                    body_ids=_body_ids,
+                    env_ids=_all_env_ids,
                 )
+
+                # GT from wrench composer (what's actually applied)
+                gt_f = asset.permanent_wrench_composer.composed_force_as_torch[:n, base_idx, :3]
+                gt_t = asset.permanent_wrench_composer.composed_torque_as_torch[:n, base_idx, :3]
+
+                # World-frame force for arrow rendering only
+                f_world = quat_apply(base_quat, gt_f)
 
                 # Estimator
                 raw_obs = obs["policy"][:, :raw_obs_dim]
@@ -361,10 +375,10 @@ def main(
                 done_ids = (dones > 0).nonzero(as_tuple=False).squeeze(-1)
                 if len(done_ids) > 0:
                     runner._history_buffer.reset(done_ids)
-                    ou_fx.reset(done_ids); ou_fy.reset(done_ids)
-                    ou_fz.reset(done_ids)
-                    if ou_yaw is not None:
-                        ou_yaw.reset(done_ids)
+                    ou_fx.reset(done_ids); ou_fy.reset(done_ids); ou_fz.reset(done_ids)
+                    if ou_roll  is not None: ou_roll.reset(done_ids)
+                    if ou_pitch is not None: ou_pitch.reset(done_ids)
+                    if ou_yaw   is not None: ou_yaw.reset(done_ids)
 
                 # Arrow visualization
                 base_pos = asset.data.root_pos_w[:n]
@@ -383,17 +397,22 @@ def main(
                     est_scales[:, 0:1] = (est_world.norm(dim=-1, keepdim=True) * force_scale).clamp(min=0.05)
                     est_markers.visualize(est_pos, _force_to_quat(est_world, device), est_scales)
 
-                # Log (env 0)
+                # Log (env 0) — GT from wrench composer
                 log["time_s"].append(step_count * dt)
-                log["gt_fx"].append(f_body[0, 0].item())
-                log["gt_fy"].append(f_body[0, 1].item())
-                log["gt_fz"].append(f_body[0, 2].item())
+                log["gt_fx"].append(gt_f[0, 0].item())
+                log["gt_fy"].append(gt_f[0, 1].item())
+                log["gt_fz"].append(gt_f[0, 2].item())
                 log["est_fx"].append(force_hat[0, 0].item())
                 log["est_fy"].append(force_hat[0, 1].item())
                 log["est_fz"].append(force_hat[0, 2].item() if force_dim >= 3 else 0.0)
+                if force_dim >= 6:
+                    log["gt_troll"].append(gt_t[0, 0].item())
+                    log["gt_tpitch"].append(gt_t[0, 1].item())
+                    log["est_troll"].append(force_hat[0, 3].item())
+                    log["est_tpitch"].append(force_hat[0, 4].item())
                 if force_dim >= 4:
-                    log["gt_tyaw"].append(t_body[0, 2].item())
-                    log["est_tyaw"].append(force_hat[0, 3].item() if force_dim >= 4 else 0.0)
+                    log["gt_tyaw"].append(gt_t[0, 2].item())
+                    log["est_tyaw"].append(force_hat[0, yaw_idx].item())
 
                 step_count += 1
                 if step_count % 25 == 0:
@@ -402,7 +421,7 @@ def main(
                     e0 = force_hat[0]
                     print(
                         f"\r  [{bar}] {step_count * dt:.1f}/{args_cli.duration:.0f}s  "
-                        f"GT:[{f_body[0,0]:+5.1f},{f_body[0,1]:+5.1f},{f_body[0,2]:+5.1f}]N  "
+                        f"GT:[{gt_f[0,0]:+5.1f},{gt_f[0,1]:+5.1f},{gt_f[0,2]:+5.1f}]N  "
                         f"Est:[{e0[0]:+5.1f},{e0[1]:+5.1f},{e0[2]:+5.1f}]N",
                         end="", flush=True,
                     )

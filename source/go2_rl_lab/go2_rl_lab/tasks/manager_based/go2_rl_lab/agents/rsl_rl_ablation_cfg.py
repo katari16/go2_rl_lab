@@ -1310,3 +1310,38 @@ class AblationP35Cfg(LowLevelRunnerCfg):
                                "tcn_channels": [64, 64],
                                "tcn_kernel_size": 3,
                                "tcn_dilations": [1, 2]})
+
+
+# ── Q-series: bigger net + TCN + no-rec + est_acc, PAINT trapezoid ───────────
+# Q1: h=10  Q2: h=30
+# All: bigger enc [256,128]/[64,32], TCN pre [64,64] k=3 dil=[1,2],
+#      rec_loss=0.0, est_acc w=50, 30N/10Nm, PAINT trapezoid
+
+_Q_BASE = dict(
+    force_dim=4, yaw_loss_weight=3.0, rec_loss_weight=0.0,
+    enc_hidden_dims=[256, 128], f_head_dims=[64, 32],
+    tcn_mode="preprocessor", tcn_channels=[64, 64],
+    tcn_kernel_size=3, tcn_dilations=[1, 2],
+)
+
+
+@configclass
+class AblationQ1Cfg(LowLevelRunnerCfg):
+    """Q1: PAINT trap, h=10, bigger net, TCN pre, no rec loss, est acc w=50."""
+    experiment_name: str = "ablation_Q1_h10_4d_paint_trap_big_tcn_norec_estacc"
+    class_name: str = "CompliantOnPolicyRunner"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 30.0
+    max_torque: float = 10.0
+    estimator: dict = _est(**{**_Q_BASE, "temporal_steps": 10})
+
+
+@configclass
+class AblationQ2Cfg(LowLevelRunnerCfg):
+    """Q2: PAINT trap, h=30, bigger net, TCN pre, no rec loss, est acc w=50."""
+    experiment_name: str = "ablation_Q2_h30_4d_paint_trap_big_tcn_norec_estacc"
+    class_name: str = "CompliantOnPolicyRunner"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 30.0
+    max_torque: float = 10.0
+    estimator: dict = _est(**{**_Q_BASE, "temporal_steps": 30})

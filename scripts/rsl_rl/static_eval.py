@@ -161,34 +161,38 @@ def generate_plots(
 ) -> None:
     """Generate multi-panel evaluation plot and save next to checkpoint.
 
-    Panels: Force XY, Force Z (if 3D), Base velocity, Cmd velocity, Adjusted velocity.
+    One panel per force/torque component: Fx, Fy, Fz (if 3D+),
+    τ_roll, τ_pitch (if 6D), τ_yaw (if 4D+).
+    Velocity panels are omitted.
     """
     import matplotlib.pyplot as plt
     from datetime import datetime
 
     has_fz = "gt_force_z" in log and len(log["gt_force_z"]) > 0
     has_torque_yaw = "gt_torque_yaw" in log and len(log["gt_torque_yaw"]) > 0
+    has_torque_rp = "gt_torque_roll" in log and len(log["gt_torque_roll"]) > 0
 
     t = np.array(log["time_s"])
     gt_fx = np.array(log["gt_force_x"])
     gt_fy = np.array(log["gt_force_y"])
     est_fx = np.array(log["est_force_x"])
     est_fy = np.array(log["est_force_y"])
-    base_vx = np.array(log["base_vel_x"])
-    base_vy = np.array(log["base_vel_y"])
-    cmd_vx = np.array(log["cmd_vel_x"])
-    cmd_vy = np.array(log["cmd_vel_y"])
-    adj_vx = np.array(log["adj_vel_x"])
-    adj_vy = np.array(log["adj_vel_y"])
     rerandom = log["rerandom_steps"]
 
-    has_torque_rp = "gt_torque_roll" in log and len(log["gt_torque_roll"]) > 0
-    n_panels = 4 + (1 if has_fz else 0) + (1 if has_torque_yaw else 0) + (1 if has_torque_rp else 0)
+    # Count panels: Fx, Fy always; Fz if 3D+; τ_roll, τ_pitch if 6D; τ_yaw if 4D+
+    n_panels = (
+        2
+        + (1 if has_fz else 0)
+        + (2 if has_torque_rp else 0)
+        + (1 if has_torque_yaw else 0)
+    )
     fig, axes = plt.subplots(n_panels, 1, figsize=(14, 3 * n_panels), sharex=True)
+    if n_panels == 1:
+        axes = [axes]
     k_str = f"k={compliance_k:.4f}" if compliance_k > 0 else "k=0 (disabled)"
     fig.suptitle(
         f"Static Force Eval — [{force_min:.0f}, {force_max:.0f}] N/axis — EMA \u03b1={ema_alpha} — {k_str}"
-        + (" (6D wrench)" if has_torque_yaw else " (XYZ)" if has_fz else ""),
+        + (" (6D wrench)" if has_torque_rp else " (4D)" if has_torque_yaw else " (XYZ)" if has_fz else " (XY)"),
         fontsize=14,
         fontweight="bold",
     )
@@ -200,93 +204,78 @@ def generate_plots(
 
     panel = 0
 
-    # ── Panel: Applied force XY ──────────────────────────────────────────
+    # ── Panel: Fx ────────────────────────────────────────────────────────
     ax = axes[panel]
     ax.plot(t, gt_fx, color="tab:red", linewidth=1.2, alpha=0.9, label="GT Fx")
-    ax.plot(t, gt_fy, color="darkred", linewidth=1.2, alpha=0.9, label="GT Fy")
     ax.plot(t, est_fx, color="tab:red", linewidth=0.8, alpha=0.5, linestyle="--", label="Est Fx")
-    ax.plot(t, est_fy, color="darkred", linewidth=0.8, alpha=0.5, linestyle="--", label="Est Fy")
     ax.set_ylabel("Force (N)")
-    ax.legend(loc="upper right", fontsize=9, ncol=2)
+    ax.legend(loc="upper right", fontsize=9)
     ax.grid(True, alpha=0.3)
-    ax.set_title("Applied Force XY: GT (solid) vs Estimated (dashed)", fontsize=11)
+    ax.set_title("Fx: GT (solid) vs Estimated (dashed)", fontsize=11)
     panel += 1
 
-    # ── Panel: Applied force Z (only if 3D) ──────────────────────────────
+    # ── Panel: Fy ────────────────────────────────────────────────────────
+    ax = axes[panel]
+    ax.plot(t, gt_fy, color="darkred", linewidth=1.2, alpha=0.9, label="GT Fy")
+    ax.plot(t, est_fy, color="darkred", linewidth=0.8, alpha=0.5, linestyle="--", label="Est Fy")
+    ax.set_ylabel("Force (N)")
+    ax.legend(loc="upper right", fontsize=9)
+    ax.grid(True, alpha=0.3)
+    ax.set_title("Fy: GT (solid) vs Estimated (dashed)", fontsize=11)
+    panel += 1
+
+    # ── Panel: Fz (only if 3D+) ──────────────────────────────────────────
     if has_fz:
         gt_fz = np.array(log["gt_force_z"])
         est_fz = np.array(log["est_force_z"])
         ax = axes[panel]
         ax.plot(t, gt_fz, color="tab:purple", linewidth=1.2, alpha=0.9, label="GT Fz")
-        ax.plot(t, est_fz, color="purple", linewidth=0.8, alpha=0.5, linestyle="--", label="Est Fz")
+        ax.plot(t, est_fz, color="tab:purple", linewidth=0.8, alpha=0.5, linestyle="--", label="Est Fz")
         ax.set_ylabel("Force (N)")
         ax.legend(loc="upper right", fontsize=9)
         ax.grid(True, alpha=0.3)
-        ax.set_title("Applied Force Z: GT (solid) vs Estimated (dashed)", fontsize=11)
+        ax.set_title("Fz: GT (solid) vs Estimated (dashed)", fontsize=11)
         panel += 1
 
-    # ── Panel: Roll/pitch torque (only if 6D) ───────────────────────────
+    # ── Panel: τ_roll (only if 6D) ───────────────────────────────────────
     if has_torque_rp:
         gt_troll  = np.array(log["gt_torque_roll"])
-        gt_tpitch = np.array(log["gt_torque_pitch"])
-        est_troll  = np.array(log["est_torque_roll"])
-        est_tpitch = np.array(log["est_torque_pitch"])
+        est_troll = np.array(log["est_torque_roll"])
         ax = axes[panel]
-        ax.plot(t, gt_troll,   color="tab:orange",  linewidth=1.2, alpha=0.9, label="GT τ_roll")
-        ax.plot(t, gt_tpitch,  color="darkorange",  linewidth=1.2, alpha=0.9, label="GT τ_pitch")
-        ax.plot(t, est_troll,  color="tab:orange",  linewidth=0.8, alpha=0.5, linestyle="--", label="Est τ_roll")
-        ax.plot(t, est_tpitch, color="darkorange",  linewidth=0.8, alpha=0.5, linestyle="--", label="Est τ_pitch")
-        ax.set_ylabel("Torque (Nm)")
-        ax.legend(loc="upper right", fontsize=9, ncol=2)
-        ax.grid(True, alpha=0.3)
-        ax.set_title("Roll/Pitch Torque: GT (solid) vs Estimated (dashed)", fontsize=11)
-        panel += 1
-
-    # ── Panel: Yaw torque (only if 4D+) ─────────────────────────────────
-    if has_torque_yaw:
-        gt_tyaw = np.array(log["gt_torque_yaw"])
-        est_tyaw = np.array(log["est_torque_yaw"])
-        ax = axes[panel]
-        ax.plot(t, gt_tyaw, color="tab:brown", linewidth=1.2, alpha=0.9, label="GT τ_yaw")
-        ax.plot(t, est_tyaw, color="brown", linewidth=0.8, alpha=0.5, linestyle="--", label="Est τ_yaw")
+        ax.plot(t, gt_troll,  color="tab:orange", linewidth=1.2, alpha=0.9, label="GT τ_roll")
+        ax.plot(t, est_troll, color="tab:orange", linewidth=0.8, alpha=0.5, linestyle="--", label="Est τ_roll")
         ax.set_ylabel("Torque (Nm)")
         ax.legend(loc="upper right", fontsize=9)
         ax.grid(True, alpha=0.3)
-        ax.set_title("Yaw Torque: GT (solid) vs Estimated (dashed)", fontsize=11)
+        ax.set_title("τ_roll: GT (solid) vs Estimated (dashed)", fontsize=11)
         panel += 1
 
-    # ── Panel: Base velocity ─────────────────────────────────────────────
-    ax = axes[panel]
-    ax.plot(t, base_vx, color="tab:blue", linewidth=1.0, alpha=0.9, label="base vx")
-    ax.plot(t, base_vy, color="navy", linewidth=1.0, alpha=0.9, label="base vy")
-    ax.set_ylabel("Velocity (m/s)")
-    ax.legend(loc="upper right", fontsize=9)
-    ax.grid(True, alpha=0.3)
-    ax.set_title("Base Velocity (body frame)", fontsize=11)
-    panel += 1
+        # ── Panel: τ_pitch (only if 6D) ──────────────────────────────────
+        gt_tpitch  = np.array(log["gt_torque_pitch"])
+        est_tpitch = np.array(log["est_torque_pitch"])
+        ax = axes[panel]
+        ax.plot(t, gt_tpitch,  color="darkorange", linewidth=1.2, alpha=0.9, label="GT τ_pitch")
+        ax.plot(t, est_tpitch, color="darkorange", linewidth=0.8, alpha=0.5, linestyle="--", label="Est τ_pitch")
+        ax.set_ylabel("Torque (Nm)")
+        ax.legend(loc="upper right", fontsize=9)
+        ax.grid(True, alpha=0.3)
+        ax.set_title("τ_pitch: GT (solid) vs Estimated (dashed)", fontsize=11)
+        panel += 1
 
-    # ── Panel: Normal velocity command ───────────────────────────────────
-    ax = axes[panel]
-    ax.plot(t, cmd_vx, color="tab:green", linewidth=1.2, alpha=0.9, label="cmd vx")
-    ax.plot(t, cmd_vy, color="darkgreen", linewidth=1.2, alpha=0.9, label="cmd vy")
-    ax.set_ylabel("Velocity (m/s)")
-    ax.legend(loc="upper right", fontsize=9)
-    ax.grid(True, alpha=0.3)
-    ax.set_title("Normal Velocity Command", fontsize=11)
-    panel += 1
+    # ── Panel: τ_yaw (only if 4D+) ───────────────────────────────────────
+    if has_torque_yaw:
+        gt_tyaw  = np.array(log["gt_torque_yaw"])
+        est_tyaw = np.array(log["est_torque_yaw"])
+        ax = axes[panel]
+        ax.plot(t, gt_tyaw,  color="tab:brown", linewidth=1.2, alpha=0.9, label="GT τ_yaw")
+        ax.plot(t, est_tyaw, color="tab:brown", linewidth=0.8, alpha=0.5, linestyle="--", label="Est τ_yaw")
+        ax.set_ylabel("Torque (Nm)")
+        ax.legend(loc="upper right", fontsize=9)
+        ax.grid(True, alpha=0.3)
+        ax.set_title("τ_yaw: GT (solid) vs Estimated (dashed)", fontsize=11)
+        panel += 1
 
-    # ── Panel: Adjusted velocity command ─────────────────────────────────
-    ax = axes[panel]
-    ax.plot(t, adj_vx, color="goldenrod", linewidth=1.2, alpha=0.9, label="v* x")
-    ax.plot(t, adj_vy, color="darkgoldenrod", linewidth=1.2, alpha=0.9, label="v* y")
-    ax.plot(t, cmd_vx, color="tab:green", linewidth=0.6, alpha=0.4, linestyle="--", label="cmd vx")
-    ax.plot(t, cmd_vy, color="darkgreen", linewidth=0.6, alpha=0.4, linestyle="--", label="cmd vy")
-    ax.set_ylabel("Velocity (m/s)")
-    ax.set_xlabel("Time (s)")
-    ax.legend(loc="upper right", fontsize=9, ncol=2)
-    ax.grid(True, alpha=0.3)
-    ax.set_title(f"Adjusted Velocity: v* = v_cmd + {compliance_k:.4f} * F_hat_xy", fontsize=11)
-
+    axes[-1].set_xlabel("Time (s)")
     plt.tight_layout()
 
     eval_dir = os.path.join(os.path.dirname(checkpoint_path), "force_eval")
