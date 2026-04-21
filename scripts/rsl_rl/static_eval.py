@@ -68,6 +68,7 @@ parser.add_argument("--show_torque", action="store_true", default=False, help="S
 parser.add_argument("--trapezoid_cycle", action="store_true", default=False, help="Multi-cycle trapezoid force profile (ramp/hold/zero repeating within episode).")
 parser.add_argument("--trapezoid_paint", action="store_true", default=False, help="PAINT-style trapezoid: one ramp-up/hold/ramp-down per period, Cartesian per-axis sampling.")
 parser.add_argument("--paint_period", type=float, default=10.0, help="Period duration (s) for --trapezoid_paint (default: 10.0).")
+parser.add_argument("--follow_robot", action="store_true", default=False, help="Camera follows env 0 robot base each step.")
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -710,6 +711,14 @@ def main(
                 # ── Transform to world frame for arrow rendering ──────
                 base_pos = asset.data.root_pos_w[:n]
                 base_quat = asset.data.root_quat_w[:n]
+
+                # ── Camera follow env 0 ───────────────────────────────
+                if args_cli.follow_robot:
+                    p = base_pos[0].cpu().tolist()
+                    sim_utils.SimulationContext.instance().set_camera_view(
+                        eye=(p[0] - 2.0, p[1] - 2.0, p[2] + 1.5),
+                        target=(p[0], p[1], p[2] + 0.3),
+                    )
 
                 # ── Arrow direction vectors (body→world) ──────────────
                 fd3 = min(force_dim, 3)
