@@ -257,6 +257,12 @@ def _compute_metrics(all_gt_np, all_est_np, force_dim, dim_labels, no_active_mas
         rel_per_step = norm_err[rel_mask] / gt_mag[rel_mask] * 100
         rel_err = float(np.mean(rel_per_step))
 
+    # Relative error without the 1N mask (exclude only literal zeros to avoid div/0)
+    nonzero_mask = gt_mag > 0.01
+    rel_err_no_mask = 0.0
+    if nonzero_mask.any():
+        rel_err_no_mask = float(np.mean(norm_err[nonzero_mask] / gt_mag[nonzero_mask] * 100))
+
     per_axis_mae = {}
     for d in range(force_dim):
         axis_ae = np.abs(err[:, :, d])
@@ -272,11 +278,11 @@ def _compute_metrics(all_gt_np, all_est_np, force_dim, dim_labels, no_active_mas
     angular_mean = float(np.mean(angle_err_deg[xy_mask])) if has_xy else 0.0
     angular_median = float(np.median(angle_err_deg[xy_mask])) if has_xy else 0.0
 
-    force_indices = list(range(min(force_dim, 3)))
-    torque_indices = list(range(3, force_dim))
+    force_indices = [d for d in range(force_dim) if "τ" not in dim_labels[d]]
+    torque_indices = [d for d in range(force_dim) if "τ" in dim_labels[d]]
 
-    gt_force_mag = np.linalg.norm(all_gt_np[:, :, :min(force_dim, 3)], axis=2)
-    est_force_mag = np.linalg.norm(all_est_np[:, :, :min(force_dim, 3)], axis=2)
+    gt_force_mag = np.linalg.norm(all_gt_np[:, :, force_indices], axis=2)
+    est_force_mag = np.linalg.norm(all_est_np[:, :, force_indices], axis=2)
     force_mag_err = np.abs(est_force_mag - gt_force_mag)
     force_mag_mask = gt_force_mag > 1.0
     force_mag_mae = float(np.mean(force_mag_err[force_mag_mask])) if force_mag_mask.any() else 0.0
@@ -285,6 +291,7 @@ def _compute_metrics(all_gt_np, all_est_np, force_dim, dim_labels, no_active_mas
         "mae": mae,
         "median_ae": median_ae,
         "relative_err_pct": rel_err,
+        "relative_err_no_mask_pct": rel_err_no_mask,
         "angular_err_xy_deg_mean": angular_mean,
         "angular_err_xy_deg_median": angular_median,
         "per_axis_mae": per_axis_mae,
@@ -362,6 +369,7 @@ def main(
     asset, base_idx = get_asset_and_base(isaac_env)
 
     force_dim = ctx["force_dim"]
+    force_layout = ctx.get("force_layout", "auto")
     has_estimator = ctx["has_estimator"]
 
     # Arrow markers — only when not headless
@@ -378,7 +386,10 @@ def main(
     max_steps = int(args_cli.duration / dt)
     warmup_steps = int(args_cli.warmup_s / dt)
     compliance_k = args_cli.compliance_k
-    dim_labels = DIM_LABELS.get(force_dim, [f"d{i}" for i in range(force_dim)])
+    if force_layout == "xy_yaw" and force_dim == 3:
+        dim_labels = ["Fx", "Fy", "τ_yaw"]
+    else:
+        dim_labels = DIM_LABELS.get(force_dim, [f"d{i}" for i in range(force_dim)])
 
     print(f"\n{'=' * 70}")
     print(f"  Rollout Estimator Evaluation")
@@ -456,7 +467,7 @@ def main(
             obs, _ = step_policy(obs, ctx, env, runner, isaac_env, n,
                                  runner_class_name, compliance_k, args_cli.ema_alpha)
 
-            gt = read_gt_force(asset, base_idx, force_dim, n)
+            gt = read_gt_force(asset, base_idx, force_dim, n, force_layout=force_layout)
             est = isaac_env._force_estimate_xy[:n]
             all_gt[step] = gt
             all_est[step] = est
@@ -628,44 +639,154 @@ def main(
             plt.tight_layout()
             figures.append(fig)
 
-    # ── Combined metrics summary table ──────────────────────────────────
+    # ── Structured metrics summary page ──────────────────────────────────
     baskets = list(all_basket_metrics.keys())
-    headers = ["Metric"] + baskets
-    row_keys = [
-        ("MAE total (per-dim)", "mae"),
-        ("MAE force (N)", "force_mae"),
-        ("MAE torque (Nm)", "torque_mae"),
-        ("Median AE per-dim", "median_ae"),
-        ("Rel Err (%)", "relative_err_pct"),
-        ("Ang Err XY (°)", "angular_err_xy_deg_mean"),
-        ("Force mag MAE (N)", "force_mag_mae"),
-    ]
-    for d in range(force_dim):
-        unit = "Nm" if d >= 3 else "N"
-        row_keys.append((f"MAE {dim_labels[d]} ({unit})", None))
 
-    table_rows = []
-    for label, key in row_keys:
-        row = [label]
-        for bk in baskets:
-            m = all_basket_metrics[bk]
-            if key is not None:
-                v = m[key]
-                row.append(f"{v:.3f}" if isinstance(v, float) else ("—" if v is None else str(v)))
-            else:
-                d_label = label.split("MAE ")[1].split(" (")[0]
-                row.append(f"{m['per_axis_mae'][d_label]:.3f}")
-        table_rows.append(row)
+    if training_regime:
+        force_range_str = f"Force range: 0–{max_force_cfg:.0f} N"
+    else:
+        force_range_str = "Force ranges: " + ", ".join(f"{b:.0f} N" for b in args_cli.force_baskets)
 
-    fig, ax = plt.subplots(figsize=(4 + 3 * len(baskets), 2 + len(table_rows) * 0.5))
+    force_axes = [(d, dim_labels[d]) for d in range(force_dim) if "τ" not in dim_labels[d]]
+    torque_axes = [(d, dim_labels[d]) for d in range(force_dim) if "τ" in dim_labels[d]]
+    has_torque = len(torque_axes) > 0
+
+    fig, ax = plt.subplots(figsize=(5 + 2.5 * len(baskets), 11))
     ax.axis("off")
-    table = ax.table(cellText=table_rows, colLabels=headers, loc="center", cellLoc="center")
-    table.auto_set_font_size(False)
-    table.set_fontsize(10)
-    table.scale(1, 1.5)
-    fig.suptitle(f"Rollout Estimator Metrics — {args_cli.task}\n{n} envs × {args_cli.duration}s",
-                 fontsize=14, fontweight="bold")
-    plt.tight_layout()
+    fig.suptitle(
+        f"Rollout Estimator Metrics — {args_cli.task}\n"
+        f"{n} envs × {args_cli.duration}s   |   {force_range_str}",
+        fontsize=13, fontweight="bold", y=0.98,
+    )
+
+    col_x = [0.45 + i * (0.5 / max(len(baskets), 1)) for i in range(len(baskets))]
+    label_x = 0.03
+    lh = 0.048   # line height
+    sh = 0.028   # sub-line height (formula / label indent)
+    gap = 0.022  # section gap
+
+    def txt(x, y, s, **kw):
+        ax.text(x, y, s, transform=ax.transAxes, va="top", clip_on=False, **kw)
+
+    y = 0.91
+
+    # basket column headers
+    for i, bk in enumerate(baskets):
+        txt(col_x[i], y, bk, ha="center", fontsize=11, fontweight="bold", color="steelblue")
+    y -= lh * 1.3
+
+    # axis-specific max ranges for normalization
+    def _axis_range(lbl):
+        if "τ" in lbl:
+            return float(max_torque_cfg), "Nm"
+        if "Fz" in lbl:
+            return float(max_force_cfg) * float(fz_scale), "N"
+        return float(max_force_cfg), "N"
+
+    # ── 1. Per-axis MAE ──────────────────────────────────────────────
+    txt(label_x, y, "Per-axis Mean Absolute Error", ha="left", fontsize=11, fontweight="bold")
+    y -= lh * 0.85
+
+    for d, lbl in force_axes:
+        ax_max, unit = _axis_range(lbl)
+        txt(label_x + 0.02, y, f"{lbl}  (max: {ax_max:.0f} {unit})",
+            ha="left", fontsize=10, color="dimgray")
+        for i, bk in enumerate(baskets):
+            v = all_basket_metrics[bk]["per_axis_mae"][lbl]
+            norm_pct = v / ax_max * 100 if ax_max > 0 else 0.0
+            txt(col_x[i], y, f"{v:.3f} {unit}  ({norm_pct:.1f}%)", ha="center", fontsize=10)
+        y -= lh * 0.85
+
+    if has_torque:
+        for d, lbl in torque_axes:
+            ax_max, unit = _axis_range(lbl)
+            txt(label_x + 0.02, y, f"{lbl}  (max: {ax_max:.1f} {unit})",
+                ha="left", fontsize=10, color="dimgray")
+            for i, bk in enumerate(baskets):
+                v = all_basket_metrics[bk]["per_axis_mae"][lbl]
+                norm_pct = v / ax_max * 100 if ax_max > 0 else 0.0
+                txt(col_x[i], y, f"{v:.3f} {unit}  ({norm_pct:.1f}%)", ha="center", fontsize=10)
+            y -= lh * 0.85
+
+    y -= gap
+
+    # ── 2. Directional error ─────────────────────────────────────────
+    txt(label_x, y, "Directional Error in XY Plane", ha="left", fontsize=11, fontweight="bold")
+    y -= sh
+    txt(label_x + 0.02, y, "Median Angular Error", ha="left", fontsize=9,
+        style="italic", color="dimgray")
+    y -= sh * 0.9
+    for i, bk in enumerate(baskets):
+        v = all_basket_metrics[bk]["angular_err_xy_deg_median"]
+        txt(col_x[i], y, f"{v:.2f}°", ha="center", fontsize=10)
+    y -= lh * 0.8
+    y -= gap
+
+    # ── 3. Relative error ────────────────────────────────────────────
+    txt(label_x, y, "Relative Error", ha="left", fontsize=11, fontweight="bold")
+    y -= sh
+
+    txt(label_x + 0.02, y, "mean( ‖est − gt‖₂ / ‖gt‖₂ ) × 100   [‖gt‖ > 1 N]",
+        ha="left", fontsize=8, style="italic", color="dimgray")
+    y -= sh * 0.85
+    for i, bk in enumerate(baskets):
+        v = all_basket_metrics[bk]["relative_err_pct"]
+        txt(col_x[i], y, f"{v:.1f} %", ha="center", fontsize=10)
+    y -= lh * 0.75
+
+    txt(label_x + 0.02, y, "mean( ‖est − gt‖₂ / ‖gt‖₂ ) × 100   [‖gt‖ > 0.01 N, no mask]",
+        ha="left", fontsize=8, style="italic", color="dimgray")
+    y -= sh * 0.85
+    for i, bk in enumerate(baskets):
+        v = all_basket_metrics[bk]["relative_err_no_mask_pct"]
+        txt(col_x[i], y, f"{v:.1f} %", ha="center", fontsize=10)
+    y -= lh * 0.75
+
+    txt(label_x + 0.02, y, "force_mae / max_force × 100   [range-normalized]",
+        ha="left", fontsize=8, style="italic", color="dimgray")
+    y -= sh * 0.85
+    for i, bk in enumerate(baskets):
+        v = all_basket_metrics[bk]["force_mae"] / max_force_cfg * 100 if max_force_cfg > 0 else 0.0
+        txt(col_x[i], y, f"{v:.1f} %", ha="center", fontsize=10)
+    y -= lh * 0.8
+    y -= gap
+
+    # ── 4. MAE Force ─────────────────────────────────────────────────
+    txt(label_x, y, "MAE Force Total", ha="left", fontsize=11, fontweight="bold")
+    y -= sh
+    txt(label_x + 0.02, y, "mean over (Fx, Fy, Fz) of  mean(|est_d − gt_d|)",
+        ha="left", fontsize=8, style="italic", color="dimgray")
+    y -= sh * 0.9
+    for i, bk in enumerate(baskets):
+        v = all_basket_metrics[bk]["force_mae"]
+        txt(col_x[i], y, f"{v:.3f} N", ha="center", fontsize=10)
+    y -= lh * 0.8
+
+    if has_torque:
+        y -= gap
+        txt(label_x, y, "MAE Torque Total", ha="left", fontsize=11, fontweight="bold")
+        y -= sh
+        txt(label_x + 0.02, y, "mean over torque axes of  mean(|est_d − gt_d|)",
+            ha="left", fontsize=8, style="italic", color="dimgray")
+        y -= sh * 0.9
+        for i, bk in enumerate(baskets):
+            v = all_basket_metrics[bk]["torque_mae"]
+            txt(col_x[i], y, f"{v:.3f} Nm" if v is not None else "—", ha="center", fontsize=10)
+        y -= lh * 0.8
+
+    y -= gap
+
+    # ── 5. MAE Total ─────────────────────────────────────────────────
+    txt(label_x, y, "MAE Total (all dims)", ha="left", fontsize=12, fontweight="bold")
+    y -= sh
+    txt(label_x + 0.02, y, "mean over all dims of  mean(|est_d − gt_d|)",
+        ha="left", fontsize=8, style="italic", color="dimgray")
+    y -= sh * 0.9
+    for i, bk in enumerate(baskets):
+        v = all_basket_metrics[bk]["mae"]
+        txt(col_x[i], y, f"{v:.3f}", ha="center", fontsize=12, fontweight="bold")
+
+    plt.tight_layout(rect=[0, 0, 1, 0.95])
     figures.append(fig)
 
     # ── Save everything ─────────────────────────────────────────────────

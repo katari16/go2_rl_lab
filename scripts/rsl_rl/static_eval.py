@@ -358,7 +358,18 @@ def main(
         force_event.params["force_range"] = (0.0, 0.0)
         force_event.interval_range_s = (1e6, 1e6)
     else:
-        # Constant persistent wrench: re-randomize every 1-3s
+        # Constant persistent wrench: re-randomize every 1-3s.
+        # Always override func so trapezoid-trained tasks (apply_trapezoid_wrench,
+        # apply_paint_trapezoid_wrench) get a simple constant force for eval.
+        if is_wrench:
+            from go2_rl_lab.tasks.manager_based.go2_rl_lab.mdp.events import apply_persistent_wrench
+            force_event.func = apply_persistent_wrench
+            force_event.params = {
+                "asset_cfg": SceneEntityCfg("robot", body_names="base"),
+                "force_range": (0.0, 0.0) if args_cli.torque_only else (args_cli.force_min, args_cli.force_max),
+                "fz_scale": 0.8,
+                "torque_range": (args_cli.torque_min, args_cli.torque_max),
+            }
         force_event.interval_range_s = (1.0, 3.0)
 
     # Override the reset event to also apply forces on episode start.
@@ -427,6 +438,17 @@ def main(
     runner.load(resume_path)
     runner.eval_mode()
 
+    # runner.load() may set force_range=(0, max_force) on the live event — restore our eval range.
+    if is_wrench and not args_cli.trapezoid_cycle and not args_cli.trapezoid_paint:
+        try:
+            isaac_env_raw = env.unwrapped
+            live_event = isaac_env_raw.event_manager.get_term_cfg(force_event_name)
+            live_event.params["force_range"] = (0.0, 0.0) if args_cli.torque_only else (args_cli.force_min, args_cli.force_max)
+            if "torque_range" in live_event.params:
+                live_event.params["torque_range"] = (args_cli.torque_min, args_cli.torque_max)
+        except Exception:
+            pass
+
     # Switch to the estimator-wrapped env so policy gets augmented obs
     if hasattr(runner, "_wrapped_env"):
         env = runner._wrapped_env
@@ -447,8 +469,10 @@ def main(
     if runner_mode == "compliant":
         compliant_raw_obs_dim = runner._num_one_step_obs
 
-    # Detect force dimension from runner
+    # Detect force dimension and layout from runner
     force_dim = getattr(runner, "_force_dim", 2)
+    force_layout = getattr(runner.estimator, "force_layout", "auto") if hasattr(runner, "estimator") else "auto"
+    is_xy_yaw = (force_layout == "xy_yaw" and force_dim == 3)
 
     policy = runner.get_inference_policy(device=env.unwrapped.device)
     try:
@@ -529,10 +553,10 @@ def main(
         "adj_vel_y": [],
         "rerandom_steps": [],
     }
-    if force_dim >= 3:
+    if force_dim >= 3 and not is_xy_yaw:
         plot_log["gt_force_z"] = []
         plot_log["est_force_z"] = []
-    if force_dim >= 4:
+    if force_dim >= 4 or is_xy_yaw:
         plot_log["gt_torque_yaw"] = []
         plot_log["est_torque_yaw"] = []
     if force_dim >= 6:
@@ -542,7 +566,7 @@ def main(
         plot_log["est_torque_pitch"] = []
     prev_gt_xy = None
     fd3 = min(force_dim, 3)
-    yaw_idx = {4: 3, 6: 5}.get(force_dim, None)
+    yaw_idx = 2 if is_xy_yaw else {4: 3, 6: 5}.get(force_dim, None)
 
     print(f"\n{'=' * 70}")
     print(f"  Runner      : {runner_class_name} ({runner_mode})")
@@ -646,7 +670,11 @@ def main(
                         plot_log["rerandom_steps"].append(step_count)
 
                 # ── GT force (body frame from wrench composer) ─────────
-                if force_dim <= 3:
+                if is_xy_yaw:
+                    gt_f2 = asset.permanent_wrench_composer.composed_force_as_torch[:n, base_idx, :2]
+                    gt_tz = asset.permanent_wrench_composer.composed_torque_as_torch[:n, base_idx, 2:3]
+                    gt_force_body = torch.cat([gt_f2, gt_tz], dim=-1)
+                elif force_dim <= 3:
                     gt_force_body = asset.permanent_wrench_composer.composed_force_as_torch[
                         :n, base_idx, :force_dim
                     ]
@@ -776,7 +804,7 @@ def main(
                 plot_log["gt_force_y"].append(g0[1].item())
                 plot_log["est_force_x"].append(e0[0].item())
                 plot_log["est_force_y"].append(e0[1].item())
-                if force_dim >= 3:
+                if force_dim >= 3 and not is_xy_yaw:
                     plot_log["gt_force_z"].append(g0[2].item())
                     plot_log["est_force_z"].append(e0[2].item())
                 if yaw_idx is not None:

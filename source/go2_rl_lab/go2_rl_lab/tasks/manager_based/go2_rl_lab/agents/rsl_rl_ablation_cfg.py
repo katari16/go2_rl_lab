@@ -1345,3 +1345,47 @@ class AblationQ2Cfg(LowLevelRunnerCfg):
     max_force: float = 30.0
     max_torque: float = 10.0
     estimator: dict = _est(**{**_Q_BASE, "temporal_steps": 30})
+
+
+# ── R-series: 6D wrench, persistent wrench, h=30, bigger net, TCN, no rec ────
+# R1: no est-acc reward   R2: est-acc reward w=50
+# persistent_wrench: fz_scale=0.8, force_free_fraction=0.05, 30N/10Nm
+# enc=[256,128], f_head=[64,32], TCN pre [64,64] k=3 dil=[1,2], rec_loss=0.0
+
+_R_BASE = dict(
+    force_dim=6,
+    temporal_steps=30,
+    enc_hidden_dims=[256, 128],
+    f_head_dims=[64, 32],
+    rec_loss_weight=0.0,
+    angle_loss_weight=3.0,
+    torque_angle_loss_weight=3.0,
+    torque_angle_min=0.3,
+    yaw_loss_weight=3.0,
+    tcn_mode="preprocessor",
+    tcn_channels=[64, 64],
+    tcn_kernel_size=3,
+    tcn_dilations=[1, 2],
+)
+
+
+@configclass
+class AblationR1Cfg(LowLevelRunnerCfg):
+    """R1: 6D wrench, h=30, bigger net, TCN pre, no rec loss, no est-acc reward."""
+    experiment_name: str = "ablation_R1_h30_6d_big_tcn_norec"
+    class_name: str = "CompliantOnPolicyRunner"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 30.0
+    max_torque: float = 10.0
+    estimator: dict = _est(**_R_BASE)
+
+
+@configclass
+class AblationR2Cfg(LowLevelRunnerCfg):
+    """R2: 6D wrench, h=30, bigger net, TCN pre, no rec loss, est-acc reward w=50."""
+    experiment_name: str = "ablation_R2_h30_6d_big_tcn_norec_estacc"
+    class_name: str = "CompliantOnPolicyRunner"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 30.0
+    max_torque: float = 10.0
+    estimator: dict = _est(**_R_BASE)

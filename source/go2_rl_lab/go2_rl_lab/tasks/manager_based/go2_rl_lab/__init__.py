@@ -661,6 +661,30 @@ gym.register(
 )
 
 
+# ── R-series: 6D wrench, persistent wrench, bigger net, TCN pre, no rec ──────
+# R1: no est-acc reward   R2: with est-acc reward w=50
+
+gym.register(
+    id="Go2-Ablation-R1-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:PSeriesWrenchEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:AblationR1Cfg",
+    },
+)
+
+gym.register(
+    id="Go2-Ablation-R2-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:PSeriesEstAccW50EnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:AblationR2Cfg",
+    },
+)
+
+
 # ── High-level non-linear sweep: 8 variations (R1-R8) ───────────────────────
 # 2x2x2: reward type (penalty/positive) x gravity correction x tracking reward
 for _r in range(1, 9):

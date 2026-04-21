@@ -192,13 +192,17 @@ def clear_force(asset, base_idx, device, n):
     )
 
 
-def read_gt_force(asset, base_idx, force_dim, n):
+def read_gt_force(asset, base_idx, force_dim, n, force_layout="auto"):
     """Read GT from permanent_wrench_composer.
 
     Returns:
         Tensor [n, force_dim].
     """
-    if force_dim <= 3:
+    if force_layout == "xy_yaw" and force_dim == 3:
+        gt_f = asset.permanent_wrench_composer.composed_force_as_torch[:n, base_idx, :2]
+        gt_t = asset.permanent_wrench_composer.composed_torque_as_torch[:n, base_idx, 2:3]
+        gt = torch.cat([gt_f, gt_t], dim=-1)
+    elif force_dim <= 3:
         gt = asset.permanent_wrench_composer.composed_force_as_torch[:n, base_idx, :force_dim]
     elif force_dim == 4:
         gt_f = asset.permanent_wrench_composer.composed_force_as_torch[:n, base_idx, :3]
