@@ -487,10 +487,10 @@ if __name__ == "__main__":
             if do_print:
                 n_lin = 2 if force_layout == "xy_yaw" else min(force_dim, 3)
                 f_str = ",".join(f"{force_hat[i]:+.1f}" for i in range(n_lin))
-                extra = f"  τ_yaw={force_hat[yaw_idx]:+.2f}" if yaw_idx is not None else ""
+                extra = f"  τ_yaw_hat={force_hat[yaw_idx]:+.2f}  τ_yaw_ema={force_ema[yaw_idx]:+.2f}  wz_injected={compliance_k_yaw * force_ema[yaw_idx]:+.3f}  wz_obs={obs_for_policy[8]:+.3f}" if yaw_idx is not None else ""
                 print(f"[step {step_count}] cmd=[{velocity_cmd[0]:.1f},{velocity_cmd[1]:.1f},{velocity_cmd[2]:.1f}]"
                       f"  F_hat=[{f_str}]  |F|={np.linalg.norm(force_hat[:n_lin]):.1f}N{extra}"
-                      f"  gravity={raw_obs[3:6].round(3)}"
+                      f"  mode={compliance_mode}"
                       f"  action_norm={np.linalg.norm(action):.3f}")
 
             # ── Check stop ────────────────────────────────────────────
