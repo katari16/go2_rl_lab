@@ -119,6 +119,53 @@ class ForceEstimatorDeployment:
         return force_hat[0].cpu().numpy()
 
 
+# ── Recording helper ──────────────────────────────────────────────────────────
+
+def _save_recording(buf, index, config_name, control_dt, force_dim, yaw_idx):
+    if len(buf) < 2:
+        print("[recording] Too short to save, skipping.")
+        return
+    import csv
+    log_dir = Path(__file__).resolve().parent / "logs" / "recordings"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    stem = config_name.replace(".yaml", "")
+    base = log_dir / f"{stem}_rec{index:02d}_{ts}"
+
+    # JSON — full data including per-dim force
+    with open(str(base) + ".json", "w") as f:
+        json.dump({
+            "config": config_name,
+            "control_dt": control_dt,
+            "force_dim": force_dim,
+            "has_yaw": yaw_idx is not None,
+            "num_steps": len(buf),
+            "steps": buf,
+        }, f, indent=2)
+
+    # CSV — compact timeseries: t, Fx_hat, Fy_hat, Fz_hat, tau_yaw_hat, force_mag, force_mag_ema, wz_obs
+    force_labels = [f"F{ax}_hat" for ax in ["x", "y", "z"][:min(force_dim, 3)]]
+    if yaw_idx is not None:
+        force_labels += ["tau_yaw_hat", "tau_yaw_ema"]
+    fieldnames = ["t", *force_labels, "force_mag", "force_mag_ema", "wz_obs", "vx_cmd", "vy_cmd", "wz_cmd", "compliance_mode"]
+    with open(str(base) + ".csv", "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=fieldnames)
+        w.writeheader()
+        for row in buf:
+            r = {"t": row["t"], "force_mag": row["force_mag"],
+                 "force_mag_ema": row["force_mag_ema"], "wz_obs": row["wz_obs"],
+                 "vx_cmd": row["velocity_cmd"][0], "vy_cmd": row["velocity_cmd"][1],
+                 "wz_cmd": row["velocity_cmd"][2], "compliance_mode": row["compliance_mode"]}
+            for i, lbl in enumerate([f"F{ax}_hat" for ax in ["x", "y", "z"][:min(force_dim, 3)]]):
+                r[lbl] = row["force_hat"][i]
+            if yaw_idx is not None:
+                r["tau_yaw_hat"] = row["tau_yaw_hat"]
+                r["tau_yaw_ema"] = row["tau_yaw_ema"]
+            w.writerow(r)
+
+    print(f"[recording] Saved {len(buf)} steps → {base}.json / .csv")
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -345,6 +392,8 @@ if __name__ == "__main__":
     prev_b_button = 0
     prev_y_button = 0
     prev_x_button = 0
+    recording_buf = []
+    recording_index = 0
     estimator.reset()
 
     try:
@@ -437,12 +486,33 @@ if __name__ == "__main__":
 
             send_cmd()
 
-            # ── B button: toggle recording marker ─────────────────────
+            # ── Append to recording buffer if active ──────────────────
+            if sim_real_recording:
+                recording_buf.append({
+                    "t": len(recording_buf) * control_dt,
+                    "force_hat": force_hat.tolist(),
+                    "force_ema": force_ema.tolist(),
+                    "force_mag": float(np.linalg.norm(force_hat[:min(force_dim, 3)])),
+                    "force_mag_ema": float(np.linalg.norm(force_ema[:min(force_dim, 3)])),
+                    "tau_yaw_hat": float(force_hat[yaw_idx]) if yaw_idx is not None else 0.0,
+                    "tau_yaw_ema": float(force_ema[yaw_idx]) if yaw_idx is not None else 0.0,
+                    "wz_obs": float(obs_for_policy[8]),
+                    "velocity_cmd": velocity_cmd.tolist(),
+                    "compliance_mode": compliance_mode,
+                })
+
+            # ── B button: toggle recording ────────────────────────────
             b_now = remote_controller.button[KeyMap.B]
             if b_now == 1 and prev_b_button == 0:
                 sim_real_recording = not sim_real_recording
-                tag = "ON" if sim_real_recording else "OFF"
-                print(f"[step {step_count}] *** Recording marker {tag} ***", flush=True)
+                if sim_real_recording:
+                    recording_buf = []
+                    print(f"[step {step_count}] *** Recording ON ***", flush=True)
+                else:
+                    _save_recording(recording_buf, recording_index, args.config, control_dt, force_dim, yaw_idx)
+                    recording_index += 1
+                    print(f"[step {step_count}] *** Recording OFF — saved segment {recording_index} ({len(recording_buf)} steps) ***", flush=True)
+                    recording_buf = []
             prev_b_button = b_now
 
             # ── Y button: toggle compliance OFF / normal ──────────────
@@ -503,6 +573,10 @@ if __name__ == "__main__":
 
     except KeyboardInterrupt:
         print("\nCtrl+C received.")
+
+    # ── Save any active recording segment ────────────────────────────────
+    if recording_buf:
+        _save_recording(recording_buf, recording_index, args.config, control_dt, force_dim, yaw_idx)
 
     # ══════════════════════════════════════════════════════════════════════
     # FSM STATE 5: LIE DOWN
