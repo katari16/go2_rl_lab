@@ -117,6 +117,12 @@ RUNS = [
      "4D (Fx,Fy,Fz,τ_yaw) | h=10 | max_force=30N, max_torque=10Nm | bigger net enc=[256,128] | TCN pre | no rec | est acc w=50"),
     ("Q2", "ablation_Q2_h30_4d_paint_trap_big_tcn_norec_estacc",
      "4D (Fx,Fy,Fz,τ_yaw) | h=30 | max_force=30N, max_torque=10Nm | bigger net enc=[256,128] | TCN pre | no rec | est acc w=50"),
+
+    # ── R-series: 6D big TCN no-rec (± est_acc), PAINT trapezoid ──────────
+    ("R1", "ablation_R1_h30_6d_big_tcn_norec",
+     "6D wrench | h=30 | max_force=30N, max_torque=10Nm | bigger net enc=[256,128] | TCN pre | no rec"),
+    ("R2", "ablation_R2_h30_6d_big_tcn_norec_estacc",
+     "6D wrench | h=30 | max_force=30N, max_torque=10Nm | bigger net enc=[256,128] | TCN pre | no rec | est acc w=50"),
 ]
 
 
