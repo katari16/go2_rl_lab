@@ -635,3 +635,27 @@ class PSeriesPaintTrapezoidBothRewardsEnvCfg(PSeriesPaintTrapezoidEnvCfg):
     """PAINT trapezoid + compliance(B=30,σ=0.25) + est acc(w=50) — for P34."""
 
     rewards = _p_both_rewards_b30()()
+
+
+# ── R3: R1 variant with fixed base mass (no mass randomization) ──────────────
+
+@configclass
+class PSeriesNoMassRandEventCfg(PSeriesWrenchEventCfg):
+    """P-series wrench + fixed base mass (mass_distribution_params=(0,0))."""
+
+    add_base_mass = EventTerm(
+        func=mdp.randomize_rigid_body_mass,
+        mode="startup",
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names="base"),
+            "mass_distribution_params": (0.0, 0.0),
+            "operation": "add",
+        },
+    )
+
+
+@configclass
+class PSeriesNoMassRandEnvCfg(PSeriesWrenchEnvCfg):
+    """P-series env with fixed base mass — for R3."""
+
+    events: PSeriesNoMassRandEventCfg = PSeriesNoMassRandEventCfg()

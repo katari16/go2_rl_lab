@@ -1389,3 +1389,14 @@ class AblationR2Cfg(LowLevelRunnerCfg):
     max_force: float = 30.0
     max_torque: float = 10.0
     estimator: dict = _est(**_R_BASE)
+
+
+@configclass
+class AblationR3Cfg(LowLevelRunnerCfg):
+    """R3: R1 variant with fixed base mass (no mass randomization)."""
+    experiment_name: str = "ablation_R3_h30_6d_big_tcn_norec_nomassrand"
+    class_name: str = "CompliantOnPolicyRunner"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 30.0
+    max_torque: float = 10.0
+    estimator: dict = _est(**_R_BASE)

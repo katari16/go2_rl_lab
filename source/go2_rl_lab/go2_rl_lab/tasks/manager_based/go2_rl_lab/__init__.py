@@ -684,6 +684,17 @@ gym.register(
     },
 )
 
+# R3: R1 variant with fixed base mass (no mass randomization)
+gym.register(
+    id="Go2-Ablation-R3-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:PSeriesNoMassRandEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:AblationR3Cfg",
+    },
+)
+
 
 # ── High-level non-linear sweep: 8 variations (R1-R8) ───────────────────────
 # 2x2x2: reward type (penalty/positive) x gravity correction x tracking reward
