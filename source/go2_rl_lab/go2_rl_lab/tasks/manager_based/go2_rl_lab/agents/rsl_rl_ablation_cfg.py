@@ -1400,3 +1400,14 @@ class AblationR3Cfg(LowLevelRunnerCfg):
     max_force: float = 30.0
     max_torque: float = 10.0
     estimator: dict = _est(**_R_BASE)
+
+
+@configclass
+class Ablation6DctrlCfg(LowLevelRunnerCfg):
+    """6Dctrl: R1 + commanded roll/pitch/height (UniformVelocityPoseCommand)."""
+    experiment_name: str = "ablation_6Dctrl_h30_6d_big_tcn_norec_posecmd"
+    class_name: str = "CompliantOnPolicyRunner"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 30.0
+    max_torque: float = 10.0
+    estimator: dict = _est(**_R_BASE)

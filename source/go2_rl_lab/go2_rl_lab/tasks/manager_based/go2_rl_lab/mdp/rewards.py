@@ -90,14 +90,45 @@ def base_pose_penalty(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg, desired
 ) -> torch.Tensor:
     """Paper rpose: φ² + ψ² + 10·(y - ydes)²"""
     asset: Articulation = env.scene[asset_cfg.name]
-    
+
     # Get roll, pitch, yaw from quaternion
     roll, pitch, yaw = euler_xyz_from_quat(asset.data.root_quat_w)
-    
+
     # Height error
     height_error = asset.data.root_pos_w[:, 2] - desired_height
-    
+
     return roll**2 + pitch**2 + 10 * height_error**2
+
+
+def _wrap_pi(x: torch.Tensor) -> torch.Tensor:
+    return torch.atan2(torch.sin(x), torch.cos(x))
+
+
+def track_roll_pitch_exp(
+    env: ManagerBasedRLEnv,
+    std: float,
+    command_name: str = "base_velocity",
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Exp-kernel tracking of commanded roll/pitch (indices 3, 4 of the command tensor)."""
+    asset: Articulation = env.scene[asset_cfg.name]
+    cmd = env.command_manager.get_command(command_name)
+    roll, pitch, _ = euler_xyz_from_quat(asset.data.root_quat_w)
+    err = _wrap_pi(roll - cmd[:, 3]) ** 2 + _wrap_pi(pitch - cmd[:, 4]) ** 2
+    return torch.exp(-err / (std ** 2))
+
+
+def track_height_exp(
+    env: ManagerBasedRLEnv,
+    std: float,
+    command_name: str = "base_velocity",
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Exp-kernel tracking of commanded base height (index 5 of the command tensor)."""
+    asset: Articulation = env.scene[asset_cfg.name]
+    cmd = env.command_manager.get_command(command_name)
+    err = (asset.data.root_pos_w[:, 2] - cmd[:, 5]) ** 2
+    return torch.exp(-err / (std ** 2))
 
 """
 Feet rewards.
