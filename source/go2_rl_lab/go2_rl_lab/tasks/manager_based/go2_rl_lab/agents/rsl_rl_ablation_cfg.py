@@ -1077,13 +1077,33 @@ class AblationP17Cfg(LowLevelRunnerCfg):
 
 @configclass
 class AblationP18Cfg(LowLevelRunnerCfg):
-    """P18: Payload (randomized 0-4kg mass per episode)."""
-    experiment_name: str = "ablation_P18_h30_4d_payload"
+    """P18: Payload (randomized 0-4kg mass per episode), estimator mirrors R1.
+
+    Estimator is now 6D wrench (was 4D), bigger net [256,128], TCN preprocessor,
+    no reconstruction loss — same architecture as R1/R2/R3 so comparisons are
+    apples-to-apples. Env (LowLevelPayloadEnvCfg) already subclasses
+    PSeriesWrenchEnvCfg (= R1 env), so no env change needed.
+    """
+    experiment_name: str = "ablation_P18_h30_6d_big_tcn_norec_payload"
     class_name: str = "CompliantOnPolicyRunner"
     force_event_term_name: str = "persistent_wrench"
     max_force: float = 30.0
     max_torque: float = 10.0
-    estimator: dict = _est(**_PAINT_BASE)
+    estimator: dict = _est(
+        force_dim=6,
+        temporal_steps=30,
+        enc_hidden_dims=[256, 128],
+        f_head_dims=[64, 32],
+        rec_loss_weight=0.0,
+        angle_loss_weight=3.0,
+        torque_angle_loss_weight=3.0,
+        torque_angle_min=0.3,
+        yaw_loss_weight=3.0,
+        tcn_mode="preprocessor",
+        tcn_channels=[64, 64],
+        tcn_kernel_size=3,
+        tcn_dilations=[1, 2],
+    )
 
 
 @configclass
