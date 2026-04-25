@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH --job-name=6dctrl-curr
-#SBATCH --output=slurm_logs/6dctrl_curr_%a_%j.out
-#SBATCH --error=slurm_logs/6dctrl_curr_%a_%j.err
+#SBATCH --job-name=6dctrl-curr-v2
+#SBATCH --output=slurm_logs/6dctrl_curr_v2_%a_%j.out
+#SBATCH --error=slurm_logs/6dctrl_curr_v2_%a_%j.err
 #SBATCH --time=18:00:00
 #SBATCH --cpus-per-task=8
 #SBATCH --mem-per-cpu=4G
@@ -9,7 +9,14 @@
 #SBATCH --tmp=10G
 #SBATCH --array=1-2
 
-# ── 6Dctrl force-gate curriculum ablations ───────────────────────────────────
+# ── 6Dctrl force-gate curriculum ablations (v2: tuned env) ───────────────────
+# Env tweaks (vs v1):
+#   - joint_torques_l2 weight: -1e-4 -> -1e-3 (10x stronger torque penalty)
+#   - height range: [0.24, 0.38] -> [0.18, 0.38]
+#   - roll/pitch range: +-0.25/0.30 -> +-0.35/0.35
+#   - track_height weight 0.5 -> 1.0, std sqrt(0.005) -> sqrt(0.02)
+#
+# Curriculum gating modes:
 # (1) Excluded: sum all rewards EXCEPT track_roll_pitch + track_height,
 #     trigger when sum >= 30 (R1 baseline).
 # (2) Tracking: trigger when ALL tracking rewards sustain their per-channel

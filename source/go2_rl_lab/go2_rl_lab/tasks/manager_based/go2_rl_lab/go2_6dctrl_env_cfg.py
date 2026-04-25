@@ -4,6 +4,20 @@ Forks the R1 ablation (PSeriesWrenchEnvCfg) and swaps:
   - CommandsCfg.base_velocity → 6-dim UniformVelocityPoseCommandCfg
   - flat_orientation_l2 → track_roll_pitch_exp
   - base_height_l2 (target=0.34 fixed) → track_height_exp (per-env command)
+  - joint_torques_l2 weight: -1e-4 → -1e-3 (10x; forces low-torque postures
+    so commanded crouches / tilts are achieved by reconfiguring the skeleton
+    rather than fighting gravity. Reported by an mjlab user to also smooth
+    actions and improve velocity tracking on the same task.)
+
+Command ranges widened to expose more of the posture space:
+  - height: [0.18, 0.38] (was [0.24, 0.38])
+  - roll:   [-0.35, 0.35] (was [-0.25, 0.25])
+  - pitch:  [-0.35, 0.35] (was [-0.30, 0.30])
+
+Reward tuning:
+  - track_height weight 0.5 → 1.0 (matches track_roll_pitch).
+  - track_height std sqrt(0.005)=0.07m → sqrt(0.02)=0.14m so the gradient
+    stays informative across the wider 0.20 m range.
 
 Mass randomization stays on (R1 behavior).
 The estimator picks up the new raw_obs_dim (60) automatically via
@@ -43,19 +57,24 @@ class SixDCtrlCommandsCfg:
             lin_vel_y=(-1.0, 1.0),
             ang_vel_z=(-1.0, 1.0),
             heading=(-math.pi, math.pi),
-            roll=(-0.25, 0.25),
-            pitch=(-0.30, 0.30),
-            height=(0.24, 0.38),
+            roll=(-0.35, 0.35),
+            pitch=(-0.35, 0.35),
+            height=(0.18, 0.38),
         ),
     )
 
 
 @configclass
 class SixDCtrlRewardsCfg(RewardsCfg):
-    """Drop the fixed-pose anchors; track the per-env commanded posture instead."""
+    """Drop the fixed-pose anchors; track the per-env commanded posture instead.
+    Stronger torque penalty (10x base) so commanded postures are achieved by
+    skeletal reconfiguration, not by fighting gravity with stiff joints.
+    """
 
     flat_orientation_l2 = None
     base_height_l2 = None
+
+    joint_torques_l2 = RewTerm(func=mdp.joint_torques_l2, weight=-1e-3)
 
     track_roll_pitch = RewTerm(
         func=track_roll_pitch_exp,
@@ -68,9 +87,9 @@ class SixDCtrlRewardsCfg(RewardsCfg):
     )
     track_height = RewTerm(
         func=track_height_exp,
-        weight=0.5,
+        weight=1.0,
         params={
-            "std": math.sqrt(0.005),
+            "std": math.sqrt(0.02),
             "command_name": "base_velocity",
             "asset_cfg": SceneEntityCfg("robot"),
         },
