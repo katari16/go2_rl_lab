@@ -42,6 +42,15 @@ class CompliantOnPolicyRunner(OnPolicyRunner):
         self._max_force: float = train_cfg.get("max_force", 20.0)
         self._max_torque: float = train_cfg.get("max_torque", 5.0)
 
+        # Force-gate mode: "total" (default, current), "excluded", "tracking"
+        self._force_gate_mode: str = train_cfg.get("force_gate_mode", "total")
+        self._force_gate_excluded: tuple = tuple(train_cfg.get("force_gate_excluded_terms", ()))
+        self._force_gate_tracking: dict = dict(train_cfg.get("force_gate_tracking_thresholds", {}))
+        self._force_gate_dwell_iters: int = train_cfg.get("force_gate_dwell_iters", 50)
+        self._force_gate_min_long_envs: int = train_cfg.get("force_gate_min_long_envs", 100)
+        self._force_gate_min_episode_steps: int = train_cfg.get("force_gate_min_episode_steps", 200)
+        self._force_gate_dwell_count: int = 0
+
         # Compliance parameters
         self._compliance_alpha: float = train_cfg.get("compliance_alpha", 5.0)
         self._compliance_beta: float = train_cfg.get("compliance_beta", 50.0)
@@ -312,25 +321,99 @@ class CompliantOnPolicyRunner(OnPolicyRunner):
     # ── Phase gates ───────────────────────────────────────────────────────
 
     def _check_force_gate(self, rewbuffer: deque, it: int) -> None:
-        """Phase 1 → 2: Activate forces when mean episode reward >= threshold."""
-        if self._force_active or len(rewbuffer) < 10:
+        """Phase 1 → 2: dispatch to the configured gating strategy."""
+        if self._force_active:
             return
+        mode = self._force_gate_mode
+        if mode == "total":
+            triggered, summary = self._force_gate_total(rewbuffer)
+        elif mode == "excluded":
+            triggered, summary = self._force_gate_excluded_sum()
+        elif mode == "tracking":
+            triggered, summary = self._force_gate_tracking_pct()
+        else:
+            raise ValueError(f"Unknown force_gate_mode: {mode}")
+        if not triggered:
+            return
+        self._activate_forces(summary)
+
+    def _activate_forces(self, summary: str) -> None:
+        self._force_active = True
+        isaac_env = self.env.unwrapped
+        event_cfg = isaac_env.event_manager.get_term_cfg(self._force_event_term)
+        event_cfg.params["force_range"] = (0.0, self._max_force)
+        if "torque_range" in event_cfg.params:
+            event_cfg.params["torque_range"] = (0.0, self._max_torque)
+        print(
+            f"\n{'=' * 80}\n"
+            f"  [CompliantRunner] PHASE 2 ({self._force_gate_mode}): {summary}\n"
+            f"  Forces activated at {self._max_force:.0f}N"
+            + (f", torques at {self._max_torque:.1f}Nm" if "torque_range" in event_cfg.params else "")
+            + f". Estimator training begins.\n"
+            f"{'=' * 80}"
+        )
+
+    # -- Mode "total" -----------------------------------------------------
+    def _force_gate_total(self, rewbuffer: deque):
+        if len(rewbuffer) < 10:
+            return False, ""
         mean_rew = statistics.mean(rewbuffer)
         if mean_rew >= self._force_threshold:
-            self._force_active = True
-            isaac_env = self.env.unwrapped
-            event_cfg = isaac_env.event_manager.get_term_cfg(self._force_event_term)
-            event_cfg.params["force_range"] = (0.0, self._max_force)
-            if "torque_range" in event_cfg.params:
-                event_cfg.params["torque_range"] = (0.0, self._max_torque)
-            print(
-                f"\n{'=' * 80}\n"
-                f"  [CompliantRunner] PHASE 2: Mean reward {mean_rew:.1f} >= {self._force_threshold:.1f}\n"
-                f"  Forces activated at {self._max_force:.0f}N"
-                + (f", torques at {self._max_torque:.1f}Nm" if "torque_range" in event_cfg.params else "")
-                + f". Estimator training begins.\n"
-                f"{'=' * 80}"
-            )
+            return True, f"Mean reward {mean_rew:.1f} >= {self._force_threshold:.1f}"
+        return False, ""
+
+    # -- Mode "excluded" --------------------------------------------------
+    def _force_gate_excluded_sum(self):
+        isaac_env = self.env.unwrapped
+        long_running = isaac_env.episode_length_buf >= self._force_gate_min_episode_steps
+        n_long = int(long_running.sum().item())
+        if n_long < self._force_gate_min_long_envs:
+            return False, ""
+        total = torch.zeros(isaac_env.num_envs, device=isaac_env.device)
+        for name, sums in isaac_env.reward_manager._episode_sums.items():
+            if name in self._force_gate_excluded:
+                continue
+            total += sums
+        ep_lens = isaac_env.episode_length_buf[long_running].float()
+        per_step = total[long_running] / ep_lens
+        mean_ep = (per_step.mean() * isaac_env.max_episode_length).item()
+        if mean_ep >= self._force_threshold:
+            return True, (f"Mean reward (excl. {list(self._force_gate_excluded)}) "
+                          f"{mean_ep:.1f} >= {self._force_threshold:.1f}")
+        return False, ""
+
+    # -- Mode "tracking" --------------------------------------------------
+    def _force_gate_tracking_pct(self):
+        isaac_env = self.env.unwrapped
+        long_running = isaac_env.episode_length_buf >= self._force_gate_min_episode_steps
+        n_long = int(long_running.sum().item())
+        if n_long < self._force_gate_min_long_envs:
+            self._force_gate_dwell_count = 0
+            return False, ""
+        rm = isaac_env.reward_manager
+        weights = dict(zip(rm._term_names, [c.weight for c in rm._term_cfgs]))
+        ep_lens = isaac_env.episode_length_buf[long_running].float()
+        all_above = True
+        details = []
+        for term_name, frac in self._force_gate_tracking.items():
+            sums = rm._episode_sums.get(term_name)
+            w = weights.get(term_name, 0.0)
+            if sums is None or w == 0.0:
+                all_above = False
+                details.append(f"{term_name}=missing")
+                break
+            per_step_pct = (sums[long_running] / ep_lens).mean().item() / w
+            details.append(f"{term_name}={per_step_pct:.2f}/{frac:.2f}")
+            if per_step_pct < frac:
+                all_above = False
+        if all_above:
+            self._force_gate_dwell_count += 1
+        else:
+            self._force_gate_dwell_count = 0
+        if self._force_gate_dwell_count >= self._force_gate_dwell_iters:
+            return True, (f"Tracking thresholds met for "
+                          f"{self._force_gate_dwell_count} iters | " + ", ".join(details))
+        return False, ""
 
     def _check_mapping_gate(self, it: int) -> None:
         """Phase 2 → 3: Activate linear mapping when estimator angular error < threshold."""

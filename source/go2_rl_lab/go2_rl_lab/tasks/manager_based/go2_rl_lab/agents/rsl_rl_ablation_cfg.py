@@ -1411,3 +1411,30 @@ class Ablation6DctrlCfg(LowLevelRunnerCfg):
     max_force: float = 30.0
     max_torque: float = 10.0
     estimator: dict = _est(**_R_BASE)
+
+
+@configclass
+class Ablation6DctrlExcludedCfg(Ablation6DctrlCfg):
+    """6Dctrl variant: force gate sums all rewards EXCEPT the new pose tracking ones.
+    Threshold stays at the R1 baseline (30) — locomotion bar is the same.
+    """
+    experiment_name: str = "ablation_6Dctrl_curr_excluded"
+    force_activation_reward_threshold: float = 30.0
+    force_gate_mode: str = "excluded"
+    force_gate_excluded_terms: tuple = ("track_roll_pitch", "track_height")
+
+
+@configclass
+class Ablation6DctrlTrackingCfg(Ablation6DctrlCfg):
+    """6Dctrl variant: force gate triggers when ALL tracking rewards
+    sustain their per-channel % thresholds for `force_gate_dwell_iters` consecutive iterations.
+    """
+    experiment_name: str = "ablation_6Dctrl_curr_tracking"
+    force_gate_mode: str = "tracking"
+    force_gate_dwell_iters: int = 50
+    force_gate_tracking_thresholds: dict = {
+        "track_lin_vel_xy_exp": 0.85,
+        "track_ang_vel_z_exp": 0.70,
+        "track_roll_pitch": 0.75,
+        "track_height": 0.80,
+    }
