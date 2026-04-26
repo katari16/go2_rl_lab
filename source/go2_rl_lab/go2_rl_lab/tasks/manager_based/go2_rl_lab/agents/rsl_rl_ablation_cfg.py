@@ -1458,3 +1458,17 @@ class Ablation6DctrlTrackingCfg(Ablation6DctrlCfg):
         "track_roll_pitch": 0.75,
         "track_height": 0.80,
     }
+
+
+@configclass
+class Ablation6DctrlTotal50Cfg(Ablation6DctrlCfg):
+    """6Dctrl variant: default total-reward gate, threshold bumped to 50.
+
+    Locomotion + pose tracking plateau at ~49 total reward before forces fire
+    on the earlier 6Dctrl runs; 50 triggers activation just after the policy
+    has settled. Same estimator/env as the other 6Dctrl ablations — only the
+    curriculum gate changes.
+    """
+    experiment_name: str = "ablation_6Dctrl_curr_total50"
+    force_gate_mode: str = "total"
+    force_activation_reward_threshold: float = 50.0
