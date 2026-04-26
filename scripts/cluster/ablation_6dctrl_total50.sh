@@ -1,27 +1,36 @@
 #!/bin/bash
-#SBATCH --job-name=6dctrl-total50
-#SBATCH --output=slurm_logs/6dctrl_total50_%j.out
-#SBATCH --error=slurm_logs/6dctrl_total50_%j.err
+#SBATCH --job-name=6dctrl-t50
+#SBATCH --output=slurm_logs/6dctrl_t50_%a_%j.out
+#SBATCH --error=slurm_logs/6dctrl_t50_%a_%j.err
 #SBATCH --time=18:00:00
 #SBATCH --cpus-per-task=8
 #SBATCH --mem-per-cpu=4G
 #SBATCH --gpus=1
 #SBATCH --tmp=10G
+#SBATCH --array=1-4
 
-# ── 6Dctrl final curriculum ablation ─────────────────────────────────────────
-# Same env + estimator as the other 6Dctrl runs (R1 architecture, 6D wrench,
-# TCN pre, no rec, pose commands). Differs only in the curriculum gate:
-#   - force_gate_mode = "total" (default, same as R1/R2/R3)
-#   - force_activation_reward_threshold = 50.0
-# 6Dctrl total reward plateaus at ~49 while locomotion + pose tracking settle;
-# this threshold fires forces just after that settles.
+# ── 6Dctrl Total50 family ───────────────────────────────────────────────────
+# All four share: R1-arch estimator (6D, enc=[256,128], TCN pre, no rec),
+# pose commands (roll/pitch/height), force_gate_mode="total", threshold=50.
+# Differ only in the force_est_accuracy reward weight:
+#   1) Total50         — no est-acc reward
+#   2) Total50-EstAccW10 — w=10, sigma=1.0
+#   3) Total50-EstAccW25 — w=25, sigma=1.0
+#   4) Total50-EstAccW50 — w=50, sigma=1.0 (matches R2)
 
 module load eth_proxy
 
-TASK="Go2-Ablation-6Dctrl-Total50-v0"
+case $SLURM_ARRAY_TASK_ID in
+    1) TASK="Go2-Ablation-6Dctrl-Total50-v0" ;;
+    2) TASK="Go2-Ablation-6Dctrl-Total50-EstAccW10-v0" ;;
+    3) TASK="Go2-Ablation-6Dctrl-Total50-EstAccW25-v0" ;;
+    4) TASK="Go2-Ablation-6Dctrl-Total50-EstAccW50-v0" ;;
+    *) echo "Invalid task ID: $SLURM_ARRAY_TASK_ID"; exit 1 ;;
+esac
 
 echo "========================================="
 echo "SLURM Job ID: $SLURM_JOB_ID"
+echo "Array Task ID: $SLURM_ARRAY_TASK_ID"
 echo "Running on: $(hostname)"
 echo "Starting at: $(date)"
 echo "GPU allocation: $CUDA_VISIBLE_DEVICES"

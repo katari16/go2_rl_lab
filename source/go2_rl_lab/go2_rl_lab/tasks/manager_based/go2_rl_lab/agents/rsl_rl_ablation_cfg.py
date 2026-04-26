@@ -1472,3 +1472,21 @@ class Ablation6DctrlTotal50Cfg(Ablation6DctrlCfg):
     experiment_name: str = "ablation_6Dctrl_curr_total50"
     force_gate_mode: str = "total"
     force_activation_reward_threshold: float = 50.0
+
+
+@configclass
+class Ablation6DctrlTotal50EstAccW10Cfg(Ablation6DctrlTotal50Cfg):
+    """6Dctrl-Total50 + force_est_accuracy reward w=10."""
+    experiment_name: str = "ablation_6Dctrl_curr_total50_estacc_w10"
+
+
+@configclass
+class Ablation6DctrlTotal50EstAccW25Cfg(Ablation6DctrlTotal50Cfg):
+    """6Dctrl-Total50 + force_est_accuracy reward w=25."""
+    experiment_name: str = "ablation_6Dctrl_curr_total50_estacc_w25"
+
+
+@configclass
+class Ablation6DctrlTotal50EstAccW50Cfg(Ablation6DctrlTotal50Cfg):
+    """6Dctrl-Total50 + force_est_accuracy reward w=50 (matches R2)."""
+    experiment_name: str = "ablation_6Dctrl_curr_total50_estacc_w50"

@@ -35,7 +35,7 @@ from . import mdp
 from .go2_ablation_env_cfgs import PSeriesWrenchEnvCfg
 from .go2_lowlevel_env_cfg import RewardsCfg
 from .mdp.pose_velocity_command import UniformVelocityPoseCommandCfg
-from .mdp.rewards import track_height_exp, track_roll_pitch_exp
+from .mdp.rewards import force_estimation_accuracy, track_height_exp, track_roll_pitch_exp
 
 
 @configclass
@@ -102,3 +102,37 @@ class Go2SixDControlEnvCfg(PSeriesWrenchEnvCfg):
 
     commands: SixDCtrlCommandsCfg = SixDCtrlCommandsCfg()
     rewards: SixDCtrlRewardsCfg = SixDCtrlRewardsCfg()
+
+
+def _sixdctrl_est_acc_rewards(weight: float, sigma: float = 1.0):
+    """Build a SixDCtrlRewardsCfg subclass with force_est_accuracy added."""
+    @configclass
+    class _Cfg(SixDCtrlRewardsCfg):
+        force_est_accuracy = RewTerm(
+            func=force_estimation_accuracy,
+            weight=weight,
+            params={
+                "sigma": sigma,
+                "alpha": 2.0,
+                "asset_cfg": SceneEntityCfg("robot", body_names="base"),
+            },
+        )
+    return _Cfg
+
+
+@configclass
+class Go2SixDControlEstAccW10EnvCfg(Go2SixDControlEnvCfg):
+    """6Dctrl + force_est_accuracy reward (w=10, sigma=1.0)."""
+    rewards = _sixdctrl_est_acc_rewards(10.0)()
+
+
+@configclass
+class Go2SixDControlEstAccW25EnvCfg(Go2SixDControlEnvCfg):
+    """6Dctrl + force_est_accuracy reward (w=25, sigma=1.0)."""
+    rewards = _sixdctrl_est_acc_rewards(25.0)()
+
+
+@configclass
+class Go2SixDControlEstAccW50EnvCfg(Go2SixDControlEnvCfg):
+    """6Dctrl + force_est_accuracy reward (w=50, sigma=1.0) — matches R2."""
+    rewards = _sixdctrl_est_acc_rewards(50.0)()
