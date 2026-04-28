@@ -21,6 +21,15 @@ Joystick mapping:
     A = start policy | SELECT = stop | START = stand up
     B = toggle recording | Y = compliance off/on | X = compliance inverted/normal
     R1 = reset pose command to nominal (roll=0, pitch=0, height=nominal)
+
+Compliance injection (6D wrench → commands):
+    velocity_cmd[0:2] += k_xy * F_xy_ema
+    velocity_cmd[2]   += k_yaw * τz_ema
+    pose_cmd[0]       += k_roll  * τx_ema   (nominally ON, OFF with --height_only)
+    pose_cmd[1]       += k_pitch * τy_ema   (nominally ON, OFF with --height_only)
+    pose_cmd[2]       += k_height * Fz_ema  (nominally OFF, ON with --height_only)
+Roll/pitch/height results are clamped to the pose_cmd_ranges from the yaml so
+estimator outliers cannot send the policy out-of-distribution commands.
 """
 
 import argparse
@@ -158,6 +167,12 @@ if __name__ == "__main__":
     parser.add_argument("net", type=str)
     parser.add_argument("config", type=str)
     parser.add_argument("--debug", action="store_true", default=False)
+    parser.add_argument(
+        "--height_only",
+        action="store_true",
+        default=False,
+        help="Only inject Fz-based height compliance; disable roll/pitch pose compliance.",
+    )
     args = parser.parse_args()
 
     config_path = Path(__file__).resolve().parent / "configs" / args.config
@@ -179,7 +194,15 @@ if __name__ == "__main__":
     temporal_steps = cfg["estimator_temporal_steps"]
     compliance_k = cfg.get("compliance_k", 0.0)
     compliance_k_yaw = cfg.get("compliance_k_yaw", 0.0)
+    compliance_k_roll = cfg.get("compliance_k_roll", 0.0)
+    compliance_k_pitch = cfg.get("compliance_k_pitch", 0.0)
+    compliance_k_height = cfg.get("compliance_k_height", 0.0)
     ema_alpha = cfg.get("ema_alpha", 0.1)
+
+    # Pose compliance gating: roll/pitch nominally ON, height ONLY with --height_only.
+    pose_roll_enabled = not args.height_only
+    pose_pitch_enabled = not args.height_only
+    pose_height_enabled = args.height_only
     weak_motor = cfg.get("weak_motor", [])
     force_layout = cfg.get("force_layout", "auto")
 
@@ -335,6 +358,12 @@ if __name__ == "__main__":
     print("\n" + "=" * 60)
     print(f"  POLICY RUNNING (50 Hz) — {raw_obs_dim}+{force_dim}={policy_obs_dim} obs dims")
     print(f"  Force estimator: {temporal_steps}x{raw_obs_dim} -> {force_dim}D wrench")
+    print(f"  Vel compliance:  k_xy={compliance_k}  k_yaw={compliance_k_yaw}")
+    print(f"  Pose compliance: roll={'ON' if pose_roll_enabled else 'OFF'} (k={compliance_k_roll}) "
+          f"pitch={'ON' if pose_pitch_enabled else 'OFF'} (k={compliance_k_pitch}) "
+          f"height={'ON' if pose_height_enabled else 'OFF'} (k={compliance_k_height})")
+    if args.height_only:
+        print("  --height_only: roll/pitch pose compliance disabled, height ON")
     print("  Press SELECT to stop")
     print("=" * 60 + "\n")
 
@@ -428,6 +457,7 @@ if __name__ == "__main__":
             force_ema = ema_alpha * force_hat + (1.0 - ema_alpha) * force_ema
 
             obs_for_policy = raw_obs.copy()
+            # Velocity-command compliance (XY force + yaw torque)
             if compliance_k > 0.0 and compliance_mode == "normal":
                 obs_for_policy[6] += compliance_k * force_ema[0]
                 obs_for_policy[7] += compliance_k * force_ema[1]
@@ -438,6 +468,25 @@ if __name__ == "__main__":
                 obs_for_policy[7] -= compliance_k * force_ema[1]
                 if compliance_k_yaw > 0.0 and yaw_idx is not None:
                     obs_for_policy[8] -= compliance_k_yaw * force_ema[yaw_idx]
+
+            # Pose-command compliance (τx → roll, τy → pitch, Fz → height).
+            # Only active in a 6D layout. Roll/pitch gated by --height_only
+            # absence; height gated by --height_only presence. Always clamped
+            # to training ranges so estimator outliers cannot send OOD poses.
+            if force_dim >= 6 and compliance_mode != "off":
+                sign = 1.0 if compliance_mode == "normal" else -1.0
+                roll_cmd = float(obs_for_policy[9])
+                pitch_cmd = float(obs_for_policy[10])
+                height_cmd = float(obs_for_policy[11])
+                if pose_roll_enabled and compliance_k_roll > 0.0:
+                    roll_cmd += sign * compliance_k_roll * float(force_ema[3])
+                if pose_pitch_enabled and compliance_k_pitch > 0.0:
+                    pitch_cmd += sign * compliance_k_pitch * float(force_ema[4])
+                if pose_height_enabled and compliance_k_height > 0.0:
+                    height_cmd += sign * compliance_k_height * float(force_ema[2])
+                obs_for_policy[9] = float(np.clip(roll_cmd, roll_min, roll_max))
+                obs_for_policy[10] = float(np.clip(pitch_cmd, pitch_min, pitch_max))
+                obs_for_policy[11] = float(np.clip(height_cmd, height_min, height_max))
 
             if compliance_mode == "inverted":
                 full_obs = np.concatenate([obs_for_policy, -force_hat])

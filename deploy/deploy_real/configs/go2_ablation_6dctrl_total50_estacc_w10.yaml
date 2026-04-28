@@ -39,6 +39,9 @@ pose_cmd_ranges:
   height: [0.18, 0.38]
 nominal_height: 0.34
 
-compliance_k: 0.0
-compliance_k_yaw: 0.0
+compliance_k: 0.06
+compliance_k_yaw: 0.2
+compliance_k_roll: 0.02
+compliance_k_pitch: 0.02
+compliance_k_height: 0.003
 ema_alpha: 0.1

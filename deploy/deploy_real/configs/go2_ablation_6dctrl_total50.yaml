@@ -54,6 +54,9 @@ pose_cmd_ranges:
 nominal_height: 0.34
 
 # Compliance (disabled by default; match compliant experiments if needed)
-compliance_k: 0.0
-compliance_k_yaw: 0.0
+compliance_k: 0.06        # XY force → velocity_cmd[0:2]
+compliance_k_yaw: 0.2     # τz → velocity_cmd[2]
+compliance_k_roll: 0.02   # τx → pose_cmd[0]  (active unless --height_only)
+compliance_k_pitch: 0.02  # τy → pose_cmd[1]  (active unless --height_only)
+compliance_k_height: 0.003  # Fz → pose_cmd[2] (active ONLY with --height_only)
 ema_alpha: 0.1
