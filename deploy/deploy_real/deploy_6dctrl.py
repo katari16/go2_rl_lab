@@ -15,7 +15,7 @@ Raw obs layout (60 dims):
 Joystick mapping:
     Left stick     = vx (ly), vy (-lx)
     Right stick X  = wz (-rx)
-    Right stick Y  = height offset from nominal (ry * 0.1 m, clamped to cfg range)
+    L1 / L2        = height -/+ step (0.01 m per press, clamped to cfg range)
     D-pad up/down  = pitch +/- step (0.02 rad per press, clamped)
     D-pad left/right = roll +/- step (0.02 rad per press, clamped)
     A = start policy | SELECT = stop | START = stand up
@@ -318,7 +318,7 @@ if __name__ == "__main__":
 
     print("\n" + "=" * 60)
     print("  STANDING — Press A to start policy")
-    print("  Controls: left stick=vx/vy | right stick X=wz | right stick Y=height")
+    print("  Controls: left stick=vx/vy | right stick X=wz | L1/L2=height -/+ step")
     print("           D-pad up/down=pitch step | left/right=roll step | R1=reset pose")
     print("           B=record | Y=compliance off/on | X=compliance inverted/normal | SELECT=stop")
     print("=" * 60 + "\n")
@@ -346,7 +346,7 @@ if __name__ == "__main__":
 
     ROLL_STEP = 0.02
     PITCH_STEP = 0.02
-    HEIGHT_RANGE = 0.10  # ry*HEIGHT_RANGE added to nominal
+    HEIGHT_STEP = 0.01  # meters per L1/L2 press
 
     step_count = 0
     debug_log = []
@@ -361,6 +361,8 @@ if __name__ == "__main__":
     prev_left = 0
     prev_right = 0
     prev_r1 = 0
+    prev_l1 = 0
+    prev_l2 = 0
     recording_buf = []
     recording_index = 0
     estimator.reset()
@@ -372,10 +374,6 @@ if __name__ == "__main__":
             velocity_cmd[0] = round(remote_controller.ly, 1)
             velocity_cmd[1] = round(remote_controller.lx * -1, 1)
             velocity_cmd[2] = round(remote_controller.rx * -1, 1)
-
-            # Height: nominal + ry * HEIGHT_RANGE (continuous), clamped to ranges
-            desired_height = nominal_height + float(remote_controller.ry) * HEIGHT_RANGE
-            pose_cmd[2] = float(np.clip(desired_height, height_min, height_max))
 
             # Roll / pitch: discrete D-pad steps
             up_now = remote_controller.button[KeyMap.up]
@@ -391,6 +389,15 @@ if __name__ == "__main__":
             if right_now == 1 and prev_right == 0:
                 pose_cmd[0] = float(np.clip(pose_cmd[0] + ROLL_STEP, roll_min, roll_max))
             prev_up, prev_down, prev_left, prev_right = up_now, down_now, left_now, right_now
+
+            # Height: L1 = step down, L2 = step up (discrete, edge-triggered)
+            l1_now = remote_controller.button[KeyMap.L1]
+            l2_now = remote_controller.button[KeyMap.L2]
+            if l1_now == 1 and prev_l1 == 0:
+                pose_cmd[2] = float(np.clip(pose_cmd[2] - HEIGHT_STEP, height_min, height_max))
+            if l2_now == 1 and prev_l2 == 0:
+                pose_cmd[2] = float(np.clip(pose_cmd[2] + HEIGHT_STEP, height_min, height_max))
+            prev_l1, prev_l2 = l1_now, l2_now
 
             # R1: reset pose command to nominal
             r1_now = remote_controller.button[KeyMap.R1]
