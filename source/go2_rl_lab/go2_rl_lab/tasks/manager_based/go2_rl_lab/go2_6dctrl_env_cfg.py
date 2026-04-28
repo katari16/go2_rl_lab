@@ -136,3 +136,38 @@ class Go2SixDControlEstAccW25EnvCfg(Go2SixDControlEnvCfg):
 class Go2SixDControlEstAccW50EnvCfg(Go2SixDControlEnvCfg):
     """6Dctrl + force_est_accuracy reward (w=50, sigma=1.0) — matches R2."""
     rewards = _sixdctrl_est_acc_rewards(50.0)()
+
+
+# ── Stand-still ablations ────────────────────────────────────────────────────
+# Address the 6Dctrl-Total50 finding that the robot never stops moving under
+# zero command. Three variants that should be smoke-testable individually.
+
+@configclass
+class Go2SixDControlStandEnv10EnvCfg(Go2SixDControlEnvCfg):
+    """Bump rel_standing_envs 0.02 -> 0.10 so 10% of envs resample to a
+    full null command (vel + pose all zero/nominal). More training data
+    for the stand-still case."""
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.commands.base_velocity.rel_standing_envs = 0.10
+
+
+@configclass
+class Go2SixDControlStandW2EnvCfg(Go2SixDControlEnvCfg):
+    """Bump standing_pose penalty -0.5 -> -2.0 so near-zero-velocity envs
+    actually feel pressure to hold the default stance."""
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.rewards.standing_pose.weight = -2.0
+
+
+@configclass
+class Go2SixDControlStandBothEnvCfg(Go2SixDControlEnvCfg):
+    """Both levers: 10% null envs + 4x stronger standing_pose."""
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.commands.base_velocity.rel_standing_envs = 0.10
+        self.rewards.standing_pose.weight = -2.0

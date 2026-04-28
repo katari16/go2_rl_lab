@@ -767,6 +767,37 @@ gym.register(
     },
 )
 
+# 6Dctrl stand-still ablations (rel_standing_envs + standing_pose weight)
+gym.register(
+    id="Go2-Ablation-6Dctrl-StandEnv10-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_6dctrl_env_cfg:Go2SixDControlStandEnv10EnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:Ablation6DctrlStandEnv10Cfg",
+    },
+)
+
+gym.register(
+    id="Go2-Ablation-6Dctrl-StandW2-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_6dctrl_env_cfg:Go2SixDControlStandW2EnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:Ablation6DctrlStandW2Cfg",
+    },
+)
+
+gym.register(
+    id="Go2-Ablation-6Dctrl-StandBoth-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_6dctrl_env_cfg:Go2SixDControlStandBothEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:Ablation6DctrlStandBothCfg",
+    },
+)
+
 
 # ── High-level non-linear sweep: 8 variations (R1-R8) ───────────────────────
 # 2x2x2: reward type (penalty/positive) x gravity correction x tracking reward

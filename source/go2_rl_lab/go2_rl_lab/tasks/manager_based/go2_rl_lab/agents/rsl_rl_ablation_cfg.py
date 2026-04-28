@@ -1490,3 +1490,25 @@ class Ablation6DctrlTotal50EstAccW25Cfg(Ablation6DctrlTotal50Cfg):
 class Ablation6DctrlTotal50EstAccW50Cfg(Ablation6DctrlTotal50Cfg):
     """6Dctrl-Total50 + force_est_accuracy reward w=50 (matches R2)."""
     experiment_name: str = "ablation_6Dctrl_curr_total50_estacc_w50"
+
+
+# ── Stand-still ablations ────────────────────────────────────────────────────
+# Target: robot does not learn to stop under zero command in the base 6Dctrl
+# run. Each variant flips a single knob vs Ablation6DctrlTotal50Cfg.
+
+@configclass
+class Ablation6DctrlStandEnv10Cfg(Ablation6DctrlTotal50Cfg):
+    """rel_standing_envs 0.02 -> 0.10 (5x more null-command envs)."""
+    experiment_name: str = "ablation_6Dctrl_stand_env10"
+
+
+@configclass
+class Ablation6DctrlStandW2Cfg(Ablation6DctrlTotal50Cfg):
+    """standing_pose weight -0.5 -> -2.0 (4x stronger null-cmd penalty)."""
+    experiment_name: str = "ablation_6Dctrl_stand_w2"
+
+
+@configclass
+class Ablation6DctrlStandBothCfg(Ablation6DctrlTotal50Cfg):
+    """Both levers combined."""
+    experiment_name: str = "ablation_6Dctrl_stand_both"
