@@ -21,6 +21,7 @@ Usage:
 """
 
 import argparse
+import math
 import sys
 
 from isaaclab.app import AppLauncher
@@ -269,6 +270,9 @@ def main(env_cfg: ManagerBasedRLEnvCfg, agent_cfg: RslRlBaseRunnerCfg):
           f"nominal_height={args_cli.nominal_height}")
 
     dt = isaac_env.step_dt
+    resample_period = cmd_term.cfg.resampling_time_range[1]
+    print_every_n = max(1, int(0.1 / dt))  # ~10 Hz terminal updates
+    step_i = 0
     while simulation_app.is_running():
         t0 = time.time()
         with torch.inference_mode():
@@ -301,6 +305,27 @@ def main(env_cfg: ManagerBasedRLEnvCfg, agent_cfg: RslRlBaseRunnerCfg):
             actions = policy(obs)
             obs, _, dones, _ = env.step(actions)
             policy_nn.reset(dones)
+
+        # ── Terminal readout for env 0: sampled cmd, actual, bar-to-resample ──
+        if step_i % print_every_n == 0 and has_pose:
+            roll_c = cmd_term.pose_command[0, 0].item()
+            pitch_c = cmd_term.pose_command[0, 1].item()
+            h_c = cmd_term.pose_command[0, 2].item()
+            h_a = isaac_env.scene["robot"].data.root_pos_w[0, 2].item()
+            q = isaac_env.scene["robot"].data.root_quat_w[0:1]
+            roll_a, pitch_a, _ = math_utils.euler_xyz_from_quat(q)
+            roll_a = ((roll_a.item() + math.pi) % (2 * math.pi)) - math.pi
+            pitch_a = ((pitch_a.item() + math.pi) % (2 * math.pi)) - math.pi
+            t_left = cmd_term.time_left[0].item()
+            frac = max(0.0, min(1.0, 1.0 - t_left / resample_period))
+            bar_w = 20
+            filled = int(frac * bar_w)
+            bar = "█" * filled + "·" * (bar_w - filled)
+            line = (f"cmd h={h_c:5.3f}m  cur h={h_a:5.3f}m  Δh={h_a - h_c:+.3f}m  |  "
+                    f"cmd r/p={roll_c:+.2f}/{pitch_c:+.2f}  cur r/p={roll_a:+.2f}/{pitch_a:+.2f}  |  "
+                    f"resample [{bar}] {t_left:4.1f}s")
+            print("\r" + line, end="", flush=True)
+        step_i += 1
 
         if args_cli.real_time:
             sleep_time = dt - (time.time() - t0)
