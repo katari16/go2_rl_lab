@@ -69,6 +69,15 @@ parser.add_argument("--trapezoid_cycle", action="store_true", default=False, hel
 parser.add_argument("--trapezoid_paint", action="store_true", default=False, help="PAINT-style trapezoid: one ramp-up/hold/ramp-down per period, Cartesian per-axis sampling.")
 parser.add_argument("--paint_period", type=float, default=10.0, help="Period duration (s) for --trapezoid_paint (default: 10.0).")
 parser.add_argument("--follow_robot", action="store_true", default=False, help="Camera follows env 0 robot base each step.")
+parser.add_argument("--save_data", action="store_true", default=False, help="Save raw time-series data as JSON next to the plot.")
+parser.add_argument("--follow", action="store_true", default=False,
+                    help="Lock the viewport to a robot's base (asset_root origin).")
+parser.add_argument("--follow_env", type=int, default=0,
+                    help="Env index to follow when --follow is set.")
+parser.add_argument("--follow_eye", type=float, nargs=3, default=[1.5, 0.2, 0.2],
+                    metavar=("X", "Y", "Z"), help="Camera eye offset in robot frame (m). Default: 1.5 0.2 0.2.")
+parser.add_argument("--follow_lookat", type=float, nargs=3, default=[0.0, 0.0, 0.0],
+                    metavar=("X", "Y", "Z"), help="Camera lookat in robot frame (m). Default: 0 0 0 (base).")
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -303,8 +312,27 @@ def main(
     # ── Config overrides ──────────────────────────────────────────────────
     agent_cfg = cli_args.update_rsl_rl_cfg(agent_cfg, args_cli)
     env_cfg.scene.num_envs = args_cli.num_envs
-    env_cfg.seed = agent_cfg.seed
+    # Force a fixed seed (default 42) so the applied force profile is
+    # identical across runs and checkpoints — critical for fair comparison.
+    seed_value = args_cli.seed if args_cli.seed is not None else 42
+    env_cfg.seed = seed_value
+    agent_cfg.seed = seed_value
+    import numpy as _np
+    torch.manual_seed(seed_value)
+    torch.cuda.manual_seed_all(seed_value)
+    _np.random.seed(seed_value)
+    print(f"[static_eval] Deterministic seed: {seed_value}")
     env_cfg.sim.device = args_cli.device if args_cli.device is not None else env_cfg.sim.device
+
+    # Follow camera (same approach as play.py — set programmatically to avoid Hydra type-check bug)
+    if args_cli.follow:
+        env_cfg.viewer.origin_type = "asset_root"
+        env_cfg.viewer.asset_name = "robot"
+        env_cfg.viewer.env_index = args_cli.follow_env
+        env_cfg.viewer.eye = tuple(args_cli.follow_eye)
+        env_cfg.viewer.lookat = tuple(args_cli.follow_lookat)
+        print(f"[INFO] Follow camera: env={args_cli.follow_env}, "
+              f"eye={tuple(args_cli.follow_eye)}, lookat={tuple(args_cli.follow_lookat)}")
 
     # Flat ground override
     if args_cli.flat:
@@ -884,6 +912,20 @@ def main(
     # ── Save plots ────────────────────────────────────────────────────────
     if len(plot_log["time_s"]) > 10:
         print(f"[static_eval] Collected {len(plot_log['time_s'])} steps. Saving plots...")
+
+        if args_cli.save_data:
+            import json
+            eval_dir = os.path.join(os.path.dirname(resume_path), "force_eval")
+            os.makedirs(eval_dir, exist_ok=True)
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            data_path = os.path.join(eval_dir, f"static_eval_data_{timestamp}.json")
+            # convert lists to plain python for json serialisation
+            serialisable = {k: [float(v) for v in vals] for k, vals in plot_log.items()}
+            with open(data_path, "w") as f:
+                json.dump(serialisable, f)
+            print(f"[static_eval] Raw data saved: {data_path}")
+
         generate_plots(
             plot_log, args_cli.force_min, args_cli.force_max, resume_path, ema_alpha, compliance_k,
         )

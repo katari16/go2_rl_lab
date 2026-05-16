@@ -251,6 +251,14 @@ def _compute_metrics(all_gt_np, all_est_np, force_dim, dim_labels, no_active_mas
     mae = float(np.mean(per_sample_mae[active_mask])) if has_active else 0.0
     median_ae = float(np.median(per_sample_mae[active_mask])) if has_active else 0.0
 
+    # Per-env MAE → std dev across envs
+    n_envs = all_gt_np.shape[1]
+    per_env_mae = np.zeros(n_envs)
+    for e in range(n_envs):
+        m = active_mask[:, e]
+        per_env_mae[e] = float(np.mean(per_sample_mae[:, e][m])) if m.any() else 0.0
+    mae_std = float(np.std(per_env_mae))
+
     rel_err = 0.0
     rel_mask = gt_mag > 1.0
     if rel_mask.any():
@@ -264,9 +272,15 @@ def _compute_metrics(all_gt_np, all_est_np, force_dim, dim_labels, no_active_mas
         rel_err_no_mask = float(np.mean(norm_err[nonzero_mask] / gt_mag[nonzero_mask] * 100))
 
     per_axis_mae = {}
+    per_axis_mae_std = {}
     for d in range(force_dim):
         axis_ae = np.abs(err[:, :, d])
         per_axis_mae[dim_labels[d]] = float(np.mean(axis_ae[active_mask])) if has_active else 0.0
+        per_env_axis = np.zeros(n_envs)
+        for e in range(n_envs):
+            m = active_mask[:, e]
+            per_env_axis[e] = float(np.mean(axis_ae[:, e][m])) if m.any() else 0.0
+        per_axis_mae_std[dim_labels[d]] = float(np.std(per_env_axis))
 
     # Angular error — always uses xy > 1N mask (angle is meaningless near zero)
     gt_angle = np.arctan2(all_gt_np[:, :, 1], all_gt_np[:, :, 0])
@@ -277,6 +291,14 @@ def _compute_metrics(all_gt_np, all_est_np, force_dim, dim_labels, no_active_mas
     has_xy = xy_mask.any()
     angular_mean = float(np.mean(angle_err_deg[xy_mask])) if has_xy else 0.0
     angular_median = float(np.median(angle_err_deg[xy_mask])) if has_xy else 0.0
+    per_env_ang_median = np.zeros(n_envs)
+    per_env_ang_mean   = np.zeros(n_envs)
+    for e in range(n_envs):
+        m = xy_mask[:, e]
+        per_env_ang_median[e] = float(np.median(angle_err_deg[:, e][m])) if m.any() else 0.0
+        per_env_ang_mean[e]   = float(np.mean(angle_err_deg[:, e][m]))   if m.any() else 0.0
+    angular_median_std = float(np.std(per_env_ang_median))
+    angular_mean_std   = float(np.std(per_env_ang_mean))
 
     force_indices = [d for d in range(force_dim) if "τ" not in dim_labels[d]]
     torque_indices = [d for d in range(force_dim) if "τ" in dim_labels[d]]
@@ -287,16 +309,25 @@ def _compute_metrics(all_gt_np, all_est_np, force_dim, dim_labels, no_active_mas
     force_mag_mask = gt_force_mag > 1.0
     force_mag_mae = float(np.mean(force_mag_err[force_mag_mask])) if force_mag_mask.any() else 0.0
 
+    torque_mae = float(np.mean([per_axis_mae[dim_labels[d]] for d in torque_indices])) if torque_indices else None
+    torque_mae_std = float(np.mean([per_axis_mae_std[dim_labels[d]] for d in torque_indices])) if torque_indices else None
+
     return {
         "mae": mae,
+        "mae_std": mae_std,
         "median_ae": median_ae,
         "relative_err_pct": rel_err,
         "relative_err_no_mask_pct": rel_err_no_mask,
         "angular_err_xy_deg_mean": angular_mean,
+        "angular_err_xy_deg_mean_std": angular_mean_std,
         "angular_err_xy_deg_median": angular_median,
+        "angular_err_xy_deg_median_std": angular_median_std,
         "per_axis_mae": per_axis_mae,
+        "per_axis_mae_std": per_axis_mae_std,
         "force_mae": float(np.mean([per_axis_mae[dim_labels[d]] for d in force_indices])),
-        "torque_mae": float(np.mean([per_axis_mae[dim_labels[d]] for d in torque_indices])) if torque_indices else None,
+        "force_mae_std": float(np.mean([per_axis_mae_std[dim_labels[d]] for d in force_indices])),
+        "torque_mae": torque_mae,
+        "torque_mae_std": torque_mae_std,
         "force_mag_mae": force_mag_mae,
         "active_mask_used": not no_active_mask,
     }

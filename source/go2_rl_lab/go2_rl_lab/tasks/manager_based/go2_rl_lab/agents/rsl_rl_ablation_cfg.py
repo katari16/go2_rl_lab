@@ -1423,6 +1423,28 @@ class AblationR3Cfg(LowLevelRunnerCfg):
 
 
 @configclass
+class AblationR4Cfg(LowLevelRunnerCfg):
+    """R4: R1 variant — no mass rand, no push, no observation noise (observability study)."""
+    experiment_name: str = "ablation_R4_h30_6d_big_tcn_norec_norand"
+    class_name: str = "CompliantOnPolicyRunner"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 30.0
+    max_torque: float = 10.0
+    estimator: dict = _est(**_R_BASE)
+
+
+@configclass
+class AblationR5Cfg(LowLevelRunnerCfg):
+    """R5: R4 + flat terrain only (strict observability test)."""
+    experiment_name: str = "ablation_R5_h30_6d_big_tcn_norec_norand_flat"
+    class_name: str = "CompliantOnPolicyRunner"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 30.0
+    max_torque: float = 10.0
+    estimator: dict = _est(**_R_BASE)
+
+
+@configclass
 class Ablation6DctrlCfg(LowLevelRunnerCfg):
     """6Dctrl: R1 + commanded roll/pitch/height (UniformVelocityPoseCommand)."""
     experiment_name: str = "ablation_6Dctrl_h30_6d_big_tcn_norec_posecmd"

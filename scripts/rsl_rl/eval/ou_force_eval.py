@@ -211,6 +211,69 @@ def _compute_ou_metrics(log: dict, force_dim: int, max_force: float, max_torque:
     }
 
 
+def _compute_ou_metrics_std(all_gt_np, all_est_np, dim_labels):
+    """Per-env mean -> std across envs. Mirrors rollout_estimator_eval.
+
+    Args:
+        all_gt_np:  [T, N, D]
+        all_est_np: [T, N, D]
+        dim_labels: list of D labels, e.g. ["Fx", "Fy", "Fz", "τ_yaw"]
+
+    Returns:
+        dict with mae_std, per_axis_mae_std, angular_err_xy_deg_{mean,median}_std,
+        force_mae_std, torque_mae_std.
+    """
+    err = all_est_np - all_gt_np
+    abs_err = np.abs(err)
+    per_sample_mae = abs_err.mean(axis=2)   # [T, N]
+    gt_mag = np.linalg.norm(all_gt_np, axis=2)
+    active = gt_mag > 1.0
+
+    T, n_envs, D = all_gt_np.shape
+    per_env_mae = np.zeros(n_envs)
+    for e in range(n_envs):
+        m = active[:, e]
+        per_env_mae[e] = float(np.mean(per_sample_mae[:, e][m])) if m.any() else 0.0
+    mae_std = float(np.std(per_env_mae))
+
+    per_axis_mae_std = {}
+    for d in range(D):
+        axis_ae = np.abs(err[:, :, d])
+        per_env_axis = np.zeros(n_envs)
+        for e in range(n_envs):
+            m = active[:, e]
+            per_env_axis[e] = float(np.mean(axis_ae[:, e][m])) if m.any() else 0.0
+        per_axis_mae_std[dim_labels[d]] = float(np.std(per_env_axis))
+
+    gt_angle = np.arctan2(all_gt_np[:, :, 1], all_gt_np[:, :, 0])
+    est_angle = np.arctan2(all_est_np[:, :, 1], all_est_np[:, :, 0])
+    angle_diff = np.arctan2(np.sin(est_angle - gt_angle), np.cos(est_angle - gt_angle))
+    angle_err_deg = np.abs(angle_diff) * 180.0 / np.pi
+    xy_mask = np.linalg.norm(all_gt_np[:, :, :2], axis=2) > 1.0
+    per_env_ang_median = np.zeros(n_envs)
+    per_env_ang_mean = np.zeros(n_envs)
+    for e in range(n_envs):
+        m = xy_mask[:, e]
+        per_env_ang_median[e] = float(np.median(angle_err_deg[:, e][m])) if m.any() else 0.0
+        per_env_ang_mean[e]   = float(np.mean(angle_err_deg[:, e][m]))   if m.any() else 0.0
+    angular_median_std = float(np.std(per_env_ang_median))
+    angular_mean_std   = float(np.std(per_env_ang_mean))
+
+    force_indices = [d for d in range(D) if "τ" not in dim_labels[d]]
+    torque_indices = [d for d in range(D) if "τ" in dim_labels[d]]
+    force_mae_std = float(np.mean([per_axis_mae_std[dim_labels[d]] for d in force_indices])) if force_indices else 0.0
+    torque_mae_std = float(np.mean([per_axis_mae_std[dim_labels[d]] for d in torque_indices])) if torque_indices else None
+
+    return {
+        "mae_std": mae_std,
+        "per_axis_mae_std": per_axis_mae_std,
+        "angular_err_xy_deg_mean_std": angular_mean_std,
+        "angular_err_xy_deg_median_std": angular_median_std,
+        "force_mae_std": force_mae_std,
+        "torque_mae_std": torque_mae_std,
+    }
+
+
 # ── Plotting ───────────────────────────────────────────────────────────────────
 
 def generate_plots(log: dict, args, checkpoint_path: str, force_dim: int, max_force: float, max_torque: float, fz_scale: float, metrics: dict, is_xy_yaw: bool = False) -> None:
@@ -426,6 +489,10 @@ def main(
     isaac_env._force_estimate_xy = torch.zeros(n, force_dim, device=device)
     obs = env.get_observations()
 
+    # Per-env accumulator [T, N, force_dim] for std-dev metrics
+    all_gt_per_env  = torch.zeros(total_steps, n, force_dim, device=device)
+    all_est_per_env = torch.zeros(total_steps, n, force_dim, device=device)
+
     log: dict = {"time_s": [], "gt_fx": [], "gt_fy": [], "est_fx": [], "est_fy": []}
     if force_dim >= 3 and not is_xy_yaw:
         log["gt_fz"] = []; log["est_fz"] = []
@@ -528,6 +595,24 @@ def main(
                     est_scales[:, 0:1] = (est_world.norm(dim=-1, keepdim=True) * force_scale).clamp(min=0.05)
                     est_markers.visualize(est_pos, _force_to_quat(est_world, device), est_scales)
 
+                # Per-env GT/est accumulator [T, N, force_dim] — for std-dev metrics
+                # Build GT vector matching the estimator output layout
+                gt_vec = torch.zeros(n, force_dim, device=device)
+                gt_vec[:, 0] = gt_f[:, 0]
+                gt_vec[:, 1] = gt_f[:, 1]
+                if is_xy_yaw:
+                    gt_vec[:, 2] = gt_t[:, 2]
+                else:
+                    if force_dim >= 3:
+                        gt_vec[:, 2] = gt_f[:, 2]
+                    if force_dim >= 6:
+                        gt_vec[:, 3] = gt_t[:, 0]
+                        gt_vec[:, 4] = gt_t[:, 1]
+                    if force_dim >= 4:
+                        gt_vec[:, yaw_idx] = gt_t[:, 2]
+                all_gt_per_env[step_count]  = gt_vec
+                all_est_per_env[step_count] = force_hat
+
                 # Log (env 0) — GT from wrench composer
                 log["time_s"].append(step_count * dt)
                 log["gt_fx"].append(gt_f[0, 0].item())
@@ -578,6 +663,47 @@ def main(
 
     if len(log["time_s"]) > 10:
         metrics = _compute_ou_metrics(log, force_dim, max_force, max_torque, fz_scale, is_xy_yaw=is_xy_yaw)
+
+        # Build dim_labels matching the est layout
+        if is_xy_yaw:
+            dim_labels = ["Fx", "Fy", "τ_yaw"]
+        elif force_dim == 2:
+            dim_labels = ["Fx", "Fy"]
+        elif force_dim == 3:
+            dim_labels = ["Fx", "Fy", "Fz"]
+        elif force_dim == 4:
+            dim_labels = ["Fx", "Fy", "Fz", "τ_yaw"]
+        elif force_dim == 6:
+            dim_labels = ["Fx", "Fy", "Fz", "τ_roll", "τ_pitch", "τ_yaw"]
+        else:
+            dim_labels = [f"d{i}" for i in range(force_dim)]
+
+        # Trim accumulators to executed steps and compute std metrics
+        n_steps_done = min(step_count, total_steps)
+        gt_np  = all_gt_per_env[:n_steps_done].cpu().numpy()
+        est_np = all_est_per_env[:n_steps_done].cpu().numpy()
+        metrics.update(_compute_ou_metrics_std(gt_np, est_np, dim_labels))
+
+        # Save metrics + timeseries data
+        eval_dir = os.path.join(os.path.dirname(resume_path), "ou_eval")
+        os.makedirs(eval_dir, exist_ok=True)
+        from datetime import datetime
+        ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        metrics_path = os.path.join(eval_dir, f"ou_metrics_{ts}.json")
+        with open(metrics_path, "w") as f:
+            json.dump({"metrics": metrics, "dim_labels": dim_labels,
+                       "force_dim": force_dim, "is_xy_yaw": is_xy_yaw,
+                       "max_force": max_force, "max_torque": max_torque,
+                       "fz_scale": fz_scale, "duration_s": args_cli.duration,
+                       "num_envs": n}, f, indent=2)
+        print(f"[ou_force_eval] Metrics saved: {metrics_path}")
+
+        # Save raw timeseries data for downstream plotting
+        ts_path = os.path.join(eval_dir, f"ou_timeseries_{ts}.json")
+        with open(ts_path, "w") as f:
+            json.dump({k: [float(v) for v in vals] for k, vals in log.items()}, f)
+        print(f"[ou_force_eval] Timeseries saved: {ts_path}")
+
         generate_plots(log, args_cli, resume_path, force_dim, max_force, max_torque, fz_scale, metrics, is_xy_yaw=is_xy_yaw)
     else:
         print("[ou_force_eval] Too few steps, skipping plots.")

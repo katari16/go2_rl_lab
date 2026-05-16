@@ -1,0 +1,69 @@
+"""Plot J3 vs J5 estimator comparison on shared GT axes.
+
+Colours (add legend in PowerPoint):
+  GT      — per-channel solid colour (see channels list)
+  J3 est  — #f4a261  (orange), dashed
+  J5 est  — #2a9d8f  (teal),   dashed
+"""
+
+import json
+import os
+import numpy as np
+import matplotlib.pyplot as plt
+
+J3_PATH = (
+    "/home/ubuntu/go2_rl_lab/logs/rsl_rl/ablation_force_accuracy_reward"
+    "/ablation_J3_4d_h40_estrew_w50_30N/2026-04-15_17-24-50"
+    "/force_eval/static_eval_data_2026-05-03_15-12-19.json"
+)
+J5_PATH = (
+    "/home/ubuntu/go2_rl_lab/logs/rsl_rl/ablation_force_accuracy_reward"
+    "/ablation_J5_4d_h40_estrew_w50_tcnpre_30N/2026-04-15_17-24-57"
+    "/force_eval/static_eval_data_2026-05-03_14-29-19.json"
+)
+
+with open(J3_PATH) as f:
+    d3 = json.load(f)
+with open(J5_PATH) as f:
+    d5 = json.load(f)
+
+t    = np.array(d3["time_s"])
+mask = t <= 15.0
+t    = t[mask]
+rerandom = d3["rerandom_steps"]
+
+COLOR_J3 = "#f4a261"
+COLOR_J5 = "#2a9d8f"
+
+channels = [
+    ("$F_x$",         "gt_force_x",   "est_force_x",   "N",  "#e63946"),
+    ("$F_y$",         "gt_force_y",   "est_force_y",   "N",  "#9b2226"),
+    (r"$\tau_{yaw}$", "gt_torque_yaw","est_torque_yaw","Nm", "#6d3a1e"),
+]
+
+fig, axes = plt.subplots(len(channels), 1, figsize=(13, 3 * len(channels)), sharex=True)
+
+for ax, (label, gt_key, est_key, unit, gt_color) in zip(axes, channels):
+    gt = np.array(d3[gt_key])[mask]
+    ax.plot(t, np.array(d3[est_key])[mask], color=COLOR_J3, linewidth=1.8, alpha=0.9)
+    ax.plot(t, np.array(d5[est_key])[mask], color=COLOR_J5, linewidth=1.8, alpha=0.9)
+    ax.step(t, gt, where="post", color=gt_color, linewidth=2.2, zorder=5)
+
+    for rs in rerandom:
+        idx = int(rs)
+        if idx < len(t):
+            ax.axvline(t[idx], color="gray", linewidth=0.5, linestyle="--", alpha=0.4)
+
+    ax.axhline(0, color="gray", linewidth=0.4, linestyle="--", alpha=0.4)
+    ax.set_ylabel(f"{label} ({unit})", fontsize=10)
+    ax.grid(True, alpha=0.2)
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+
+axes[-1].set_xlabel("Time (s)", fontsize=11)
+plt.tight_layout()
+
+out = os.path.join(os.path.dirname(J5_PATH), "..", "j3_vs_j5_comparison.png")
+out = os.path.normpath(out)
+plt.savefig(out, dpi=150, bbox_inches="tight")
+print(f"Saved: {out}")

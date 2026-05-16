@@ -695,6 +695,28 @@ gym.register(
     },
 )
 
+# R4: R1 variant with NO mass rand, NO push, NO observation noise (observability study)
+gym.register(
+    id="Go2-Ablation-R4-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:PSeriesNoRandEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:AblationR4Cfg",
+    },
+)
+
+# R5: R4 + flat terrain only
+gym.register(
+    id="Go2-Ablation-R5-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:PSeriesNoRandFlatEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:AblationR5Cfg",
+    },
+)
+
 # 6Dctrl: R1 + commanded roll/pitch/height (UniformVelocityPoseCommand)
 gym.register(
     id="Go2-Ablation-6Dctrl-v0",

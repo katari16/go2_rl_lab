@@ -36,6 +36,9 @@ parser.add_argument("--elevation_angles", type=float, nargs="+", default=None,
                     help="Elevation angles in degrees (default: auto from force_dim).")
 parser.add_argument("--torque_magnitudes", type=float, nargs="+", default=[1, 2, 3, 5])
 parser.add_argument("--skip_torque_sweep", action="store_true", default=False)
+parser.add_argument("--metrics_mag_range", type=float, nargs=2, default=[15.0, 25.0],
+                    metavar=("MIN", "MAX"),
+                    help="Magnitude range (N) used to aggregate per-direction metrics with std dev.")
 parser.add_argument("--linear_modulation", action="store_true", default=False,
                     help="Enable force estimate → velocity command modulation.")
 parser.add_argument("--compliance_k", type=float, default=0.06)
@@ -91,6 +94,122 @@ from eval.eval_utils import _NumpyEncoder
 
 NUM_DIRECTIONS = 10
 DIRECTIONS_DEG = np.linspace(0, 360, NUM_DIRECTIONS, endpoint=False)
+
+
+def _build_dim_labels(force_dim, force_layout):
+    if force_layout == "xy_yaw" and force_dim == 3:
+        return ["Fx", "Fy", "τ_yaw"]
+    if force_dim == 2: return ["Fx", "Fy"]
+    if force_dim == 3: return ["Fx", "Fy", "Fz"]
+    if force_dim == 4: return ["Fx", "Fy", "Fz", "τ_yaw"]
+    if force_dim == 6: return ["Fx", "Fy", "Fz", "τ_roll", "τ_pitch", "τ_yaw"]
+    return [f"d{i}" for i in range(force_dim)]
+
+
+def _compute_per_direction_metrics(force_sweep, force_dim, force_layout,
+                                   mag_min=15.0, mag_max=25.0, elevation=0.0):
+    """Per-azimuth aggregate metrics across trials in [mag_min, mag_max] at given elevation.
+
+    For each direction: aggregate per-trial MAEs and per-trial angular errors,
+    then report (mean, std) over those trials — mirroring the rollout_eval std
+    formulation (per-env mean → std across envs).
+    """
+    dim_labels = _build_dim_labels(force_dim, force_layout)
+    elev_str_target = str(float(elevation))
+
+    # Group trials by direction
+    per_dir = {}
+    for mag_str, dir_dict in force_sweep.items():
+        try:
+            mag = float(mag_str)
+        except (ValueError, TypeError):
+            continue
+        if not (mag_min <= mag <= mag_max):
+            continue
+        for deg_str, elev_dict in dir_dict.items():
+            trials = elev_dict.get(elev_str_target, [])
+            if trials:
+                per_dir.setdefault(deg_str, []).extend(trials)
+
+    directions = {}
+    for deg_str, trials in per_dir.items():
+        per_trial_mae = []
+        per_trial_axis_mae = {lbl: [] for lbl in dim_labels}
+        per_trial_ang_mean = []
+        per_trial_ang_median = []
+
+        for tr in trials:
+            if not tr.get("success", True) or "force_est" not in tr:
+                continue
+            est = np.asarray(tr["force_est"], dtype=np.float32)
+            if est.ndim != 2 or est.shape[0] < 5 or est.shape[1] < force_dim:
+                continue
+            est = est[:, :force_dim]
+
+            fx, fy, fz = tr["force_xyz"]
+            gt = np.zeros(force_dim, dtype=np.float32)
+            gt[0] = fx
+            gt[1] = fy
+            if force_layout != "xy_yaw" and force_dim >= 3:
+                gt[2] = fz
+            # τ components are 0 during force trials (force_layout != "xy_yaw")
+
+            err = est - gt[None, :]
+            abs_err = np.abs(err)
+
+            per_trial_mae.append(float(abs_err.mean()))
+            for d, lbl in enumerate(dim_labels):
+                per_trial_axis_mae[lbl].append(float(abs_err[:, d].mean()))
+
+            xy_mag = math.hypot(fx, fy)
+            if xy_mag > 1.0:
+                gt_ang = math.atan2(fy, fx)
+                est_ang = np.arctan2(est[:, 1], est[:, 0])
+                ang_diff = np.arctan2(np.sin(est_ang - gt_ang), np.cos(est_ang - gt_ang))
+                ang_deg = np.abs(ang_diff) * 180.0 / np.pi
+                per_trial_ang_mean.append(float(np.mean(ang_deg)))
+                per_trial_ang_median.append(float(np.median(ang_deg)))
+
+        if not per_trial_mae:
+            continue
+
+        per_axis_mae     = {lbl: float(np.mean(per_trial_axis_mae[lbl])) for lbl in dim_labels}
+        per_axis_mae_std = {lbl: float(np.std(per_trial_axis_mae[lbl]))  for lbl in dim_labels}
+
+        force_indices  = [d for d, lbl in enumerate(dim_labels) if "τ" not in lbl]
+        torque_indices = [d for d, lbl in enumerate(dim_labels) if "τ" in lbl]
+        force_mae      = float(np.mean([per_axis_mae[dim_labels[d]]     for d in force_indices])) if force_indices else 0.0
+        force_mae_std  = float(np.mean([per_axis_mae_std[dim_labels[d]] for d in force_indices])) if force_indices else 0.0
+        torque_mae     = float(np.mean([per_axis_mae[dim_labels[d]]     for d in torque_indices])) if torque_indices else None
+        torque_mae_std = float(np.mean([per_axis_mae_std[dim_labels[d]] for d in torque_indices])) if torque_indices else None
+
+        ang_mean       = float(np.mean(per_trial_ang_mean))   if per_trial_ang_mean   else 0.0
+        ang_mean_std   = float(np.std(per_trial_ang_mean))    if per_trial_ang_mean   else 0.0
+        ang_median     = float(np.mean(per_trial_ang_median)) if per_trial_ang_median else 0.0
+        ang_median_std = float(np.std(per_trial_ang_median))  if per_trial_ang_median else 0.0
+
+        directions[deg_str] = {
+            "mae":                            float(np.mean(per_trial_mae)),
+            "mae_std":                        float(np.std(per_trial_mae)),
+            "per_axis_mae":                   per_axis_mae,
+            "per_axis_mae_std":               per_axis_mae_std,
+            "force_mae":                      force_mae,
+            "force_mae_std":                  force_mae_std,
+            "torque_mae":                     torque_mae,
+            "torque_mae_std":                 torque_mae_std,
+            "angular_err_xy_deg_mean":        ang_mean,
+            "angular_err_xy_deg_mean_std":    ang_mean_std,
+            "angular_err_xy_deg_median":      ang_median,
+            "angular_err_xy_deg_median_std":  ang_median_std,
+            "n_trials":                       len(per_trial_mae),
+        }
+
+    return {
+        "dim_labels":  dim_labels,
+        "mag_range":   [mag_min, mag_max],
+        "elevation":   elevation,
+        "directions":  directions,
+    }
 DIRECTIONS_RAD = np.deg2rad(DIRECTIONS_DEG)
 
 TORQUE_AXIS_MAP = {"roll": 0, "pitch": 1, "yaw": 2}
@@ -428,6 +547,23 @@ def main(
     with open(path, "w") as f:
         json.dump(out_data, f, indent=1, cls=_NumpyEncoder)
     print(f"[static_360] Raw data saved to {path}")
+
+    # ── Per-direction metrics with std dev (mirrors rollout_eval format) ──
+    if has_estimator:
+        mag_min, mag_max = args_cli.metrics_mag_range
+        dir_metrics = _compute_per_direction_metrics(
+            force_sweep, force_dim, force_layout,
+            mag_min=mag_min, mag_max=mag_max, elevation=0.0,
+        )
+        metrics_path = os.path.join(output_dir, "direction_metrics.json")
+        with open(metrics_path, "w") as f:
+            json.dump({"task": args_cli.task,
+                       "force_dim": force_dim,
+                       "force_layout": force_layout,
+                       **dir_metrics}, f, indent=2, cls=_NumpyEncoder)
+        print(f"[static_360] Per-direction metrics saved to {metrics_path} "
+              f"(mag range [{mag_min:.0f}, {mag_max:.0f}] N, "
+              f"{len(dir_metrics['directions'])} directions)")
 
     print(f"\n[static_360] Output: {output_dir}")
     print(f"  Run analysis with:")

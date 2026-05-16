@@ -1,41 +1,59 @@
 #!/bin/bash
-# Full eval pipeline for R1 and R2: static, OU force, rollout.
-# Run headless. After completion, update master metrics and open dashboard.
+# Full eval pipeline for R-series (deployed estimator candidates):
+#   R1: h30, 6D, big net, TCN preprocessor, no rec loss
+#   R2: h30, 6D, big net, TCN preprocessor, no rec loss, est-acc reward
+#   R3: h30, 6D, big net, TCN preprocessor, no rec loss, no mass randomization
+#
+# Each run: static_eval (12 envs), ou_force_eval (4096 envs, 20s),
+#           rollout_estimator_eval (4096 envs, 20s, training_regime).
+
 set -e
 cd "$(dirname "$0")/../.."
 
-BASE=/home/ubuntu/go2_rl_lab/logs/rsl_rl/ablations_p_series
-R1=$BASE/ablation_R1_h30_6d_big_tcn_norec/2026-04-21_19-15-56/model_9500.pt
-R2=$BASE/ablation_R2_h30_6d_big_tcn_norec_estacc/2026-04-21_19-16-02/model_9500.pt
+BASE_P=/home/ubuntu/go2_rl_lab/logs/rsl_rl/ablations_p_series
+
+R1=$BASE_P/ablation_R1_h30_6d_big_tcn_norec/2026-04-21_19-15-56/model_9500.pt
+R2=$BASE_P/ablation_R2_h30_6d_big_tcn_norec_estacc/2026-04-21_19-16-02/model_9500.pt
+R3=/home/ubuntu/go2_rl_lab/logs/rsl_rl/ablation_R3_h30_6d_big_tcn_norec_nomassrand/2026-04-23_23-09-49/model_10000.pt
 
 run_eval() {
-    echo "=========================================="
+    echo "------------------------------------------"
     echo "Running: $1"
-    echo "=========================================="
+    echo "------------------------------------------"
     eval "$1"
     echo ""
 }
 
-# ── Static eval ───────────────────────────────────────────────────────────────
-run_eval "python scripts/rsl_rl/static_eval.py --task Go2-Ablation-R1-v0 --checkpoint $R1 --num_envs 12 --show_est --force_min 10.0 --force_max 30.0 --headless"
-run_eval "python scripts/rsl_rl/static_eval.py --task Go2-Ablation-R2-v0 --checkpoint $R2 --num_envs 12 --show_est --force_min 10.0 --force_max 30.0 --headless"
+run_suite() {
+    local task="$1"
+    local ckpt="$2"
+    echo ""
+    echo "##########################################"
+    echo "  $task    (ckpt: $(basename $ckpt))"
+    echo "##########################################"
 
-# ── OU force eval ─────────────────────────────────────────────────────────────
-run_eval "python scripts/rsl_rl/eval/ou_force_eval.py --task Go2-Ablation-R1-v0 --checkpoint $R1 --num_envs 12 --show_est --show_gt --duration 20 --headless"
-run_eval "python scripts/rsl_rl/eval/ou_force_eval.py --task Go2-Ablation-R2-v0 --checkpoint $R2 --num_envs 12 --show_est --show_gt --duration 20 --headless"
+    if [ ! -f "$ckpt" ]; then
+        echo "!! Checkpoint not found: $ckpt — skipping"
+        return
+    fi
 
-# ── Rollout estimator eval ────────────────────────────────────────────────────
-run_eval "python scripts/rsl_rl/eval/rollout_estimator_eval.py --task Go2-Ablation-R1-v0 --checkpoint $R1 --num_envs 128 --training_regime --duration 10 --no_active_mask --headless"
-run_eval "python scripts/rsl_rl/eval/rollout_estimator_eval.py --task Go2-Ablation-R2-v0 --checkpoint $R2 --num_envs 128 --training_regime --duration 10 --no_active_mask --headless"
+    run_eval "python scripts/rsl_rl/static_eval.py --task $task --checkpoint $ckpt --num_envs 12 --show_est --force_min 10.0 --force_max 30.0 --save_data --headless"
+
+    run_eval "python scripts/rsl_rl/eval/ou_force_eval.py --task $task --checkpoint $ckpt --num_envs 4096 --duration 20 --headless"
+
+    run_eval "python scripts/rsl_rl/eval/rollout_estimator_eval.py --task $task --checkpoint $ckpt --num_envs 4096 --duration 20 --training_regime --no_active_mask --headless"
+}
+
 
 echo "=========================================="
-echo "All R-series evals complete."
+echo "R-series eval — start: $(date)"
 echo "=========================================="
 
-# ── Update master metrics ─────────────────────────────────────────────────────
-echo "Updating master metrics..."
-python scripts/rsl_rl/collect_rollout_metrics.py
+run_suite "Go2-Ablation-R1-v0" "$R1"
+run_suite "Go2-Ablation-R2-v0" "$R2"
+run_suite "Go2-Ablation-R3-v0" "$R3"
 
 echo ""
-echo "Launch dashboard with:"
-echo "  python scripts/rsl_rl/dashboard.py"
+echo "=========================================="
+echo "All R-series evals complete — $(date)"
+echo "=========================================="

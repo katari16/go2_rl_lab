@@ -659,3 +659,46 @@ class PSeriesNoMassRandEnvCfg(PSeriesWrenchEnvCfg):
     """P-series env with fixed base mass — for R3."""
 
     events: PSeriesNoMassRandEventCfg = PSeriesNoMassRandEventCfg()
+
+
+# ── R4 / R5: observability study — no domain randomization ────────────────────
+
+@configclass
+class PSeriesNoRandEventCfg(PSeriesNoMassRandEventCfg):
+    """Like R3 (fixed mass) but also removes velocity push perturbation."""
+
+    push_robot = None
+
+
+@configclass
+class WrenchObservationsCleanCfg(WrenchObservationsCfg):
+    """WrenchObservationsCfg with PolicyCfg.enable_corruption = False (clean obs)."""
+
+    @configclass
+    class PolicyCfg(ObservationsCfg.PolicyCfg):
+        def __post_init__(self):
+            self.enable_corruption = False
+            self.concatenate_terms = True
+
+    policy: PolicyCfg = PolicyCfg()
+
+
+@configclass
+class PSeriesNoRandEnvCfg(PSeriesNoMassRandEnvCfg):
+    """P-series env — no mass rand, no push, no observation noise — for R4.
+
+    Same terrain curriculum as R1/R3.
+    """
+
+    events: PSeriesNoRandEventCfg = PSeriesNoRandEventCfg()
+    observations: WrenchObservationsCleanCfg = WrenchObservationsCleanCfg()
+
+
+@configclass
+class PSeriesNoRandFlatEnvCfg(PSeriesNoRandEnvCfg):
+    """R4 + flat terrain only — for R5."""
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.scene.terrain.terrain_type = "plane"
+        self.scene.terrain.terrain_generator = None

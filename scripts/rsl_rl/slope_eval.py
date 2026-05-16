@@ -76,6 +76,16 @@ parser.add_argument("--show_cmd", action="store_true", default=False,
 parser.add_argument("--show_adj", action="store_true", default=False,
                     help="Show compliance adjustment arrow (yellow).")
 parser.add_argument("--real-time", action="store_true", default=False)
+parser.add_argument("--follow", action="store_true", default=False,
+                    help="Lock the viewport to the robot's base.")
+parser.add_argument("--follow_env", type=int, default=0,
+                    help="Env index to follow when --follow is set.")
+parser.add_argument("--follow_eye", type=float, nargs=3, default=[1.5, 0.2, 0.2],
+                    metavar=("X", "Y", "Z"), help="Camera eye offset in robot frame (m).")
+parser.add_argument("--follow_lookat", type=float, nargs=3, default=[0.0, 0.0, 0.0],
+                    metavar=("X", "Y", "Z"), help="Camera lookat in robot frame (m).")
+parser.add_argument("--save_json", type=str, default=None,
+                    help="Save log data (time series + summary stats) to this JSON path.")
 cli_args.add_rsl_rl_args(parser)
 AppLauncher.add_app_launcher_args(parser)
 args_cli, hydra_args = parser.parse_known_args()
@@ -255,36 +265,34 @@ def generate_payload_plots(log: dict, args, checkpoint_path: str) -> None:
     from datetime import datetime
 
     t = np.array(log["time_s"])
-    t_switch = args.walk_duration
     delta_mass = args.payload_mass - 3.0
 
-    fig, axes = plt.subplots(3, 1, figsize=(14, 10), sharex=True)
+    channels = [
+        ("$F_x$", "payload_gt_fx", "est_fx",  "N",  "#e63946"),
+        ("$F_y$", "payload_gt_fy", "est_fy",  "N",  "#9b2226"),
+        ("$F_z$", "payload_gt_fz", "est_fz",  "N",  "#5c4db1"),
+    ]
+
+    fig, axes = plt.subplots(len(channels), 1, figsize=(13, 3 * len(channels)), sharex=True)
     fig.suptitle(
-        f"Payload Gravity GT vs Estimator — Δm={delta_mass:.1f}kg ({args.payload_mass:.1f}kg loaded, 3.0kg trained)"
-        f" — {args.slope_deg:.0f}° slope",
+        f"Payload GT vs Estimated — Δm={delta_mass:.1f} kg "
+        f"({args.payload_mass:.1f} kg loaded) — {args.slope_deg:.0f}° slope",
         fontsize=13, fontweight="bold",
     )
 
-    def _shade(ax):
-        ax.axvline(t_switch, color="gray", linestyle="--", alpha=0.6, label="WALK→HOLD")
-        ax.axvspan(0, t_switch, alpha=0.04, color="blue")
-        ax.axvspan(t_switch, t[-1], alpha=0.04, color="orange")
-        ax.axhline(0, color="black", lw=0.5, alpha=0.4)
+    for ax, (label, gt_key, est_key, unit, color) in zip(axes, channels):
+        gt  = np.array(log[gt_key])
+        est = np.array(log[est_key])
+        ax.step(t, gt,  where="post", color=color, linewidth=2.2, zorder=5, label=f"GT {label}")
+        ax.plot(t, est, color=color, linewidth=1.8, alpha=0.9, label=f"Est {label}")
+        ax.legend(loc="upper right", fontsize=8)
+        ax.axhline(0, color="gray", linewidth=0.4, linestyle="--", alpha=0.4)
+        ax.set_ylabel(f"{label} ({unit})", fontsize=10)
+        ax.grid(True, alpha=0.2)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
 
-    labels = [("Fx", "payload_gt_fx", "est_fx", "tab:red"),
-              ("Fy", "payload_gt_fy", "est_fy", "tab:blue"),
-              ("Fz", "payload_gt_fz", "est_fz", "tab:purple")]
-
-    for ax, (name, gt_key, est_key, color) in zip(axes, labels):
-        ax.plot(t, log[gt_key],  color=color, lw=1.4, label=f"GT {name} (Δm·g·proj_grav)")
-        ax.plot(t, log[est_key], color=color, lw=0.9, ls="--", alpha=0.7, label=f"Est {name}")
-        _shade(ax)
-        ax.set_ylabel("Force (N)")
-        ax.legend(loc="upper right", fontsize=9)
-        ax.grid(True, alpha=0.3)
-        ax.set_title(f"{name}: payload gravity GT vs estimator", fontsize=11)
-
-    axes[-1].set_xlabel("Time (s)")
+    axes[-1].set_xlabel("Time (s)", fontsize=11)
     plt.tight_layout()
 
     eval_dir = os.path.join(os.path.dirname(checkpoint_path), "slope_eval")
@@ -308,7 +316,17 @@ def main(
     env_cfg.seed = agent_cfg.seed
     env_cfg.sim.device = args_cli.device if args_cli.device is not None else env_cfg.sim.device
 
-    # ── Spawn orientation ─────────────────────────────────────────────────
+    # ── Follow camera ─────────────────────────────────────────────────────
+    if args_cli.follow:
+        env_cfg.viewer.origin_type = "asset_root"
+        env_cfg.viewer.asset_name = "robot"
+        env_cfg.viewer.env_index = args_cli.follow_env
+        env_cfg.viewer.eye = tuple(args_cli.follow_eye)
+        env_cfg.viewer.lookat = tuple(args_cli.follow_lookat)
+        print(f"[INFO] Follow camera: env={args_cli.follow_env}, "
+              f"eye={tuple(args_cli.follow_eye)}, lookat={tuple(args_cli.follow_lookat)}")
+
+# ── Spawn orientation ─────────────────────────────────────────────────
     if args_cli.spawn_yaw != 0.0:
         import math
         yaw_rad = math.radians(args_cli.spawn_yaw)
@@ -480,6 +498,7 @@ def main(
     total_steps = int(total_duration / dt)
 
     isaac_env._force_estimate_xy = torch.zeros(n, force_dim, device=device)
+    gt_torque_body = torch.zeros(n, 3, device=device)
     obs = env.get_observations()
     step_count = 0
     phase = "WALK"
@@ -586,13 +605,27 @@ def main(
                     runner._history_buffer.reset(done_ids)
 
                 # GT force (body frame)
-                gt_force_body = asset.permanent_wrench_composer.composed_force_as_torch[:n, base_idx, :fd3]
+                if hasattr(asset, "permanent_wrench_composer") and asset.permanent_wrench_composer is not None:
+                    gt_force_raw = asset.permanent_wrench_composer.composed_force_as_torch
+                    if gt_force_raw.numel() > 0 and gt_force_raw.shape[1] > base_idx:
+                        gt_force_body = gt_force_raw[:n, base_idx, :fd3]
+                    else:
+                        gt_force_body = torch.zeros(n, fd3, device=device)
+                else:
+                    gt_force_body = torch.zeros(n, fd3, device=device)
                 if gt_force_body.dim() == 3:
                     gt_force_body = gt_force_body.squeeze(1)
 
                 # GT torque (body frame) — only used if force_dim >= 6
                 if force_dim >= 6:
-                    gt_torque_body = asset.permanent_wrench_composer.composed_torque_as_torch[:n, base_idx, :]
+                    if hasattr(asset, "permanent_wrench_composer") and asset.permanent_wrench_composer is not None:
+                        gt_torque_raw = asset.permanent_wrench_composer.composed_torque_as_torch
+                        if gt_torque_raw.numel() > 0 and gt_torque_raw.shape[1] > base_idx:
+                            gt_torque_body = gt_torque_raw[:n, base_idx, :]
+                        else:
+                            gt_torque_body = torch.zeros(n, 3, device=device)
+                    else:
+                        gt_torque_body = torch.zeros(n, 3, device=device)
                     if gt_torque_body.dim() == 3:
                         gt_torque_body = gt_torque_body.squeeze(1)
 
@@ -703,10 +736,12 @@ def main(
                         gt_str = f"GT:[{g0[0]:+5.1f},{g0[1]:+5.1f},{g0[2]:+5.1f}]N"
                         est_str = f"Est:[{e0[0]:+5.1f},{e0[1]:+5.1f},{e0[2]:+5.1f}]N"
                     elif force_dim == 4:
-                        gt_str = f"GT:[{g0[0]:+5.1f},{g0[1]:+5.1f},{g0[2]:+5.1f}]N τ:[{g0[3]:+5.1f}]Nm"
+                        t0 = gt_torque_body[0]
+                        gt_str = f"GT:[{g0[0]:+5.1f},{g0[1]:+5.1f},{g0[2]:+5.1f}]N τ:[{t0[2]:+5.1f}]Nm"
                         est_str = f"Est:[{e0[0]:+5.1f},{e0[1]:+5.1f},{e0[2]:+5.1f}]N τ:[{e0[3]:+5.1f}]Nm"
                     else:  # 6D
-                        gt_str = f"GT:[{g0[0]:+4.1f},{g0[1]:+4.1f},{g0[2]:+4.1f}]N τ:[{g0[3]:+4.1f},{g0[4]:+4.1f},{g0[5]:+4.1f}]Nm"
+                        t0 = gt_torque_body[0]
+                        gt_str = f"GT:[{g0[0]:+4.1f},{g0[1]:+4.1f},{g0[2]:+4.1f}]N τ:[{t0[0]:+4.1f},{t0[1]:+4.1f},{t0[2]:+4.1f}]Nm"
                         est_str = f"Est:[{e0[0]:+4.1f},{e0[1]:+4.1f},{e0[2]:+4.1f}]N τ:[{e0[3]:+4.1f},{e0[4]:+4.1f},{e0[5]:+4.1f}]Nm"
 
                     print(
@@ -723,8 +758,12 @@ def main(
                 if sleep_time > 0:
                     time.sleep(sleep_time)
 
-    except (KeyboardInterrupt, SystemExit, Exception) as exc:
+    except (KeyboardInterrupt, SystemExit) as exc:
         print(f"\n\n[slope_eval] Stopped ({type(exc).__name__}).")
+    except Exception as exc:
+        import traceback
+        print(f"\n\n[slope_eval] Stopped ({type(exc).__name__}): {exc}")
+        traceback.print_exc()
 
     print()
     env.close()
@@ -738,6 +777,35 @@ def main(
             generate_payload_plots(log, args_cli, resume_path)
     else:
         print("[slope_eval] Too few steps, skipping plots.")
+
+    if args_cli.save_json and len(log["time_s"]) > 10:
+        import json as json_mod
+        est_fz = np.array(log.get("est_fz", []))
+        est_fx = np.array(log["est_fx"])
+        est_fy = np.array(log["est_fy"])
+        summary = {
+            "task": args_cli.task,
+            "checkpoint": resume_path,
+            "payload_mass_kg": args_cli.payload_mass,
+            "slope_deg": args_cli.slope_deg,
+            "terrain": args_cli.terrain,
+            "walk_speed": args_cli.walk_speed,
+            "duration_s": float(log["time_s"][-1]),
+            "n_steps": len(log["time_s"]),
+            "force_dim": force_dim,
+            "est_fx_mean": float(np.mean(est_fx)),
+            "est_fx_std": float(np.std(est_fx)),
+            "est_fy_mean": float(np.mean(est_fy)),
+            "est_fy_std": float(np.std(est_fy)),
+            "est_fz_mean": float(np.mean(est_fz)) if len(est_fz) > 0 else None,
+            "est_fz_std": float(np.std(est_fz)) if len(est_fz) > 0 else None,
+            "est_mag_xy_mean": float(np.mean(np.sqrt(est_fx**2 + est_fy**2))),
+        }
+        out = {"summary": summary, "timeseries": {k: v for k, v in log.items() if isinstance(v, list)}}
+        os.makedirs(os.path.dirname(args_cli.save_json) or ".", exist_ok=True)
+        with open(args_cli.save_json, "w") as f:
+            json_mod.dump(out, f, indent=2)
+        print(f"[slope_eval] JSON saved: {args_cli.save_json}")
 
 
 if __name__ == "__main__":
