@@ -1445,6 +1445,34 @@ class AblationR5Cfg(LowLevelRunnerCfg):
 
 
 @configclass
+class AblationR6Cfg(LowLevelRunnerCfg):
+    """R6: R1 with linear force ramp post-gate (10→30N over 2500 iters)."""
+    experiment_name: str = "ablation_R6_h30_6d_big_tcn_norec_linramp"
+    class_name: str = "CompliantOnPolicyRunner"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 30.0
+    max_torque: float = 10.0
+    estimator: dict = _est(**_R_BASE)
+    force_ramp_mode: str = "linear"
+    force_ramp_start: float = 10.0
+    force_ramp_iters: int = 2500
+
+
+@configclass
+class AblationR8Cfg(LowLevelRunnerCfg):
+    """R8: R1 with bucketed force curriculum post-gate (10/20/30N × 1000 iters)."""
+    experiment_name: str = "ablation_R8_h30_6d_big_tcn_norec_buckets"
+    class_name: str = "CompliantOnPolicyRunner"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 30.0
+    max_torque: float = 10.0
+    estimator: dict = _est(**_R_BASE)
+    force_ramp_mode: str = "bucketed"
+    force_bucket_maxes: tuple = (10.0, 20.0, 30.0)
+    force_bucket_iters: int = 1000
+
+
+@configclass
 class Ablation6DctrlCfg(LowLevelRunnerCfg):
     """6Dctrl: R1 + commanded roll/pitch/height (UniformVelocityPoseCommand)."""
     experiment_name: str = "ablation_6Dctrl_h30_6d_big_tcn_norec_posecmd"

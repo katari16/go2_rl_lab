@@ -51,6 +51,17 @@ class CompliantOnPolicyRunner(OnPolicyRunner):
         self._force_gate_min_episode_steps: int = train_cfg.get("force_gate_min_episode_steps", 200)
         self._force_gate_dwell_count: int = 0
 
+        # Post-gate curriculum shape: "none" (step jump to max, default = R1),
+        # "linear" (linear ramp from ramp_start to max over ramp_iters),
+        # "bucketed" (step through bucket_maxes, holding each for bucket_iters).
+        # Torque max scales proportionally to force max.
+        self._force_ramp_mode: str = train_cfg.get("force_ramp_mode", "none")
+        self._force_ramp_start: float = float(train_cfg.get("force_ramp_start", 10.0))
+        self._force_ramp_iters: int = int(train_cfg.get("force_ramp_iters", 2500))
+        self._force_bucket_maxes: tuple = tuple(train_cfg.get("force_bucket_maxes", (10.0, 20.0, 30.0)))
+        self._force_bucket_iters: int = int(train_cfg.get("force_bucket_iters", 1000))
+        self._activation_iter: int = -1
+
         # Compliance parameters
         self._compliance_alpha: float = train_cfg.get("compliance_alpha", 5.0)
         self._compliance_beta: float = train_cfg.get("compliance_beta", 50.0)
@@ -238,6 +249,7 @@ class CompliantOnPolicyRunner(OnPolicyRunner):
 
             # ── Phase gates ──────────────────────────────────────────────
             self._check_force_gate(rewbuffer, it)
+            self._update_force_ramp(it)
             self._check_mapping_gate(it)
 
             stop = time.time()
@@ -335,23 +347,81 @@ class CompliantOnPolicyRunner(OnPolicyRunner):
             raise ValueError(f"Unknown force_gate_mode: {mode}")
         if not triggered:
             return
-        self._activate_forces(summary)
+        self._activate_forces(summary, it)
 
-    def _activate_forces(self, summary: str) -> None:
+    def _activate_forces(self, summary: str, it: int) -> None:
         self._force_active = True
+        self._activation_iter = it
         isaac_env = self.env.unwrapped
         event_cfg = isaac_env.event_manager.get_term_cfg(self._force_event_term)
-        event_cfg.params["force_range"] = (0.0, self._max_force)
+
+        # Pick initial force max based on curriculum mode
+        if self._force_ramp_mode == "linear":
+            initial_force = min(self._force_ramp_start, self._max_force)
+        elif self._force_ramp_mode == "bucketed":
+            initial_force = min(self._force_bucket_maxes[0], self._max_force)
+        else:
+            initial_force = self._max_force
+
+        initial_torque = (initial_force / max(self._max_force, 1e-6)) * self._max_torque
+        event_cfg.params["force_range"] = (0.0, initial_force)
         if "torque_range" in event_cfg.params:
-            event_cfg.params["torque_range"] = (0.0, self._max_torque)
+            event_cfg.params["torque_range"] = (0.0, initial_torque)
+
+        sched = self._force_ramp_mode
+        if sched == "linear":
+            sched_desc = (f"linear ramp {self._force_ramp_start:.0f}→{self._max_force:.0f}N "
+                          f"over {self._force_ramp_iters} iters")
+        elif sched == "bucketed":
+            sched_desc = (f"bucketed {self._force_bucket_maxes} N × {self._force_bucket_iters} iters/bucket")
+        else:
+            sched_desc = f"step jump to {self._max_force:.0f}N"
+
         print(
             f"\n{'=' * 80}\n"
-            f"  [CompliantRunner] PHASE 2 ({self._force_gate_mode}): {summary}\n"
-            f"  Forces activated at {self._max_force:.0f}N"
-            + (f", torques at {self._max_torque:.1f}Nm" if "torque_range" in event_cfg.params else "")
-            + f". Estimator training begins.\n"
+            f"  [CompliantRunner] PHASE 2 ({self._force_gate_mode}, iter {it}): {summary}\n"
+            f"  Force schedule: {sched_desc}\n"
+            f"  Initial: forces (0, {initial_force:.1f})N"
+            + (f", torques (0, {initial_torque:.2f})Nm" if "torque_range" in event_cfg.params else "")
+            + f"\n  Estimator training begins.\n"
             f"{'=' * 80}"
         )
+
+    def _update_force_ramp(self, it: int) -> None:
+        """Per-iteration update of force/torque ranges according to curriculum schedule.
+
+        No-op for ``force_ramp_mode == "none"`` (default R1 step-jump behavior).
+        """
+        if not self._force_active or self._activation_iter < 0:
+            return
+        if self._force_ramp_mode == "none":
+            return
+
+        iters_since_gate = it - self._activation_iter
+
+        if self._force_ramp_mode == "linear":
+            ramp_iters = max(self._force_ramp_iters, 1)
+            progress = min(max(iters_since_gate / ramp_iters, 0.0), 1.0)
+            new_force = self._force_ramp_start + progress * (self._max_force - self._force_ramp_start)
+        elif self._force_ramp_mode == "bucketed":
+            bucket_idx = min(iters_since_gate // max(self._force_bucket_iters, 1),
+                             len(self._force_bucket_maxes) - 1)
+            new_force = float(self._force_bucket_maxes[int(bucket_idx)])
+            new_force = min(new_force, self._max_force)
+        else:
+            raise ValueError(f"Unknown force_ramp_mode: {self._force_ramp_mode}")
+
+        new_torque = (new_force / max(self._max_force, 1e-6)) * self._max_torque
+
+        isaac_env = self.env.unwrapped
+        event_cfg = isaac_env.event_manager.get_term_cfg(self._force_event_term)
+        event_cfg.params["force_range"] = (0.0, new_force)
+        if "torque_range" in event_cfg.params:
+            event_cfg.params["torque_range"] = (0.0, new_torque)
+
+        # Expose for tensorboard logging
+        isaac_env.extras["Curriculum/force_max"] = new_force
+        isaac_env.extras["Curriculum/torque_max"] = new_torque
 
     # -- Mode "total" -----------------------------------------------------
     def _force_gate_total(self, rewbuffer: deque):

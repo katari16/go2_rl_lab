@@ -717,6 +717,28 @@ gym.register(
     },
 )
 
+# R6: R1 with linear force ramp post-gate (10→30N over 2500 iters)
+gym.register(
+    id="Go2-Ablation-R6-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:PSeriesWrenchEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:AblationR6Cfg",
+    },
+)
+
+# R8: R1 with bucketed force curriculum post-gate (10/20/30N × 1000 iters)
+gym.register(
+    id="Go2-Ablation-R8-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:PSeriesWrenchEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:AblationR8Cfg",
+    },
+)
+
 # 6Dctrl: R1 + commanded roll/pitch/height (UniformVelocityPoseCommand)
 gym.register(
     id="Go2-Ablation-6Dctrl-v0",
