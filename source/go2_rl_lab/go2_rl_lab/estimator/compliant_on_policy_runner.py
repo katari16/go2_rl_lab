@@ -76,8 +76,22 @@ class CompliantOnPolicyRunner(OnPolicyRunner):
         # ── Infer obs dim from env (before calling super) ────────────────
         raw_obs = env.get_observations()
         policy_obs_dim = raw_obs["policy"].shape[-1]
-        # The last force_dim dims are the force estimate passthrough (zeros initially)
-        self._num_one_step_obs: int = policy_obs_dim - self._force_dim
+        # The policy obs ends with a force_dim estimate passthrough; strip it for estimator input
+        self._policy_raw_dim: int = policy_obs_dim - self._force_dim
+
+        # Privileged-info extension (observability ablations R9/R10/R11/R12).
+        # Each name maps to a dim contributed to the estimator's per-step input.
+        # Supported: "mass" (1), "lin_vel" (3), "contacts" (4).
+        priv_features = tuple(train_cfg.get("privileged_features", ()))
+        priv_dims = {"mass": 1, "lin_vel": 3, "contacts": 4}
+        for name in priv_features:
+            if name not in priv_dims:
+                raise ValueError(f"Unknown privileged feature: {name!r}. Options: {list(priv_dims)}")
+        self._priv_features: tuple = priv_features
+        self._priv_dim: int = sum(priv_dims[n] for n in priv_features)
+
+        # Final per-step input dim seen by the estimator: policy obs + privileged
+        self._num_one_step_obs: int = self._policy_raw_dim + self._priv_dim
 
         # ── Create force estimator ───────────────────────────────────────
         self.estimator = ForceEstimator(
@@ -142,12 +156,17 @@ class CompliantOnPolicyRunner(OnPolicyRunner):
         self._est_loss_buf: deque = deque(maxlen=20)
         self._last_est_stats: dict = {}
 
+        priv_desc = (
+            f"  Privileged estimator inputs: {self._priv_features} (+{self._priv_dim} dims)\n"
+            if self._priv_dim > 0 else ""
+        )
         print(
             f"[CompliantRunner] Phase gates: "
             f"forces @ reward>={self._force_threshold:.0f}, "
             f"mapping @ angular_err<{self._angular_threshold:.0f}°\n"
             f"  Compliance: alpha={self._compliance_alpha:.1f}N, "
             f"beta={self._compliance_beta:.1f} (k=1/beta={1.0/self._compliance_beta:.4f})\n"
+            f"{priv_desc}"
             f"  Estimator: {self._temporal_steps}x{self._num_one_step_obs}="
             f"{self._temporal_steps * self._num_one_step_obs} → force_dim={self._force_dim}"
         )
@@ -180,8 +199,14 @@ class CompliantOnPolicyRunner(OnPolicyRunner):
             # ── Rollout ──────────────────────────────────────────────────
             with torch.inference_mode():
                 for step in range(self.num_steps_per_env):
-                    # Extract raw 61-dim obs (without force estimate at end)
-                    raw_obs = obs["policy"][:, :self._num_one_step_obs]
+                    # Policy obs without the trailing force estimate; optionally
+                    # concatenate privileged features for the estimator only.
+                    policy_raw = obs["policy"][:, :self._policy_raw_dim]
+                    if self._priv_dim > 0:
+                        priv = self._get_privileged_obs()
+                        raw_obs = torch.cat([policy_raw, priv], dim=-1)
+                    else:
+                        raw_obs = policy_raw
 
                     # Update history and run estimator inference
                     self._history_buffer.insert(raw_obs)
@@ -207,8 +232,13 @@ class CompliantOnPolicyRunner(OnPolicyRunner):
                         dones.to(self.device),
                     )
 
-                    # Store next raw obs for reconstruction target
-                    self._est_next_raw_obs[step] = obs["policy"][:, :self._num_one_step_obs]
+                    # Store next raw obs for reconstruction target (matches estimator input dim)
+                    next_policy_raw = obs["policy"][:, :self._policy_raw_dim]
+                    if self._priv_dim > 0:
+                        next_priv = self._get_privileged_obs()
+                        self._est_next_raw_obs[step] = torch.cat([next_policy_raw, next_priv], dim=-1)
+                    else:
+                        self._est_next_raw_obs[step] = next_policy_raw
 
                     # Reset history for terminated envs
                     done_ids = (dones > 0).nonzero(as_tuple=False).squeeze(-1)
@@ -272,6 +302,37 @@ class CompliantOnPolicyRunner(OnPolicyRunner):
 
         if self.log_dir is not None and not self.disable_logs:
             self.save(os.path.join(self.log_dir, f"model_{self.current_learning_iteration}.pt"))
+
+    # ── Privileged feature extraction ────────────────────────────────────
+
+    def _get_privileged_obs(self) -> torch.Tensor:
+        """Concatenate privileged features (mass, lin_vel, contacts) for the estimator.
+
+        Used by the observability ablations (R9/R10/R11/R12). Order matches
+        ``self._priv_features`` so the estimator input layout is deterministic.
+        Returns shape [num_envs, self._priv_dim].
+        """
+        isaac_env = self.env.unwrapped
+        asset = isaac_env.scene["robot"]
+        parts = []
+        for name in self._priv_features:
+            if name == "mass":
+                # Total robot mass (sum over bodies), per env. Shape [num_envs, 1].
+                masses = asset.root_physx_view.get_masses().to(self.device)
+                parts.append(masses.sum(dim=-1, keepdim=True))
+            elif name == "lin_vel":
+                # GT base linear velocity in body frame. Shape [num_envs, 3].
+                parts.append(asset.data.root_lin_vel_b.to(self.device))
+            elif name == "contacts":
+                # Foot contact force norms (FL/FR/RL/RR), scaled. Shape [num_envs, 4].
+                sensor = isaac_env.scene.sensors["contact_forces"]
+                # Match the critic's scaling (0.01) to keep magnitudes comparable
+                foot_bodies = [i for i, name_ in enumerate(sensor.body_names) if name_.endswith("_foot")]
+                forces = sensor.data.net_forces_w[:, foot_bodies, :]
+                parts.append(torch.norm(forces, dim=-1).to(self.device) * 0.01)
+            else:
+                raise ValueError(f"Unhandled privileged feature: {name}")
+        return torch.cat(parts, dim=-1)
 
     # ── Estimator training ────────────────────────────────────────────────
 

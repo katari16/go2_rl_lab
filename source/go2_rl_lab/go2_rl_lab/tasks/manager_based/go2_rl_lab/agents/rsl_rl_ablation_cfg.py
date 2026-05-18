@@ -1472,6 +1472,58 @@ class AblationR8Cfg(LowLevelRunnerCfg):
     force_bucket_iters: int = 1000
 
 
+# ── Observability ablations (R9, R10, R11, R12) ──────────────────────────────
+# Each adds privileged features to the *estimator* input only (policy obs
+# unchanged). Quantifies the upper bound of accuracy given more information.
+
+@configclass
+class AblationR9Cfg(LowLevelRunnerCfg):
+    """R9: R1 + privileged estimator (mass + base lin_vel + foot contacts)."""
+    experiment_name: str = "ablation_R9_h30_6d_big_tcn_norec_priv"
+    class_name: str = "CompliantOnPolicyRunner"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 30.0
+    max_torque: float = 10.0
+    estimator: dict = _est(**_R_BASE)
+    privileged_features: tuple = ("mass", "lin_vel", "contacts")
+
+
+@configclass
+class AblationR10Cfg(LowLevelRunnerCfg):
+    """R10: R4 (no rand) + privileged estimator — absolute model-capacity ceiling."""
+    experiment_name: str = "ablation_R10_h30_6d_big_tcn_norec_priv_norand"
+    class_name: str = "CompliantOnPolicyRunner"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 30.0
+    max_torque: float = 10.0
+    estimator: dict = _est(**_R_BASE)
+    privileged_features: tuple = ("mass", "lin_vel", "contacts")
+
+
+@configclass
+class AblationR11Cfg(LowLevelRunnerCfg):
+    """R11: R1 + privileged base linear velocity only (peel-back)."""
+    experiment_name: str = "ablation_R11_h30_6d_big_tcn_norec_priv_linvel"
+    class_name: str = "CompliantOnPolicyRunner"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 30.0
+    max_torque: float = 10.0
+    estimator: dict = _est(**_R_BASE)
+    privileged_features: tuple = ("lin_vel",)
+
+
+@configclass
+class AblationR12Cfg(LowLevelRunnerCfg):
+    """R12: R1 + privileged foot contact forces only (peel-back)."""
+    experiment_name: str = "ablation_R12_h30_6d_big_tcn_norec_priv_contacts"
+    class_name: str = "CompliantOnPolicyRunner"
+    force_event_term_name: str = "persistent_wrench"
+    max_force: float = 30.0
+    max_torque: float = 10.0
+    estimator: dict = _est(**_R_BASE)
+    privileged_features: tuple = ("contacts",)
+
+
 @configclass
 class Ablation6DctrlCfg(LowLevelRunnerCfg):
     """6Dctrl: R1 + commanded roll/pitch/height (UniformVelocityPoseCommand)."""

@@ -739,6 +739,50 @@ gym.register(
     },
 )
 
+# R9: R1 + privileged estimator (mass + base lin_vel + foot contacts)
+gym.register(
+    id="Go2-Ablation-R9-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:PSeriesWrenchEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:AblationR9Cfg",
+    },
+)
+
+# R10: R4 (no rand) + privileged estimator — absolute model-capacity ceiling
+gym.register(
+    id="Go2-Ablation-R10-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:PSeriesNoRandEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:AblationR10Cfg",
+    },
+)
+
+# R11: R1 + privileged base linear velocity only
+gym.register(
+    id="Go2-Ablation-R11-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:PSeriesWrenchEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:AblationR11Cfg",
+    },
+)
+
+# R12: R1 + privileged foot contact forces only
+gym.register(
+    id="Go2-Ablation-R12-v0",
+    entry_point="isaaclab.envs:ManagerBasedRLEnv",
+    disable_env_checker=True,
+    kwargs={
+        "env_cfg_entry_point": f"{__name__}.go2_ablation_env_cfgs:PSeriesWrenchEnvCfg",
+        "rsl_rl_cfg_entry_point": f"{agents.__name__}.rsl_rl_ablation_cfg:AblationR12Cfg",
+    },
+)
+
 # 6Dctrl: R1 + commanded roll/pitch/height (UniformVelocityPoseCommand)
 gym.register(
     id="Go2-Ablation-6Dctrl-v0",
