@@ -1,7 +1,0 @@
-{
-  "temporal_steps": 20,
-  "obs_dim": 57,
-  "force_dim": 3,
-  "history_input_dim": 1140,
-  "policy_obs_dim": 60
-}
