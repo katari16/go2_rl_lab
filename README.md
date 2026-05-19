@@ -4,7 +4,7 @@
 
 Bachelor Thesis, Spring Term 2026 — Robotic Systems Lab (RSL), ETH Zurich
 
-*Author:* Hans Baumann-Ortiz | *Supervisors:* William Hartmann, Filip Janovsky | *Lecturer:* Prof. Dr. Marco Hutter
+*Author:* Hans Baumann-Ortiz | *Supervisors:* Filip Bjelonic, William Talbot | *Lecturer:* Prof. Dr. Marco Hutter
 
 <p align="center">
   <img src="docs/main_figure_robobarrow.png" alt="RoboBarrow real-world deployment" width="600"/>
@@ -27,25 +27,42 @@ To achieve compliant behavior, the estimated force is mapped to velocity command
 3. **Sensor-free compliance mapping** — A first-order admittance controller that maps the estimated force to velocity command modulations via a single tunable gain, enabling compliant behavior without retraining the base locomotion policy.
 4. **Sim-to-real validation** — Full deployment pipeline from Isaac Lab training through MuJoCo sim-to-sim validation to real-world operation on the physical Unitree Go2, with three runtime-switchable compliance modes (yield, off, resist).
 
-## Key Results
+## Results
 
-Best estimator performance across the ablation study (evaluated on 4096 parallel environments, 0–30 N force range):
+Deployed estimator per-axis accuracy (training-regime rollout, 4096 environments, 20 s):
 
-| Configuration | Dims | History | Force MAE (N) | Ang. Error (°) | Torque MAE (Nm) | Rel. Error (%) |
+| Component | MAE ± std | Relative error |
+|---|---|---|
+| F_x | 3.00 ± 0.61 N | 36% |
+| F_y | 2.57 ± 0.47 N | |
+| F_z | 6.24 ± 2.81 N | |
+| τ_yaw | 0.57 ± 0.12 Nm | 9.8% |
+| **Angular error (median)** | **4.1 deg** | |
+
+Comparison under training-regime and OU (continuously varying) disturbance protocols:
+
+| Metric | Training-regime | OU disturbance |
+|---|---|---|
+| F_x MAE | 3.00 N | 4.41 N |
+| F_y MAE | 2.57 N | 4.00 N |
+| F_z MAE | 6.24 N | 8.85 N |
+| τ_yaw MAE | 0.57 Nm | 0.98 Nm |
+| Angular error (median) | 4.1 deg | 10.4 deg |
+| Relative error (force) | 36% | 55% |
+
+Effect of domain randomization and privileged observations (TCN architecture, H=30, 6D output):
+
+| Configuration | Privileged inputs | F_x | F_y | F_z | Force MAE | Ang. |
 |---|---|---|---|---|---|---|
-| **J5 (deployed, TCN)** | 4D | H=40 | **3.94** | **4.14** | 0.57 | 35.6 |
-| J3 (est-acc reward) | 4D | H=40 | 4.68 | 4.97 | 0.83 | 39.5 |
-| P4 (long history) | 4D | H=40 | 5.05 | 5.38 | 0.74 | 43.5 |
-| P17 (6D big net) | 6D | H=30 | 5.15 | 5.34 | 0.71 | 43.6 |
-| P16 (6D default) | 6D | H=30 | 4.95 | 5.67 | 0.81 | 39.4 |
-| P1 (short history) | 4D | H=10 | 6.10 | 10.25 | 0.79 | 49.8 |
-| P20 (high PD gains) | 4D | H=30 | 5.41 | 6.52 | 0.80 | 45.3 |
+| Baseline (deployed) | none | 3.00 | 2.93 | 6.88 | 4.27 | 4.3° |
+| No mass randomization | none | 2.35 | 2.67 | 2.22 | 2.41 | 3.8° |
+| No randomization | none | 2.28 | 2.50 | 2.99 | 2.59 | 3.3° |
+| All privileged | mass, vel., contacts | 1.81 | 2.02 | 2.00 | 1.94 | 2.7° |
+| All privileged, no rand. | mass, vel., contacts | 1.82 | 1.76 | 1.92 | 1.83 | 2.6° |
+| Velocity only | base lin. vel. | 2.04 | 2.12 | 5.92 | 3.36 | 3.0° |
+| Contacts only | foot forces | 3.10 | 3.11 | 7.02 | 4.41 | 4.6° |
 
-Key findings:
-- **TCN preprocessing** yields the single largest improvement: 16% lower force MAE and 17% tighter angular accuracy vs. MLP-only (J5 vs J3).
-- **Low PD gains** (Kp=8) outperform conventional gains (Kp=25) by amplifying joint deflection under external forces, producing a richer proprioceptive signal.
-- **6D wrench estimation** is feasible with torque MAE of ~0.7 Nm (10–14% relative at 0–5 Nm range), though XY force accuracy degrades slightly compared to 4D.
-- **History length** H=40 saturates accuracy; H=10 is insufficient (2× angular error).
+The architectural floor with all privileged inputs is 1.83 N force MAE and 2.6° angular error, indicating that approximately half of the deployed horizontal error originates from information unavailable in the proprioceptive stream. Real-world validation on the physical Go2 confirms sim-to-real transfer: the estimator tracks a 20.5 N static pull with a mean bias of −0.3 N across four repeated trials.
 
 ## Repository Structure
 
