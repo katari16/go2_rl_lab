@@ -55,7 +55,10 @@ import go2_rl_lab.tasks  # noqa: F401
 
 
 class EstimatorForwardWrapper(torch.nn.Module):
-    """Thin wrapper that exposes only the forward path for JIT tracing.
+    """Thin wrapper that exposes the full forward path for JIT tracing.
+
+    Delegates to estimator._forward() which handles all variants:
+    plain encoder, temporal decay, TCN preprocessor, TCN replacement.
 
     Input:  obs_history [batch, temporal_steps * obs_dim]
     Output: force_hat   [batch, force_dim]
@@ -63,12 +66,10 @@ class EstimatorForwardWrapper(torch.nn.Module):
 
     def __init__(self, estimator):
         super().__init__()
-        self.encoder = estimator.encoder
-        self.f_head = estimator.f_head
+        self._estimator = estimator
 
     def forward(self, obs_history: torch.Tensor) -> torch.Tensor:
-        z_t = self.encoder(obs_history)
-        force_hat = self.f_head(z_t)
+        _z_t, force_hat = self._estimator._forward(obs_history)
         return force_hat
 
 
@@ -106,6 +107,9 @@ def main(
     elif runner_class_name == "ForceOnPolicyRunner":
         from go2_rl_lab.estimator.force_runner import ForceOnPolicyRunner
         runner = ForceOnPolicyRunner(env, agent_cfg.to_dict(), log_dir=None, device=agent_cfg.device)
+    elif runner_class_name == "FrozenPolicyEstimatorRunner":
+        from go2_rl_lab.estimator.frozen_policy_estimator_runner import FrozenPolicyEstimatorRunner
+        runner = FrozenPolicyEstimatorRunner(env, agent_cfg.to_dict(), log_dir=None, device=agent_cfg.device)
     else:
         raise ValueError(f"Unsupported runner class for export: {runner_class_name}")
 

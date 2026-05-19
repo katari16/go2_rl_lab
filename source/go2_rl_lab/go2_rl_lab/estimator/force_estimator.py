@@ -24,6 +24,61 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
+class TemporalConvBlock(nn.Module):
+    """Single TCN block: dilated causal conv → activation → residual."""
+
+    def __init__(self, in_channels: int, out_channels: int, kernel_size: int,
+                 dilation: int, activation: nn.Module):
+        super().__init__()
+        padding = (kernel_size - 1) * dilation  # causal padding
+        self.conv = nn.Conv1d(in_channels, out_channels, kernel_size,
+                              dilation=dilation, padding=padding)
+        self.activation = activation
+        self.residual = nn.Conv1d(in_channels, out_channels, 1) if in_channels != out_channels else nn.Identity()
+        self.causal_trim = padding
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x: [batch, channels, time]
+        out = self.conv(x)
+        if self.causal_trim > 0:
+            out = out[:, :, :-self.causal_trim]
+        out = self.activation(out)
+        return out + self.residual(x)
+
+
+class TCN(nn.Module):
+    """Temporal Convolutional Network: stacked dilated causal convolutions.
+
+    Input:  [batch, time, features]
+    Output: [batch, time, features]  (same shape — preprocessor mode)
+    """
+
+    def __init__(self, num_features: int, num_channels: list[int],
+                 kernel_size: int = 3, dilations: list[int] | None = None,
+                 activation: str = "elu"):
+        super().__init__()
+        act_fn = _get_activation(activation)
+        if dilations is None:
+            dilations = [2 ** i for i in range(len(num_channels))]
+
+        layers: list[nn.Module] = []
+        in_ch = num_features
+        for i, out_ch in enumerate(num_channels):
+            layers.append(TemporalConvBlock(in_ch, out_ch, kernel_size, dilations[i], act_fn))
+            in_ch = out_ch
+        self.network = nn.Sequential(*layers)
+        # Project back to original feature dim if needed
+        self.proj = nn.Linear(in_ch, num_features) if in_ch != num_features else nn.Identity()
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x: [batch, time, features]
+        out = x.permute(0, 2, 1)  # [batch, features, time]
+        out = self.network(out)
+        out = out.permute(0, 2, 1)  # [batch, time, features]
+        out = self.proj(out)
+        return out
+
+
 def _get_activation(name: str) -> nn.Module:
     activations = {
         "elu": nn.ELU(),
@@ -85,6 +140,15 @@ class ForceEstimator(nn.Module):
         rec_loss_weight: float = 1.0,
         angle_min_force: float = 1.0,
         max_grad_norm: float = 10.0,
+        torque_angle_loss_weight: float = 0.0,
+        torque_angle_min: float = 0.3,
+        yaw_loss_weight: float = 0.0,
+        tcn_mode: str = "none",
+        tcn_channels: list[int] | None = None,
+        tcn_kernel_size: int = 3,
+        tcn_dilations: list[int] | None = None,
+        temporal_decay: str = "none",
+        force_layout: str = "auto",
         **kwargs,
     ) -> None:
         if kwargs:
@@ -114,10 +178,44 @@ class ForceEstimator(nn.Module):
         self.angle_min_force = angle_min_force
         self.max_grad_norm = max_grad_norm
         self.learning_rate = learning_rate
+        self.torque_angle_loss_weight = torque_angle_loss_weight
+        self.torque_angle_min = torque_angle_min
+        self.yaw_loss_weight = yaw_loss_weight
+
+        # ── Optional TCN preprocessor/replacement ─────────────────────────
+        self.tcn_mode = tcn_mode  # "none", "preprocessor", "replacement"
+        self.tcn = None
+        if tcn_mode in ("preprocessor", "replacement"):
+            if tcn_channels is None:
+                tcn_channels = [64, 64]
+            self.tcn = TCN(
+                num_features=num_one_step_obs,
+                num_channels=tcn_channels,
+                kernel_size=tcn_kernel_size,
+                dilations=tcn_dilations,
+                activation=activation,
+            )
+            print(f"[ForceEstimator] TCN mode={tcn_mode}, channels={tcn_channels}, "
+                  f"kernel={tcn_kernel_size}, dilations={tcn_dilations}")
+
+        # ── Temporal decay weighting ──────────────────────────────────────
+        self.temporal_decay = temporal_decay
+        if temporal_decay == "linear":
+            w = torch.linspace(1.0 / temporal_steps, 1.0, temporal_steps)
+            self.register_buffer("_decay_weights", w.view(1, temporal_steps, 1))
+            print(f"[ForceEstimator] Linear temporal decay: oldest={1.0/temporal_steps:.3f}, newest=1.0")
+
+        # ── Force layout ─────────────────────────────────────────────────
+        self.force_layout = force_layout
 
         # ── Encoder: o_t^H → z_t ─────────────────────────────────────────
         enc_input = temporal_steps * num_one_step_obs
-        self.encoder = _build_mlp([enc_input] + enc_hidden_dims, act_fn)
+        if tcn_mode == "replacement":
+            # TCN → global avg pool over time → project to enc_latent_dim
+            self.encoder = None
+            self.tcn_pool_proj = nn.Linear(num_one_step_obs, self.enc_latent_dim)
+        else:
+            self.encoder = _build_mlp([enc_input] + enc_hidden_dims, act_fn)
 
         # ── Force head: z_t → f̂_t ────────────────────────────────────────
         self.f_head = _build_mlp([self.enc_latent_dim] + f_head_dims + [force_dim], act_fn)
@@ -132,7 +230,22 @@ class ForceEstimator(nn.Module):
 
     def _forward(self, obs_history: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
         """Shared forward pass returning (z_t, force_hat)."""
-        z_t = self.encoder(obs_history)
+        if self.tcn is not None:
+            x = obs_history.view(-1, self.temporal_steps, self.num_one_step_obs)
+            if self.temporal_decay == "linear":
+                x = x * self._decay_weights
+            x = self.tcn(x)
+            if self.tcn_mode == "replacement":
+                z_t = x.mean(dim=1)
+                z_t = self.tcn_pool_proj(z_t)
+            else:
+                z_t = self.encoder(x.reshape(-1, self.temporal_steps * self.num_one_step_obs))
+        elif self.temporal_decay == "linear":
+            x = obs_history.view(-1, self.temporal_steps, self.num_one_step_obs)
+            x = x * self._decay_weights
+            z_t = self.encoder(x.reshape(-1, self.temporal_steps * self.num_one_step_obs))
+        else:
+            z_t = self.encoder(obs_history)
         force_hat = self.f_head(z_t)
         return z_t, force_hat
 
@@ -186,11 +299,18 @@ class ForceEstimator(nn.Module):
             Dict with loss values and diagnostics.
         """
         z_t, force_hat = self._forward(obs_history)
-        latent = self._build_latent(force_hat, z_t)
-        next_obs_hat = self.decoder(latent)
 
         force_loss = F.mse_loss(force_hat, gt_force)
-        rec_loss = F.mse_loss(next_obs_hat, next_obs)
+
+        if self.rec_loss_weight > 0:
+            if self.tcn_mode == "preprocessor":
+                latent = self._build_latent(force_hat.detach(), z_t.detach())
+            else:
+                latent = self._build_latent(force_hat, z_t)
+            next_obs_hat = self.decoder(latent)
+            rec_loss = F.mse_loss(next_obs_hat, next_obs)
+        else:
+            rec_loss = torch.tensor(0.0, device=obs_history.device)
 
         # ── Angular loss: MSE on wrapped angle difference ────────────
         # Always computed on the XY plane (first 2 components).
@@ -209,17 +329,49 @@ class ForceEstimator(nn.Module):
         else:
             angle_loss = torch.tensor(0.0, device=obs_history.device)
 
+        # ── Torque angle loss: direction of torque in roll-pitch plane ───
+        # For 6D wrench: indices [3]=τ_roll, [4]=τ_pitch, [5]=τ_yaw
+        # Analogous to force angle loss but for the torque XY (roll/pitch) plane
+        torque_angle_loss = torch.tensor(0.0, device=obs_history.device)
+        if self.torque_angle_loss_weight > 0 and self.force_dim >= 6:
+            gt_tau_angle = torch.atan2(gt_force[:, 4], gt_force[:, 3])
+            pred_tau_angle = torch.atan2(force_hat[:, 4], force_hat[:, 3])
+            tau_angle_diff = torch.atan2(
+                torch.sin(gt_tau_angle - pred_tau_angle),
+                torch.cos(gt_tau_angle - pred_tau_angle),
+            )
+            gt_tau_mag_rp = gt_force[:, 3:5].norm(dim=-1)
+            tau_mask = gt_tau_mag_rp > self.torque_angle_min
+            if tau_mask.any():
+                torque_angle_loss = (tau_angle_diff[tau_mask] ** 2).mean()
+
+        # ── Yaw torque loss: separate weighted MSE on yaw component ─────
+        yaw_loss = torch.tensor(0.0, device=obs_history.device)
+        if self.yaw_loss_weight > 0:
+            if self.force_layout == "xy_yaw":
+                yaw_idx = 2
+            elif self.force_dim >= 6:
+                yaw_idx = 5
+            elif self.force_dim >= 4:
+                yaw_idx = 3
+            else:
+                yaw_idx = None
+            if yaw_idx is not None:
+                yaw_loss = F.mse_loss(force_hat[:, yaw_idx], gt_force[:, yaw_idx])
+
         total_loss = (
             self.force_loss_weight * force_loss
             + self.angle_loss_weight * angle_loss
             + self.rec_loss_weight * rec_loss
+            + self.torque_angle_loss_weight * torque_angle_loss
+            + self.yaw_loss_weight * yaw_loss
         )
 
         self.optimizer.zero_grad()
         total_loss.backward()
 
         # Collect gradient norms BEFORE clipping
-        grad_norm_encoder = _grad_norm(self.encoder)
+        grad_norm_encoder = _grad_norm(self.encoder) if self.encoder is not None else 0.0
         grad_norm_f_head = _grad_norm(self.f_head)
         grad_norm_decoder = _grad_norm(self.decoder)
 
@@ -244,6 +396,8 @@ class ForceEstimator(nn.Module):
             "force_loss": force_loss.item(),
             "angle_loss": angle_loss.item(),
             "rec_loss": rec_loss.item(),
+            "torque_angle_loss": torque_angle_loss.item(),
+            "yaw_loss": yaw_loss.item(),
             "total_loss": total_loss.item(),
             "estimator_lr": self.optimizer.param_groups[0]["lr"],
             # GT force stats
@@ -263,11 +417,20 @@ class ForceEstimator(nn.Module):
             "grad_norm_encoder": grad_norm_encoder,
             "grad_norm_f_head": grad_norm_f_head,
             "grad_norm_decoder": grad_norm_decoder,
+            "grad_norm_tcn": _grad_norm(self.tcn) if self.tcn is not None else 0.0,
         }
 
-        # Add fz MAE if 3D
-        if self.force_dim >= 3:
-            stats["mae_z"] = error[:, 2].mean().item()
+        if self.force_layout == "xy_yaw":
+            stats["mae_tau_yaw"] = error[:, 2].mean().item()
+        else:
+            if self.force_dim >= 3:
+                stats["mae_z"] = error[:, 2].mean().item()
+            if self.force_dim >= 4:
+                stats["mae_tau_yaw"] = error[:, 3].mean().item()
+            if self.force_dim >= 6:
+                stats["mae_tau_roll"] = error[:, 3].mean().item()
+                stats["mae_tau_pitch"] = error[:, 4].mean().item()
+                stats["mae_tau_yaw"] = error[:, 5].mean().item()
 
         return stats
 

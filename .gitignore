@@ -8,8 +8,8 @@
 **/*.dmp
 **/.thumbs
 
-# No USD files allowed in the repo
-**/*.usd
+# No USD files allowed in the repo (except custom robot assets)
+# **/*.usd
 **/*.usda
 **/*.usdc
 **/*.usdz
@@ -63,6 +63,13 @@ _build
 
 # Teleop Recorded Dataset
 /datasets/
+
+# SLURM logs
+**/*.out
+**/*.err
+
+# Eval data
+data/
 
 # Deploy debug data
 deploy/deploy_real/debug/

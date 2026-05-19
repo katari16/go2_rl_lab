@@ -119,6 +119,53 @@ class ForceEstimatorDeployment:
         return force_hat[0].cpu().numpy()
 
 
+# ── Recording helper ──────────────────────────────────────────────────────────
+
+def _save_recording(buf, index, config_name, control_dt, force_dim, yaw_idx):
+    if len(buf) < 2:
+        print("[recording] Too short to save, skipping.")
+        return
+    import csv
+    log_dir = Path(__file__).resolve().parent / "logs" / "recordings"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    stem = config_name.replace(".yaml", "")
+    base = log_dir / f"{stem}_rec{index:02d}_{ts}"
+
+    # JSON — full data including per-dim force
+    with open(str(base) + ".json", "w") as f:
+        json.dump({
+            "config": config_name,
+            "control_dt": control_dt,
+            "force_dim": force_dim,
+            "has_yaw": yaw_idx is not None,
+            "num_steps": len(buf),
+            "steps": buf,
+        }, f, indent=2)
+
+    # CSV — compact timeseries: t, Fx_hat, Fy_hat, Fz_hat, tau_yaw_hat, force_mag, force_mag_ema, wz_obs
+    force_labels = [f"F{ax}_hat" for ax in ["x", "y", "z"][:min(force_dim, 3)]]
+    if yaw_idx is not None:
+        force_labels += ["tau_yaw_hat", "tau_yaw_ema"]
+    fieldnames = ["t", *force_labels, "force_mag", "force_mag_ema", "wz_obs", "vx_cmd", "vy_cmd", "wz_cmd", "compliance_mode"]
+    with open(str(base) + ".csv", "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=fieldnames)
+        w.writeheader()
+        for row in buf:
+            r = {"t": row["t"], "force_mag": row["force_mag"],
+                 "force_mag_ema": row["force_mag_ema"], "wz_obs": row["wz_obs"],
+                 "vx_cmd": row["velocity_cmd"][0], "vy_cmd": row["velocity_cmd"][1],
+                 "wz_cmd": row["velocity_cmd"][2], "compliance_mode": row["compliance_mode"]}
+            for i, lbl in enumerate([f"F{ax}_hat" for ax in ["x", "y", "z"][:min(force_dim, 3)]]):
+                r[lbl] = row["force_hat"][i]
+            if yaw_idx is not None:
+                r["tau_yaw_hat"] = row["tau_yaw_hat"]
+                r["tau_yaw_ema"] = row["tau_yaw_ema"]
+            w.writerow(r)
+
+    print(f"[recording] Saved {len(buf)} steps → {base}.json / .csv")
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
@@ -149,8 +196,19 @@ if __name__ == "__main__":
     control_dt = cfg["control_dt"]
     temporal_steps = cfg["estimator_temporal_steps"]
     compliance_k = cfg.get("compliance_k", 0.0)
+    compliance_k_yaw = cfg.get("compliance_k_yaw", 0.0)
     ema_alpha = cfg.get("ema_alpha", 0.1)
     weak_motor = cfg.get("weak_motor", [])
+    force_layout = cfg.get("force_layout", "auto")
+
+    if force_layout == "xy_yaw":
+        yaw_idx = 2
+    elif force_dim >= 6:
+        yaw_idx = 5
+    elif force_dim >= 4:
+        yaw_idx = 3
+    else:
+        yaw_idx = None
 
     DEFAULT_ANGLES_ISAAC = np.array(
         [0.1, -0.1, 0.1, -0.1, 0.8, 0.8, 1, 1, -1.5, -1.5, -1.5, -1.5],
@@ -298,6 +356,7 @@ if __name__ == "__main__":
     # ══════════════════════════════════════════════════════════════════════
     print("\n" + "=" * 60)
     print("  STANDING — Press A to start policy")
+    print("  Controls: B=toggle recording, Y=compliance off/on, X=compliance inverted/normal, SELECT=stop")
     print("=" * 60 + "\n")
 
     while remote_controller.button[KeyMap.A] != 1:
@@ -328,6 +387,13 @@ if __name__ == "__main__":
     step_count = 0
     debug_log = []
     should_stop = False
+    compliance_mode = "normal"
+    sim_real_recording = False
+    prev_b_button = 0
+    prev_y_button = 0
+    prev_x_button = 0
+    recording_buf = []
+    recording_index = 0
     estimator.reset()
 
     try:
@@ -375,14 +441,24 @@ if __name__ == "__main__":
             # EMA filter
             force_ema = ema_alpha * force_hat + (1.0 - ema_alpha) * force_ema
 
-            # ── Compliance modulation (XY only) ──────────────────────
+            # ── Compliance modulation (XY force + yaw torque) ────────
             obs_for_policy = raw_obs.copy()
-            if compliance_k > 0.0:
+            if compliance_k > 0.0 and compliance_mode == "normal":
                 obs_for_policy[6] += compliance_k * force_ema[0]
                 obs_for_policy[7] += compliance_k * force_ema[1]
+                if compliance_k_yaw > 0.0 and yaw_idx is not None:
+                    obs_for_policy[8] += compliance_k_yaw * force_ema[yaw_idx]
+            elif compliance_k > 0.0 and compliance_mode == "inverted":
+                obs_for_policy[6] -= compliance_k * force_ema[0]
+                obs_for_policy[7] -= compliance_k * force_ema[1]
+                if compliance_k_yaw > 0.0 and yaw_idx is not None:
+                    obs_for_policy[8] -= compliance_k_yaw * force_ema[yaw_idx]
 
-            # ── Build full policy input (57 raw + 3 force estimate) ───
-            full_obs = np.concatenate([obs_for_policy, force_hat])
+            # ── Build full policy input (57 raw + force estimate) ─────
+            if compliance_mode == "inverted":
+                full_obs = np.concatenate([obs_for_policy, -force_hat])
+            else:
+                full_obs = np.concatenate([obs_for_policy, force_hat])
 
             # ── Policy inference ──────────────────────────────────────
             obs_tensor = torch.from_numpy(full_obs).float().unsqueeze(0)
@@ -410,11 +486,63 @@ if __name__ == "__main__":
 
             send_cmd()
 
+            # ── Append to recording buffer if active ──────────────────
+            if sim_real_recording:
+                recording_buf.append({
+                    "t": len(recording_buf) * control_dt,
+                    "force_hat": force_hat.tolist(),
+                    "force_ema": force_ema.tolist(),
+                    "force_mag": float(np.linalg.norm(force_hat[:min(force_dim, 3)])),
+                    "force_mag_ema": float(np.linalg.norm(force_ema[:min(force_dim, 3)])),
+                    "tau_yaw_hat": float(force_hat[yaw_idx]) if yaw_idx is not None else 0.0,
+                    "tau_yaw_ema": float(force_ema[yaw_idx]) if yaw_idx is not None else 0.0,
+                    "wz_obs": float(obs_for_policy[8]),
+                    "velocity_cmd": velocity_cmd.tolist(),
+                    "compliance_mode": compliance_mode,
+                })
+
+            # ── B button: toggle recording ────────────────────────────
+            b_now = remote_controller.button[KeyMap.B]
+            if b_now == 1 and prev_b_button == 0:
+                sim_real_recording = not sim_real_recording
+                if sim_real_recording:
+                    recording_buf = []
+                    print(f"[step {step_count}] *** Recording ON ***", flush=True)
+                else:
+                    _save_recording(recording_buf, recording_index, args.config, control_dt, force_dim, yaw_idx)
+                    recording_index += 1
+                    print(f"[step {step_count}] *** Recording OFF — saved segment {recording_index} ({len(recording_buf)} steps) ***", flush=True)
+                    recording_buf = []
+            prev_b_button = b_now
+
+            # ── Y button: toggle compliance OFF / normal ──────────────
+            y_now = remote_controller.button[KeyMap.Y]
+            if y_now == 1 and prev_y_button == 0:
+                if compliance_mode == "off":
+                    compliance_mode = "normal"
+                else:
+                    compliance_mode = "off"
+                print(f"[step {step_count}] *** Compliance mode: {compliance_mode} ***", flush=True)
+            prev_y_button = y_now
+
+            # ── X button: toggle compliance INVERTED / normal ─────────
+            x_now = remote_controller.button[KeyMap.X]
+            if x_now == 1 and prev_x_button == 0:
+                if compliance_mode == "inverted":
+                    compliance_mode = "normal"
+                else:
+                    compliance_mode = "inverted"
+                print(f"[step {step_count}] *** Compliance mode: {compliance_mode} ***", flush=True)
+            prev_x_button = x_now
+
             # ── Debug logging ─────────────────────────────────────────
             step_count += 1
             if args.debug:
                 debug_log.append({
                     'step': step_count,
+                    'wall_time': time.time(),
+                    'sim_real_recording': sim_real_recording,
+                    'compliance_mode': compliance_mode,
                     'raw_obs': raw_obs.copy().tolist(),
                     'force_hat': force_hat.tolist(),
                     'force_ema': force_ema.tolist(),
@@ -427,9 +555,12 @@ if __name__ == "__main__":
                         or (step_count <= 50 and step_count % 10 == 0)
                         or step_count % 50 == 0)
             if do_print:
+                n_lin = 2 if force_layout == "xy_yaw" else min(force_dim, 3)
+                f_str = ",".join(f"{force_hat[i]:+.1f}" for i in range(n_lin))
+                extra = f"  τ_yaw_hat={force_hat[yaw_idx]:+.2f}  τ_yaw_ema={force_ema[yaw_idx]:+.2f}  wz_injected={compliance_k_yaw * force_ema[yaw_idx]:+.3f}  wz_obs={obs_for_policy[8]:+.3f}" if yaw_idx is not None else ""
                 print(f"[step {step_count}] cmd=[{velocity_cmd[0]:.1f},{velocity_cmd[1]:.1f},{velocity_cmd[2]:.1f}]"
-                      f"  F_hat=[{force_hat[0]:+.1f},{force_hat[1]:+.1f},{force_hat[2]:+.1f}]"
-                      f"  gravity={raw_obs[3:6].round(3)}"
+                      f"  F_hat=[{f_str}]  |F|={np.linalg.norm(force_hat[:n_lin]):.1f}N{extra}"
+                      f"  mode={compliance_mode}"
                       f"  action_norm={np.linalg.norm(action):.3f}")
 
             # ── Check stop ────────────────────────────────────────────
@@ -442,6 +573,10 @@ if __name__ == "__main__":
 
     except KeyboardInterrupt:
         print("\nCtrl+C received.")
+
+    # ── Save any active recording segment ────────────────────────────────
+    if recording_buf:
+        _save_recording(recording_buf, recording_index, args.config, control_dt, force_dim, yaw_idx)
 
     # ══════════════════════════════════════════════════════════════════════
     # FSM STATE 5: LIE DOWN
@@ -547,7 +682,14 @@ if __name__ == "__main__":
             plt.close(fig)
 
             fig, ax = plt.subplots(figsize=(14, 4))
-            force_labels = ["Fx", "Fy", "Fz"][:force_dim]
+            if force_layout == "xy_yaw":
+                force_labels = ["Fx", "Fy", "τ_yaw"]
+            elif force_dim == 6:
+                force_labels = ["Fx", "Fy", "Fz", "τx", "τy", "τz"]
+            elif force_dim == 4:
+                force_labels = ["Fx", "Fy", "Fz", "τ_yaw"]
+            else:
+                force_labels = ["Fx", "Fy", "Fz"][:force_dim]
             for i in range(force_dim):
                 ax.plot(t, force_hat_arr[:, i], linewidth=0.8, alpha=0.7, label=f"hat {force_labels[i]}")
                 ax.plot(t, force_ema_arr[:, i], linewidth=1.2, alpha=0.9, linestyle="--", label=f"ema {force_labels[i]}")

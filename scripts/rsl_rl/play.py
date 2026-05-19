@@ -37,6 +37,19 @@ parser.add_argument("--compliance_k", type=float, default=0.0, help="Compliance 
 parser.add_argument("--ema_alpha", type=float, default=0.1, help="EMA smoothing factor for force estimate.")
 parser.add_argument("--real-time", action="store_true", default=False, help="Run in real-time, if possible.")
 parser.add_argument("--estimator_checkpoint", type=str, default=None, help="Path to pre-trained estimator checkpoint for compliant env.")
+# Follow-camera flags (work around env.viewer Hydra override type-check bug)
+parser.add_argument("--follow", action="store_true", default=False,
+                    help="Lock the viewport to a robot's base (asset_root origin).")
+parser.add_argument("--follow_env", type=int, default=0,
+                    help="Env index to follow when --follow is set.")
+parser.add_argument("--follow_eye", type=float, nargs=3, default=[1.5, 0.2, 0.2],
+                    metavar=("X", "Y", "Z"),
+                    help="Camera eye offset in robot frame (m). Default: 1.5 0.2 0.2.")
+parser.add_argument("--follow_lookat", type=float, nargs=3, default=[0.0, 0.0, 0.0],
+                    metavar=("X", "Y", "Z"),
+                    help="Camera lookat in robot frame (m). Default: 0 0 0 (base).")
+parser.add_argument("--flat", action="store_true", default=False,
+                    help="Replace terrain with a flat white plane.")
 # append RSL-RL cli arguments
 cli_args.add_rsl_rl_args(parser)
 # append AppLauncher cli args
@@ -93,6 +106,34 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # override configurations with non-hydra CLI arguments
     agent_cfg: RslRlBaseRunnerCfg = cli_args.update_rsl_rl_cfg(agent_cfg, args_cli)
     env_cfg.scene.num_envs = args_cli.num_envs if args_cli.num_envs is not None else env_cfg.scene.num_envs
+
+    # Follow camera (programmatic override — Hydra cannot set asset_name due to a
+    # NoneType type-check in IsaacLab's update_class_from_dict).
+    if args_cli.follow:
+        env_cfg.viewer.origin_type = "asset_root"
+        env_cfg.viewer.asset_name = "robot"
+        env_cfg.viewer.env_index = args_cli.follow_env
+        env_cfg.viewer.eye = tuple(args_cli.follow_eye)
+        env_cfg.viewer.lookat = tuple(args_cli.follow_lookat)
+        print(f"[INFO] Follow camera: env={args_cli.follow_env}, "
+              f"eye={tuple(args_cli.follow_eye)}, lookat={tuple(args_cli.follow_lookat)}")
+
+    # Flat terrain override
+    if args_cli.flat:
+        from isaaclab.terrains import TerrainImporterCfg
+        import isaaclab.sim as sim_utils
+        env_cfg.scene.terrain = TerrainImporterCfg(
+            prim_path="/World/ground",
+            terrain_type="plane",
+            physics_material=sim_utils.RigidBodyMaterialCfg(
+                friction_combine_mode="multiply",
+                restitution_combine_mode="multiply",
+                static_friction=1.0,
+                dynamic_friction=1.0,
+            ),
+        )
+        if hasattr(env_cfg, "curriculum") and env_cfg.curriculum is not None:
+            env_cfg.curriculum.terrain_levels = None
 
     # set the environment seed
     # note: certain randomizations occur in the environment initialization so we set the seed here

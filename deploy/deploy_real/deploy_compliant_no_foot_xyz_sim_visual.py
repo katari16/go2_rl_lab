@@ -150,8 +150,19 @@ if __name__ == "__main__":
     control_dt = cfg["control_dt"]
     temporal_steps = cfg["estimator_temporal_steps"]
     compliance_k = cfg.get("compliance_k", 0.0)
+    compliance_k_yaw = cfg.get("compliance_k_yaw", 0.0)
     ema_alpha = cfg.get("ema_alpha", 0.1)
     weak_motor = cfg.get("weak_motor", [])
+    force_layout = cfg.get("force_layout", "auto")
+
+    if force_layout == "xy_yaw":
+        yaw_idx = 2
+    elif force_dim >= 6:
+        yaw_idx = 5
+    elif force_dim >= 4:
+        yaw_idx = 3
+    else:
+        yaw_idx = None
 
     DEFAULT_ANGLES_ISAAC = np.array(
         [0.1, -0.1, 0.1, -0.1, 0.8, 0.8, 1, 1, -1.5, -1.5, -1.5, -1.5],
@@ -170,18 +181,22 @@ if __name__ == "__main__":
         viz_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         print(f"[SimViz] Streaming to UDP port {SIM_VIZ_PORT}")
 
+    sim_real_recording = False
+    prev_b_button = 0
+
     def send_viz_state(force=None, vel=None):
         """Send robot state to MuJoCo viewer via UDP (non-blocking).
-        Packet: 12 motor_q + 4 quaternion + 3 force + 3 velocity = 22 floats.
+        Packet: 12 motor_q + 4 quaternion + 3 force + 3 velocity + 1 recording flag = 23 floats.
         """
         if viz_sock is None:
             return
         try:
             motor_q = [low_state.motor_state[i].q for i in range(12)]
             quat = list(low_state.imu_state.quaternion)
-            f = list(force) if force is not None else [0.0, 0.0, 0.0]
+            f = list(force[:3]) if force is not None else [0.0, 0.0, 0.0]
             v = list(vel) if vel is not None else [0.0, 0.0, 0.0]
-            packet = struct.pack('22f', *motor_q, *quat, *f, *v)
+            rec = 1.0 if sim_real_recording else 0.0
+            packet = struct.pack('23f', *motor_q, *quat, *f, *v, rec)
             viz_sock.sendto(packet, SIM_VIZ_ADDR)
         except OSError:
             pass
@@ -347,7 +362,10 @@ if __name__ == "__main__":
     print(f"  POLICY RUNNING (50 Hz) — {raw_obs_dim}+{force_dim}={policy_obs_dim} obs dims")
     print(f"  Force estimator: {temporal_steps}x{raw_obs_dim} -> {force_dim}D force")
     if compliance_k > 0:
-        print(f"  Compliance: k={compliance_k:.4f}  EMA alpha={ema_alpha}")
+        print(f"  Compliance: k_xy={compliance_k:.4f}  k_yaw={compliance_k_yaw:.4f}  EMA alpha={ema_alpha}")
+    print("  Press B to toggle recording marker (green ball in viz)")
+    print("  Press Y to toggle compliance mapping OFF (estimator still runs)")
+    print("  Press X to toggle INVERTED mapping (v = v_cmd - k*F)")
     print("  Press SELECT to stop")
     print("=" * 60 + "\n")
 
@@ -359,6 +377,11 @@ if __name__ == "__main__":
     debug_log = []
     should_stop = False
     estimator.reset()
+
+    # Compliance mode: "normal" = +k*F, "off" = no mapping, "inverted" = -k*F
+    compliance_mode = "normal"
+    prev_y_button = 0
+    prev_x_button = 0
 
     try:
         while not should_stop:
@@ -405,14 +428,24 @@ if __name__ == "__main__":
             # EMA filter
             force_ema = ema_alpha * force_hat + (1.0 - ema_alpha) * force_ema
 
-            # ── Compliance modulation (XY only) ──────────────────────
+            # ── Compliance modulation (XY force + yaw torque) ────────
             obs_for_policy = raw_obs.copy()
-            if compliance_k > 0.0:
+            if compliance_k > 0.0 and compliance_mode == "normal":
                 obs_for_policy[6] += compliance_k * force_ema[0]
                 obs_for_policy[7] += compliance_k * force_ema[1]
+                if compliance_k_yaw > 0.0 and yaw_idx is not None:
+                    obs_for_policy[8] += compliance_k_yaw * force_ema[yaw_idx]
+            elif compliance_k > 0.0 and compliance_mode == "inverted":
+                obs_for_policy[6] -= compliance_k * force_ema[0]
+                obs_for_policy[7] -= compliance_k * force_ema[1]
+                if compliance_k_yaw > 0.0 and yaw_idx is not None:
+                    obs_for_policy[8] -= compliance_k_yaw * force_ema[yaw_idx]
 
             # ── Build full policy input (57 raw + 3 force estimate) ───
-            full_obs = np.concatenate([obs_for_policy, force_hat])
+            if compliance_mode == "inverted":
+                full_obs = np.concatenate([obs_for_policy, -force_hat])
+            else:
+                full_obs = np.concatenate([obs_for_policy, force_hat])
 
             # ── Policy inference ──────────────────────────────────────
             obs_tensor = torch.from_numpy(full_obs).float().unsqueeze(0)
@@ -441,11 +474,42 @@ if __name__ == "__main__":
             send_cmd()
             send_viz_state(force=force_hat, vel=velocity_cmd)
 
+            # ── B button: toggle recording marker ─────────────────────
+            b_now = remote_controller.button[KeyMap.B]
+            if b_now == 1 and prev_b_button == 0:
+                sim_real_recording = not sim_real_recording
+                tag = "ON" if sim_real_recording else "OFF"
+                print(f"[step {step_count}] *** Recording marker {tag} ***", flush=True)
+            prev_b_button = b_now
+
+            # ── Y button: toggle compliance OFF / normal ──────────────
+            y_now = remote_controller.button[KeyMap.Y]
+            if y_now == 1 and prev_y_button == 0:
+                if compliance_mode == "off":
+                    compliance_mode = "normal"
+                else:
+                    compliance_mode = "off"
+                print(f"[step {step_count}] *** Compliance mode: {compliance_mode} ***", flush=True)
+            prev_y_button = y_now
+
+            # ── X button: toggle compliance INVERTED / normal ─────────
+            x_now = remote_controller.button[KeyMap.X]
+            if x_now == 1 and prev_x_button == 0:
+                if compliance_mode == "inverted":
+                    compliance_mode = "normal"
+                else:
+                    compliance_mode = "inverted"
+                print(f"[step {step_count}] *** Compliance mode: {compliance_mode} ***", flush=True)
+            prev_x_button = x_now
+
             # ── Debug logging ─────────────────────────────────────────
             step_count += 1
             if args.debug:
                 debug_log.append({
                     'step': step_count,
+                    'wall_time': time.time(),
+                    'sim_real_recording': sim_real_recording,
+                    'compliance_mode': compliance_mode,
                     'raw_obs': raw_obs.copy().tolist(),
                     'force_hat': force_hat.tolist(),
                     'force_ema': force_ema.tolist(),
@@ -458,8 +522,11 @@ if __name__ == "__main__":
                         or (step_count <= 50 and step_count % 10 == 0)
                         or step_count % 50 == 0)
             if do_print:
+                n_lin = 2 if force_layout == "xy_yaw" else min(force_dim, 3)
+                f_str = ",".join(f"{force_hat[i]:+.1f}" for i in range(n_lin))
+                extra = f"  τ_yaw={force_hat[yaw_idx]:+.2f}" if yaw_idx is not None else ""
                 print(f"[step {step_count}] cmd=[{velocity_cmd[0]:.1f},{velocity_cmd[1]:.1f},{velocity_cmd[2]:.1f}]"
-                      f"  F_hat=[{force_hat[0]:+.1f},{force_hat[1]:+.1f},{force_hat[2]:+.1f}]"
+                      f"  F_hat=[{f_str}]  |F|={np.linalg.norm(force_hat[:n_lin]):.1f}N{extra}"
                       f"  gravity={raw_obs[3:6].round(3)}"
                       f"  action_norm={np.linalg.norm(action):.3f}")
 
@@ -517,15 +584,23 @@ if __name__ == "__main__":
             + [f"torque_{i}" for i in range(12)]
         )
 
+        wall_time_arr = [s['wall_time'] for s in debug_log]
+        sim_real_recording_arr = [s['sim_real_recording'] for s in debug_log]
+        compliance_mode_arr = [s['compliance_mode'] for s in debug_log]
+
         log_json = {
             "source": "real_robot",
             "timestamp": timestamp,
             "control_dt": control_dt,
             "num_steps": N,
             "compliance_k": compliance_k,
+            "compliance_k_yaw": compliance_k_yaw,
             "ema_alpha": ema_alpha,
             "obs_labels": obs_labels,
             "time_s": timestamps,
+            "wall_time": wall_time_arr,
+            "sim_real_recording": sim_real_recording_arr,
+            "compliance_mode": compliance_mode_arr,
             "raw_obs": raw_obs_arr.tolist(),
             "actions": actions_arr.tolist(),
             "force_hat": force_hat_arr.tolist(),
@@ -579,7 +654,14 @@ if __name__ == "__main__":
             plt.close(fig)
 
             fig, ax = plt.subplots(figsize=(14, 4))
-            force_labels = ["Fx", "Fy", "Fz"][:force_dim]
+            if force_layout == "xy_yaw":
+                force_labels = ["Fx", "Fy", "τ_yaw"]
+            elif force_dim == 6:
+                force_labels = ["Fx", "Fy", "Fz", "τx", "τy", "τz"]
+            elif force_dim == 4:
+                force_labels = ["Fx", "Fy", "Fz", "τ_yaw"]
+            else:
+                force_labels = ["Fx", "Fy", "Fz"][:force_dim]
             for i in range(force_dim):
                 ax.plot(t, force_hat_arr[:, i], linewidth=0.8, alpha=0.7, label=f"hat {force_labels[i]}")
                 ax.plot(t, force_ema_arr[:, i], linewidth=1.2, alpha=0.9, linestyle="--", label=f"ema {force_labels[i]}")

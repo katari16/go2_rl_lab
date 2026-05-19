@@ -77,6 +77,58 @@ class LowLevelRunnerCfg(RslRlOnPolicyRunnerCfg):
 
 
 @configclass
+class LowLevelNoEstRunnerCfg(RslRlOnPolicyRunnerCfg):
+    """Low-level locomotion without force estimate — standard OnPolicyRunner.
+
+    57-dim policy obs, 67-dim critic obs, no estimator.
+    Forces are active from the start (set in env config).
+    """
+
+    class_name: str = "OnPolicyRunner"
+
+    num_steps_per_env: int = 24
+    max_iterations: int = 20000
+    save_interval: int = 500
+    experiment_name: str = "go2_lowlevel_no_est"
+
+    policy = RslRlPpoActorCriticCfg(
+        init_noise_std=1.0,
+        actor_obs_normalization=False,
+        critic_obs_normalization=False,
+        actor_hidden_dims=[512, 256, 128],
+        critic_hidden_dims=[512, 256, 128],
+        activation="elu",
+    )
+
+    algorithm = RslRlPpoAlgorithmCfg(
+        value_loss_coef=1.0,
+        use_clipped_value_loss=True,
+        clip_param=0.2,
+        entropy_coef=0.01,
+        num_learning_epochs=5,
+        num_mini_batches=4,
+        learning_rate=1.0e-3,
+        schedule="adaptive",
+        gamma=0.99,
+        lam=0.95,
+        desired_kl=0.01,
+        max_grad_norm=1.0,
+    )
+
+
+@configclass
 class LowLevelPaceRunnerCfg(LowLevelRunnerCfg):
     """Low-level locomotion runner — PACE actuator model."""
     experiment_name: str = "go2_lowlevel_pace"
+
+
+@configclass
+class LowLevelPaceAprilRunnerCfg(LowLevelRunnerCfg):
+    """Low-level locomotion runner — PACE April actuator model (run 26_04_12_23-04-12)."""
+    experiment_name: str = "go2_lowlevel_pace_april"
+
+
+@configclass
+class LowLevelPaceApril14RunnerCfg(LowLevelRunnerCfg):
+    """Low-level locomotion runner — PACE April-14 actuator model (run 26_04_14_09-41-22)."""
+    experiment_name: str = "go2_lowlevel_pace_april14"

@@ -4,11 +4,12 @@ Real-time MuJoCo visualization of the real Go2 robot.
 Receives robot state via UDP from deploy_compliant_no_foot_xyz_sim_visual.py
 and renders it in MuJoCo with force and velocity arrows.
 
-Packet format (22 floats = 88 bytes):
+Packet format (23 floats = 92 bytes):
     [0:12]  motor positions (SDK order: FR_hip/thigh/calf, FL, RR, RL)
     [12:16] IMU quaternion [w, x, y, z]
     [16:19] force estimate [fx, fy, fz] (body frame)
     [19:22] velocity command [vx, vy, wz]
+    [22]    recording flag (1.0 = recording marker on, 0.0 = off)
 
 Usage:
     python real_mujoco_viz.py --scene ~/unitree_mujoco/unitree_robots/go2/scene.xml
@@ -65,6 +66,7 @@ def main():
         "quat": np.array([1.0, 0.0, 0.0, 0.0]),  # w, x, y, z
         "force": np.zeros(3),
         "vel_cmd": np.zeros(3),
+        "recording": False,
         "received": False,
     }
 
@@ -84,15 +86,17 @@ def main():
             except OSError:
                 break
 
-            if len(data) != 88:  # 22 floats * 4 bytes
+            if len(data) not in (88, 92):  # 22 or 23 floats
                 continue
 
-            values = struct.unpack("22f", data)
+            n_floats = len(data) // 4
+            values = struct.unpack(f"{n_floats}f", data)
             with state_lock:
                 state["motor_q"][:] = values[0:12]
                 state["quat"][:] = values[12:16]
                 state["force"][:] = values[16:19]
                 state["vel_cmd"][:] = values[19:22]
+                state["recording"] = (n_floats >= 23 and values[22] > 0.5)
                 state["received"] = True
 
     recv_thread = threading.Thread(target=udp_receiver, daemon=True)
@@ -123,9 +127,11 @@ def main():
 
                     force = state["force"].copy()
                     vel_cmd = state["vel_cmd"].copy()
+                    recording = state["recording"]
                 else:
                     force = np.zeros(3)
                     vel_cmd = np.zeros(3)
+                    recording = False
 
             # Forward kinematics (no physics step)
             mujoco.mj_forward(mj_model, mj_data)
@@ -191,6 +197,21 @@ def main():
                         )
                         scn.geoms[scn.ngeom].rgba[:] = [0.2, 0.4, 1.0, 0.8]
                         scn.ngeom += 1
+
+            # Green sphere: recording marker (hovering above robot)
+            if recording and scn.ngeom < scn.maxgeom:
+                sphere_pos = base_pos.copy()
+                sphere_pos[2] += 0.50  # above force arrow
+                g = scn.geoms[scn.ngeom]
+                mujoco.mjv_initGeom(
+                    g,
+                    type=mujoco.mjtGeom.mjGEOM_SPHERE,
+                    size=np.array([0.05, 0.05, 0.05], dtype=np.float64),
+                    pos=np.array(sphere_pos, dtype=np.float64),
+                    mat=np.eye(3, dtype=np.float64).flatten(),
+                    rgba=np.array([0.1, 0.95, 0.2, 0.9], dtype=np.float32),
+                )
+                scn.ngeom += 1
 
             viewer.sync()
             time.sleep(0.02)  # ~50Hz refresh

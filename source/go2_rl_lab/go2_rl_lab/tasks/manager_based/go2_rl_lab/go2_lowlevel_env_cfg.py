@@ -70,7 +70,12 @@ from .mdp.rewards import (
     compliant_track_lin_vel_xy_exp,
     standing_pose_penalty,
 )
-from go2_rl_lab.assets.unitree import UNITREE_GO2_LOW_GAIN_CFG, UNITREE_GO2_LOW_GAIN_PACE_CFG
+from go2_rl_lab.assets.unitree import (
+    UNITREE_GO2_LOW_GAIN_CFG,
+    UNITREE_GO2_LOW_GAIN_PACE_CFG,
+    UNITREE_GO2_LOW_GAIN_PACE_APRIL_CFG,
+    UNITREE_GO2_LOW_GAIN_PACE_APRIL14_CFG,
+)
 from isaaclab.terrains.config.rough import ROUGH_TERRAINS_CFG
 
 
@@ -471,6 +476,101 @@ class LowLevelEnvCfg(ManagerBasedRLEnvCfg):
                 tg.sub_terrains["hf_pyramid_slope_inv"].slope_range = (0.0, 0.3)
 
 
+##
+# No-estimator variant (57-dim policy, 67-dim critic)
+##
+
+
+@configclass
+class NoEstObservationsCfg:
+    """Observations without force estimate — policy 57 dims, critic 67 dims."""
+
+    @configclass
+    class PolicyCfg(ObsGroup):
+        """Proprioceptive-only policy observations (57 dims). No force estimate."""
+
+        base_ang_vel = ObsTerm(func=mdp.base_ang_vel, clip=(-100, 100), noise=Unoise(n_min=-0.2, n_max=0.2))
+        projected_gravity = ObsTerm(func=mdp.projected_gravity, clip=(-100, 100), noise=Unoise(n_min=-0.05, n_max=0.05))
+        velocity_commands = ObsTerm(func=mdp.generated_commands, clip=(-100, 100), params={"command_name": "base_velocity"})
+        joint_pos = ObsTerm(func=mdp.joint_pos_rel, clip=(-100, 100), noise=Unoise(n_min=-0.01, n_max=0.01))
+        joint_vel = ObsTerm(func=mdp.joint_vel_rel, clip=(-100, 100), noise=Unoise(n_min=-1.5, n_max=1.5))
+        actions = ObsTerm(func=mdp.last_action, clip=(-100, 100))
+        applied_torque_obs = ObsTerm(
+            func=applied_torque,
+            clip=(-100, 100),
+            noise=Unoise(n_min=-0.05, n_max=0.05),
+            params={"asset_cfg": SceneEntityCfg("robot"), "scale": 0.1},
+        )
+
+        def __post_init__(self):
+            self.enable_corruption = True
+            self.concatenate_terms = True
+
+    @configclass
+    class CriticCfg(ObsGroup):
+        """Privileged critic observations (67 dims) — GT force but no force estimate."""
+
+        base_lin_vel = ObsTerm(func=mdp.base_lin_vel, clip=(-100, 100))
+        base_ang_vel = ObsTerm(func=mdp.base_ang_vel, clip=(-100, 100))
+        projected_gravity = ObsTerm(func=mdp.projected_gravity, clip=(-100, 100))
+        velocity_commands = ObsTerm(func=mdp.generated_commands, clip=(-100, 100), params={"command_name": "base_velocity"})
+        joint_pos = ObsTerm(func=mdp.joint_pos_rel, clip=(-100, 100))
+        joint_vel = ObsTerm(func=mdp.joint_vel_rel, clip=(-100, 100))
+        actions = ObsTerm(func=mdp.last_action, clip=(-100, 100))
+        applied_torque_obs = ObsTerm(
+            func=applied_torque,
+            clip=(-100, 100),
+            params={"asset_cfg": SceneEntityCfg("robot"), "scale": 0.1},
+        )
+        foot_contact_forces = ObsTerm(
+            func=foot_contact_force_norms,
+            clip=(-100, 100),
+            params={"sensor_cfg": SceneEntityCfg("contact_forces", body_names=".*_foot"), "scale": 0.01},
+        )
+        base_applied_force_xyz = ObsTerm(
+            func=base_applied_force_xyz,
+            params={"asset_cfg": SceneEntityCfg("robot", body_names="base")},
+        )
+
+        def __post_init__(self):
+            self.enable_corruption = False
+            self.concatenate_terms = True
+
+    policy: PolicyCfg = PolicyCfg()
+    critic: CriticCfg = CriticCfg()
+
+
+@configclass
+class NoEstEventCfg(EventCfg):
+    """Forces active from the start — no estimator gating needed."""
+
+    persistent_xyz_force = EventTerm(
+        func=apply_persistent_xyz_force,
+        mode="interval",
+        interval_range_s=(3.0, 5.0),
+        params={
+            "asset_cfg": SceneEntityCfg("robot", body_names="base"),
+            "force_range": (0.0, 20.0),
+            "fz_scale": 0.6,
+        },
+    )
+
+
+@configclass
+class LowLevelNoEstEnvCfg(LowLevelEnvCfg):
+    """V3 locomotion without force estimate in observations.
+
+    Policy obs: 57 dims (proprioceptive only, no force estimate slot).
+    Critic obs: 67 dims (privileged + GT force, no force estimate).
+    Forces: active from the start at 20N (no estimator gating).
+
+    Train with OnPolicyRunner, then freeze and train estimator on top.
+    """
+
+    observations: NoEstObservationsCfg = NoEstObservationsCfg()
+    events: NoEstEventCfg = NoEstEventCfg()
+
+
 @configclass
 class LowLevelPaceEnvCfg(LowLevelEnvCfg):
     """Same as LowLevelEnvCfg but with PACE-identified actuator parameters.
@@ -482,3 +582,21 @@ class LowLevelPaceEnvCfg(LowLevelEnvCfg):
     def __post_init__(self):
         super().__post_init__()
         self.scene.robot = UNITREE_GO2_LOW_GAIN_PACE_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+
+
+@configclass
+class LowLevelPaceAprilEnvCfg(LowLevelEnvCfg):
+    """V3 low-level env with April PACE actuator params (run 26_04_12_23-04-12)."""
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.scene.robot = UNITREE_GO2_LOW_GAIN_PACE_APRIL_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")
+
+
+@configclass
+class LowLevelPaceApril14EnvCfg(LowLevelEnvCfg):
+    """V3 low-level env with April-14 PACE actuator params (run 26_04_14_09-41-22)."""
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.scene.robot = UNITREE_GO2_LOW_GAIN_PACE_APRIL14_CFG.replace(prim_path="{ENV_REGEX_NS}/Robot")

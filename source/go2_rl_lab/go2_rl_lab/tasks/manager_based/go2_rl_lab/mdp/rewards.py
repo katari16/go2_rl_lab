@@ -90,14 +90,45 @@ def base_pose_penalty(env: ManagerBasedRLEnv, asset_cfg: SceneEntityCfg, desired
 ) -> torch.Tensor:
     """Paper rpose: φ² + ψ² + 10·(y - ydes)²"""
     asset: Articulation = env.scene[asset_cfg.name]
-    
+
     # Get roll, pitch, yaw from quaternion
     roll, pitch, yaw = euler_xyz_from_quat(asset.data.root_quat_w)
-    
+
     # Height error
     height_error = asset.data.root_pos_w[:, 2] - desired_height
-    
+
     return roll**2 + pitch**2 + 10 * height_error**2
+
+
+def _wrap_pi(x: torch.Tensor) -> torch.Tensor:
+    return torch.atan2(torch.sin(x), torch.cos(x))
+
+
+def track_roll_pitch_exp(
+    env: ManagerBasedRLEnv,
+    std: float,
+    command_name: str = "base_velocity",
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Exp-kernel tracking of commanded roll/pitch (indices 3, 4 of the command tensor)."""
+    asset: Articulation = env.scene[asset_cfg.name]
+    cmd = env.command_manager.get_command(command_name)
+    roll, pitch, _ = euler_xyz_from_quat(asset.data.root_quat_w)
+    err = _wrap_pi(roll - cmd[:, 3]) ** 2 + _wrap_pi(pitch - cmd[:, 4]) ** 2
+    return torch.exp(-err / (std ** 2))
+
+
+def track_height_exp(
+    env: ManagerBasedRLEnv,
+    std: float,
+    command_name: str = "base_velocity",
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+) -> torch.Tensor:
+    """Exp-kernel tracking of commanded base height (index 5 of the command tensor)."""
+    asset: Articulation = env.scene[asset_cfg.name]
+    cmd = env.command_manager.get_command(command_name)
+    err = (asset.data.root_pos_w[:, 2] - cmd[:, 5]) ** 2
+    return torch.exp(-err / (std ** 2))
 
 """
 Feet rewards.
@@ -569,3 +600,128 @@ def track_ang_vel_z_exp_staged(
         return (1.0 - mask) * normal_reward + mask * frozen
 
     return normal_reward
+
+
+def compliance_force_tracking(
+    env: ManagerBasedRLEnv,
+    B_force: float = 20.0,
+    sigma: float = 0.25,
+    alpha: float = 2.0,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names="base"),
+) -> torch.Tensor:
+    """PAINT-style compliance reward using GT force.
+
+    When ``||F_gt|| > alpha``: reward = exp(-||F_xy_gt / B_f - v_xy_base||² / σ)
+    When ``||F_gt|| <= alpha``: reward = 0 (no compliance expected)
+
+    Args:
+        B_force: Virtual impedance for force-to-velocity mapping (N·s/m).
+        sigma: Exponential kernel width.
+        alpha: Force activation threshold (N).
+        asset_cfg: Robot asset with body_names="base".
+    """
+    asset: Articulation = env.scene[asset_cfg.name]
+
+    # GT force from permanent wrench composer (body frame)
+    gt_force = asset.permanent_wrench_composer.composed_force_as_torch[
+        :, asset_cfg.body_ids, :2
+    ].squeeze(1)  # [N, 2]
+
+    gt_mag = gt_force.norm(dim=1)  # [N]
+    v_base_xy = asset.data.root_lin_vel_b[:, :2]  # [N, 2]
+
+    # Target velocity from impedance model
+    v_target = gt_force / B_force  # [N, 2]
+    error = torch.sum(torch.square(v_target - v_base_xy), dim=1)
+    reward = torch.exp(-error / sigma)
+
+    # Gate: only active when force exceeds threshold
+    reward = reward * (gt_mag > alpha).float()
+
+    return reward
+
+
+def force_estimation_accuracy(
+    env: ManagerBasedRLEnv,
+    sigma: float = 1.0,
+    alpha: float = 2.0,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names="base"),
+) -> torch.Tensor:
+    """Reward for accurate force estimation: exp(-||F_gt - F_hat||^2 / sigma).
+
+    Encourages the locomotion policy to adopt gaits that make external forces
+    easier to estimate from proprioception alone.
+
+    Only active when ||F_gt|| > alpha (no reward signal when no force applied).
+
+    Args:
+        sigma: Exponential kernel width.
+        alpha: Force activation threshold (N).
+        asset_cfg: Robot asset with body_names="base".
+    """
+    if not hasattr(env, "_force_estimate_xy"):
+        return torch.zeros(env.num_envs, device=env.device)
+
+    force_hat = env._force_estimate_xy  # [N, force_dim]
+    force_dim = force_hat.shape[1]
+    asset: Articulation = env.scene[asset_cfg.name]
+
+    # Get GT force (and torque if wrench env) matching estimator dims
+    gt_force = asset.permanent_wrench_composer.composed_force_as_torch[
+        :, asset_cfg.body_ids, :
+    ].squeeze(1)  # [N, 3]
+
+    if force_dim <= 3:
+        gt = gt_force[:, :force_dim]
+    else:
+        gt_torque = asset.permanent_wrench_composer.composed_torque_as_torch[
+            :, asset_cfg.body_ids, :
+        ].squeeze(1)  # [N, 3]
+        gt = torch.cat([gt_force, gt_torque], dim=1)[:, :force_dim]
+
+    mse = torch.sum(torch.square(gt - force_hat), dim=1)
+    reward = torch.exp(-mse / sigma)
+
+    gt_mag = gt_force[:, :2].norm(dim=1)
+    reward = reward * (gt_mag > alpha).float()
+
+    return reward
+
+
+def compliance_torque_tracking(
+    env: ManagerBasedRLEnv,
+    B_torque: float = 10.0,
+    sigma: float = 0.25,
+    alpha: float = 2.0,
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot", body_names="base"),
+) -> torch.Tensor:
+    """PAINT-style compliance reward for yaw torque using GT torque.
+
+    When ``||τ_yaw_gt|| > alpha``: reward = exp(-||τ_yaw_gt / B_τ - ω_yaw_base||² / σ)
+    When ``||τ_yaw_gt|| <= alpha``: reward = 0
+
+    Args:
+        B_torque: Virtual impedance for torque-to-angular-velocity mapping (Nm·s/rad).
+        sigma: Exponential kernel width.
+        alpha: Torque activation threshold (Nm).
+        asset_cfg: Robot asset with body_names="base".
+    """
+    asset: Articulation = env.scene[asset_cfg.name]
+
+    # GT yaw torque from permanent wrench composer (body frame)
+    gt_tau_yaw = asset.permanent_wrench_composer.composed_torque_as_torch[
+        :, asset_cfg.body_ids, 2
+    ].squeeze(1)  # [N]
+
+    tau_mag = gt_tau_yaw.abs()  # [N]
+    omega_yaw = asset.data.root_ang_vel_b[:, 2]  # [N]
+
+    # Target angular velocity from impedance model
+    omega_target = gt_tau_yaw / B_torque  # [N]
+    error = torch.square(omega_target - omega_yaw)
+    reward = torch.exp(-error / sigma)
+
+    # Gate: only active when torque exceeds threshold
+    reward = reward * (tau_mag > alpha).float()
+
+    return reward

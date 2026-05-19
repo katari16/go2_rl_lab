@@ -368,7 +368,7 @@ if __name__ == "__main__":
     parser.add_argument("config", type=str, help="config file name in the configs folder", default="go2_finetune_j1.yaml")
     args = parser.parse_args()
 
-    config_path = f"configs/{args.config}"
+    config_path = Path(__file__).resolve().parent / "configs" / args.config
     config = FinetuneConfig(config_path)
     print("1] -> CONFIG FILE LOADED SUCCESSFULLY")
 
