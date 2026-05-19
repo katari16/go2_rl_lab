@@ -1,14 +1,55 @@
 # RoboBarrow: Compliant Force-Based Control for Quadrupedal Robots
 
-Admittance-based compliant locomotion on the Unitree Go2 without dedicated force sensors. Built on NVIDIA Isaac Lab.
+**Proprioceptive Force and Wrench Estimation for Compliant Quadrupedal Locomotion**
+
+Bachelor Thesis, Spring Term 2026 — Robotic Systems Lab (RSL), ETH Zurich
+
+*Author:* Hans Baumann-Ortiz | *Supervisors:* William Hartmann, Filip Janovsky | *Lecturer:* Prof. Dr. Marco Hutter
+
+<p align="center">
+  <img src="docs/thumbnail_final.jpeg" alt="Real-world force-compliant locomotion on the Unitree Go2" width="600"/>
+  <br>
+  <em>Figure 1.1: Force-compliant locomotion on the physical Unitree Go2. The robot yields in the direction of applied force (blue arrow) estimated purely from proprioceptive observations, without any dedicated force sensor.</em>
+</p>
 
 <p align="center">
   <img src="docs/compliance_demo.gif" alt="Force-compliant locomotion demo" width="600"/>
 </p>
 
-## TL;DR
+## Abstract
 
-A proprioceptive force estimator trained concurrently with a velocity-tracking locomotion policy estimates external forces and torques from joint-level observations. A first-order admittance controller maps the estimated wrench to velocity command modulations, enabling tunable compliance through a single gain constant adjustable at deployment without retraining. The robot can be pushed, pulled, and steered through applied forces and yaw torques across unstructured outdoor terrain.
+Quadrupedal robots operating alongside humans or in unstructured environments must be able to detect and respond to external contact forces. We present a proprioceptive force and wrench estimation framework for the Unitree Go2 quadruped, trained entirely in simulation using deep reinforcement learning. The estimator processes a temporal history of proprioceptive observations — angular velocities, projected gravity, joint positions, joint velocities, and joint torques — through a learned encoder to predict external forces and torques applied to the robot base, without requiring any dedicated force sensor.
+
+We conduct a systematic ablation study over the estimator design space, varying the number of estimated dimensions (2D force, 3D force, 2D wrench, 6D wrench), temporal history length, network capacity, and auxiliary training losses. We evaluate estimation accuracy using force magnitude MSE, angular error, and a novel effective compliance metric that measures the robot's velocity response per unit applied force.
+
+To achieve compliant behavior, the estimated force is mapped to velocity command modulations via a linear gain, allowing the robot to yield in the direction of applied forces without retraining the locomotion policy. We validate the approach in simulation with a 360-degree force sweep evaluation and demonstrate sim-to-real transfer on the physical Go2 robot, confirming that the proprioceptive estimator generalizes to real-world contact.
+
+## Contributions
+
+1. **Proprioceptive force/wrench estimator** — A temporal encoder trained end-to-end with the locomotion policy that predicts up to 6D external wrench (Fx, Fy, Fz, τ_roll, τ_pitch, τ_yaw) from joint-level measurements alone, running at 50 Hz on the robot's onboard compute.
+2. **Systematic ablation study** — Comprehensive evaluation of the estimator design space across 7 axes: history length, network capacity, estimated dimensions (2D→6D), reconstruction loss, TCN temporal preprocessing, estimation-accuracy reward, and PD gain selection.
+3. **Sensor-free compliance mapping** — A first-order admittance controller that maps the estimated force to velocity command modulations via a single tunable gain, enabling compliant behavior without retraining the base locomotion policy.
+4. **Sim-to-real validation** — Full deployment pipeline from Isaac Lab training through MuJoCo sim-to-sim validation to real-world operation on the physical Unitree Go2, with three runtime-switchable compliance modes (yield, off, resist).
+
+## Key Results
+
+Best estimator performance across the ablation study (evaluated on 4096 parallel environments, 0–30 N force range):
+
+| Configuration | Dims | History | Force MAE (N) | Ang. Error (°) | Torque MAE (Nm) | Rel. Error (%) |
+|---|---|---|---|---|---|---|
+| **J5 (deployed, TCN)** | 4D | H=40 | **3.94** | **4.14** | 0.57 | 35.6 |
+| J3 (est-acc reward) | 4D | H=40 | 4.68 | 4.97 | 0.83 | 39.5 |
+| P4 (long history) | 4D | H=40 | 5.05 | 5.38 | 0.74 | 43.5 |
+| P17 (6D big net) | 6D | H=30 | 5.15 | 5.34 | 0.71 | 43.6 |
+| P16 (6D default) | 6D | H=30 | 4.95 | 5.67 | 0.81 | 39.4 |
+| P1 (short history) | 4D | H=10 | 6.10 | 10.25 | 0.79 | 49.8 |
+| P20 (high PD gains) | 4D | H=30 | 5.41 | 6.52 | 0.80 | 45.3 |
+
+Key findings:
+- **TCN preprocessing** yields the single largest improvement: 16% lower force MAE and 17% tighter angular accuracy vs. MLP-only (J5 vs J3).
+- **Low PD gains** (Kp=8) outperform conventional gains (Kp=25) by amplifying joint deflection under external forces, producing a richer proprioceptive signal.
+- **6D wrench estimation** is feasible with torque MAE of ~0.7 Nm (10–14% relative at 0–5 Nm range), though XY force accuracy degrades slightly compared to 4D.
+- **History length** H=40 saturates accuracy; H=10 is insufficient (2× angular error).
 
 ## Repository Structure
 
