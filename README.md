@@ -75,8 +75,7 @@ The architectural floor with all privileged inputs is 1.83 N force MAE and 2.6°
 go2_rl_lab/
 ├── source/go2_rl_lab/          # Isaac Lab extension (env definitions, estimator, runner)
 ├── scripts/
-│   ├── rsl_rl/                 # Training, evaluation, and export scripts
-│   └── cluster/                # SLURM training scripts for ETH Euler cluster
+│   └── rsl_rl/                 # Training, evaluation, and export scripts
 ├── deploy/
 │   ├── deploy_real/            # Real robot deployment (Unitree SDK2)
 │   ├── sim2sim/                # MuJoCo sim-to-sim validation
