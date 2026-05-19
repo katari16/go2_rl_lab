@@ -1,79 +1,135 @@
-# Learning Compliance: Towards Compliant and Safe Human Robot Interaction
+# RoboBarrow: Compliant Force-Based Control for Quadrupedal Robots
 
-**Force-Compliant Quadruped Locomotion with Sim2Real Transfer**
-
-<p align="center">
-  <a href="https://youtu.be/JrpNsgq1lOk">
-    <img src="docs/thumbnail_final.jpeg" alt="Watch the video" width="600"/>
-  </a>
-  <br/>
-  <b>&#9650;&#65039; &#9654; Click the image above to watch the full video explanation &#9650;&#65039;</b>
-</p>
-
-A reinforcement learning framework for training and deploying locomotion policies on the Unitree Go2, built on NVIDIA Isaac Lab. This project addresses two critical challenges in legged robotics: bridging the sim-to-real gap through system identification, and achieving compliant robot behavior for safe human-robot interaction.
-
----
-
-## Force-Compliant Locomotion
-
-Control policies trained with deep RL learn to *reject* external forces to maintain stability. This makes them stiff, aggressive, and unsafe around humans. We train end-to-end policies that instead learn to *yield* to external forces — enabling safe, intuitive human-robot interaction without any force sensors.
+Admittance-based compliant locomotion on the Unitree Go2 without dedicated force sensors. Built on NVIDIA Isaac Lab.
 
 <p align="center">
   <img src="docs/compliance_demo.gif" alt="Force-compliant locomotion demo" width="600"/>
 </p>
 
-When pushed, the robot moves compliantly in the force direction instead of fighting back. The response is smooth and controlled — no high-frequency torques, no aggressive rejection. This enables pulling the robot like a dog on a leash, using it as a barrow to carry payload, or simply moving it out of the way safely.
+## TL;DR
 
-| | Stiff Policy | Compliant Policy |
-|---|---|---|
-| **Push response** | Aggressive force rejection | Smooth yielding in force direction |
-| **Human interaction** | Unsafe, high-frequency torques | Safe, controlled response |
-| **Energy efficiency** | High (fighting disturbances) | Lower (working with disturbances) |
-| **Recovery** | Abrupt | Gradual, smooth |
+A proprioceptive force estimator trained concurrently with a velocity-tracking locomotion policy estimates external forces and torques from joint-level observations. A first-order admittance controller maps the estimated wrench to velocity command modulations, enabling tunable compliance through a single gain constant adjustable at deployment without retraining. The robot can be pushed, pulled, and steered through applied forces and yaw torques across unstructured outdoor terrain.
 
----
+## Repository Structure
 
-## Bridging the Sim-to-Real Gap with PACE
+```
+go2_rl_lab/
+├── source/go2_rl_lab/          # Isaac Lab extension (env definitions, estimator, runner)
+├── scripts/
+│   ├── rsl_rl/                 # Training, evaluation, and export scripts
+│   └── cluster/                # SLURM training scripts for ETH Euler cluster
+├── deploy/
+│   ├── deploy_real/            # Real robot deployment (Unitree SDK2)
+│   ├── sim2sim/                # MuJoCo sim-to-sim validation
+│   └── pre_train/              # Exported JIT policy + estimator checkpoints
+└── docs/                       # Architecture docs and ablation logs
+```
 
-Policies trained in simulation often fail on real hardware. Most approaches neglect actuator-specific energy losses or rely on hand-tuned reward formulations. We adapted the [PACE framework](https://arxiv.org/pdf/2509.06342) ([our Go2 adaptation](https://github.com/katari16/pace-sim2real/tree/hans-dev1)) for the Unitree Go2 — a large-scale parallelized system identification approach that finds optimal actuator parameters (armature, viscous friction, friction, encoder bias) from real-world data.
+## Environment and Task Definitions
 
-<p align="center">
-  <img src="docs/data_collection_real_robot.gif" alt="Real robot data collection" width="45%"/>
-  &nbsp;&nbsp;
-  <img src="docs/system_identification_isaac.gif" alt="System identification in Isaac Lab" width="45%"/>
-</p>
+All environments are defined in:
 
-**Left:** Real-world data collection — exciting the robot's joints with chirp signals to capture true actuator dynamics.
-**Right:** Large-scale parallelized optimization in Isaac Lab — finding the parameters that best match real-world behavior.
+```
+source/go2_rl_lab/go2_rl_lab/tasks/manager_based/go2_rl_lab/
+├── go2_lowlevel_env_cfg.py     # Base locomotion + force estimation (deployed config)
+├── go2_6dctrl_env_cfg.py       # 6D wrench estimation (Fx, Fy, Fz, τ_roll, τ_pitch, τ_yaw)
+├── go2_ablation_env_cfgs.py    # All ablation variants (P-series, J-series, R-series)
+├── go2_payload_env_cfg.py      # Payload transport (1-3 kg randomized)
+└── mdp/                        # Observations, rewards, events, curricula
+```
 
-The identified parameters augment the IsaacLab `DCMotorCfg`, producing a simulator that accurately captures the real actuator dynamics and enables zero-shot deployment.
+Agent configs (PPO hyperparameters, network sizes):
 
-| | Without PACE | With PACE |
-|---|---|---|
-| **Sim-to-real transfer** | Sluggish, inconsistent motor response | Smooth, reliable zero-shot deployment |
-| **Tracking accuracy** | Poor, especially rear legs | Consistent across all joints |
-| **Gait quality** | Unstable, jerky | Natural, controlled |
+```
+source/go2_rl_lab/go2_rl_lab/tasks/manager_based/go2_rl_lab/agents/
+├── rsl_rl_ppo_cfg.py           # Base PPO config
+├── rsl_rl_lowlevel_cfg.py      # Low-level locomotion training
+└── rsl_rl_ablation_cfg.py      # Ablation sweep configs
+```
 
----
+## Force Estimator and Runner
 
-## Deployment
+```
+source/go2_rl_lab/go2_rl_lab/estimator/
+├── force_estimator.py              # TCN-based force estimator network
+├── obs_history_buffer.py           # Sliding window history buffer
+├── compliant_on_policy_runner.py   # Main training runner (policy + estimator jointly)
+└── frozen_policy_estimator_runner.py  # Train estimator with frozen policy
+```
 
-The repo includes a Python-first deployment script that supports both **sim2real** (real Unitree Go2 hardware) and **sim2sim** (MuJoCo simulator via [unitree_mujoco](https://github.com/unitreerobotics/unitree_mujoco)) deployment. Control the robot with a joystick or keyboard (WASD + QE for movement, Enter/Space/Esc for FSM transitions). All deployment code lives in `deploy/`.
+The runner (`compliant_on_policy_runner.py`) trains the locomotion policy and force estimator jointly. The estimator is activated after the policy reaches a reward threshold, and force application begins after directional accuracy meets a gate condition.
 
-The data collection script for running PACE system identification can be found at [`deploy/unitree_sdk2_python/example/go2/low_level/go2_pace_data_collection.py`](deploy/unitree_sdk2_python/example/go2/low_level/go2_pace_data_collection.py), alongside the data collected during our experiments.
+## Training
 
-**Dependencies for deployment:**
-- [unitree_mujoco](https://github.com/unitreerobotics/unitree_mujoco) — for sim2sim validation
-- [go2_odometry](https://github.com/inria-paris-robotics-lab/go2_odometry) — Kalman filter for state estimation on real hardware
+```bash
+python scripts/rsl_rl/train.py --task Go2-Lowlevel-v0 --num_envs 4096 --max_iterations 10000
+```
 
----
+Ablation runs are launched via cluster scripts in `scripts/cluster/`. Each script corresponds to a specific configuration documented in the report appendix.
 
-## Acknowledgments
+## Evaluation
 
-- **NVIDIA** — Isaac Sim, Isaac Lab
-- **Unitree Robotics** — Go2 platform and SDK
-- **PACE Authors** — [Original system identification framework](https://arxiv.org/pdf/2509.06342)
+Three evaluation protocols are implemented:
 
-## License
+| Script | Protocol | Description |
+|--------|----------|-------------|
+| `scripts/rsl_rl/static_eval.py` | Training-regime rollout | Constant forces, 4096 envs, 20s |
+| `scripts/rsl_rl/eval/ou_force_eval.py` | OU disturbance | Smooth, continuously varying forces |
+| `scripts/rsl_rl/eval/static_360_eval.py` | Directional sweep | Fixed 20 N from 10 azimuth directions |
 
-BSD-3-Clause
+Batch evaluation scripts for all report ablations:
+
+```bash
+scripts/rsl_rl/run_evals_report_ablations.sh   # P-series (architecture ablation)
+scripts/rsl_rl/run_evals_r1_r3_r4.sh           # Randomization ablation
+scripts/rsl_rl/run_evals_r6_r8.sh              # Force curriculum ablation
+scripts/rsl_rl/run_evals_r9_r12.sh             # Privileged observation ablation
+```
+
+## Pretrained Policies
+
+Exported JIT checkpoints (policy.pt + estimator.pt) for all report configurations:
+
+```
+deploy/pre_train/
+├── ablation_6dctrl_total50/    # Deployed configuration (6D, TCN H=30)
+├── ablation_p1/ ... p20/       # Architecture ablation (history, network size)
+├── ablation_j3/, ablation_j5/  # Joint-level variants
+└── payload_3kg/                # Payload transport policy
+```
+
+## Sim-to-Sim Deployment (MuJoCo)
+
+Validate trained policies in MuJoCo before hardware deployment:
+
+```bash
+python deploy/sim2sim/sim2sim_compliant_no_foot_xyz.py
+```
+
+Supports joystick control and UDP-based force application for testing.
+
+## Real Robot Deployment
+
+Deploy on the physical Unitree Go2 via the Unitree SDK2:
+
+```bash
+python deploy/deploy_real/deploy_6dctrl.py <network_interface> go2_ablation_6dctrl_total50.yaml
+```
+
+Configuration files in `deploy/deploy_real/configs/` specify the policy path, estimator path, observation dimensions, and compliance gain.
+
+## Key Design Choices
+
+- **PD gains**: Kp=8, Kd=0.4 (lower than Unitree defaults to improve exploration and force observability)
+- **Estimator**: TCN preprocessor, H=30 history steps, 6D wrench output
+- **Force curriculum**: Hard gate after reward threshold, forces up to 30 N per axis
+- **Domain randomization**: Base mass (-1.0 to +3.0 kg), observation noise, random pushes
+- **Admittance control**: First-order, gain k adjustable at deployment
+
+## Dependencies
+
+- NVIDIA Isaac Lab (Isaac Sim 4.x)
+- RSL-RL (PPO implementation)
+- PyTorch
+- MuJoCo (for sim2sim)
+- Unitree SDK2 Python (for real deployment)
