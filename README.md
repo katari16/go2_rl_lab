@@ -7,13 +7,9 @@ Bachelor Thesis, Spring Term 2026 — Robotic Systems Lab (RSL), ETH Zurich
 *Author:* Hans Baumann-Ortiz | *Supervisors:* William Hartmann, Filip Janovsky | *Lecturer:* Prof. Dr. Marco Hutter
 
 <p align="center">
-  <img src="docs/thumbnail_final.jpeg" alt="Real-world force-compliant locomotion on the Unitree Go2" width="600"/>
+  <img src="docs/main_figure_robobarrow.png" alt="RoboBarrow real-world deployment" width="600"/>
   <br>
-  <em>Figure 1.1: Force-compliant locomotion on the physical Unitree Go2. The robot yields in the direction of applied force (blue arrow) estimated purely from proprioceptive observations, without any dedicated force sensor.</em>
-</p>
-
-<p align="center">
-  <img src="docs/compliance_demo.gif" alt="Force-compliant locomotion demo" width="600"/>
+  <em>Figure 1.1: Real-world force-compliant locomotion on the Unitree Go2. (A) Guided walking via leash force, (B) outdoor terrain, (C) gravel, (D) payload transport (3 kg), (E) compliance mode switching, (F) slope traversal (13°). All behaviors driven by proprioceptive force estimation without dedicated force sensors.</em>
 </p>
 
 ## Abstract
