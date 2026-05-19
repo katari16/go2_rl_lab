@@ -14,18 +14,23 @@ Bachelor Thesis, Spring Term 2026 — Robotic Systems Lab (RSL), ETH Zurich
 
 ## Abstract
 
-Quadrupedal robots operating alongside humans or in unstructured environments must be able to detect and respond to external contact forces. We present a proprioceptive force and wrench estimation framework for the Unitree Go2 quadruped, trained entirely in simulation using deep reinforcement learning. The estimator processes a temporal history of proprioceptive observations — angular velocities, projected gravity, joint positions, joint velocities, and joint torques — through a learned encoder to predict external forces and torques applied to the robot base, without requiring any dedicated force sensor.
+Legged robots offer terrain versatility that wheeled platforms cannot match, yet they currently lack the intuitive force-based interaction that makes wheelbarrows and hand carts easy to use. This work combines the agility of a quadruped with the ease of use of a wheeled barrow by enabling compliant force-based control on the Unitree Go2 without dedicated force sensors.
 
-We conduct a systematic ablation study over the estimator design space, varying the number of estimated dimensions (2D force, 3D force, 2D wrench, 6D wrench), temporal history length, network capacity, and auxiliary training losses. We evaluate estimation accuracy using force magnitude MSE, angular error, and a novel effective compliance metric that measures the robot's velocity response per unit applied force.
+Two contributions are presented. First, an admittance-based compliant control framework for legged locomotion: a proprioceptive force estimator trained concurrently with a velocity tracking policy estimates external forces and torques from joint-level observations, and a model-based admittance controller maps the estimated wrench to velocity command modulations, providing tunable compliance through a single gain constant adjustable at deployment without retraining. Second, an extensive evaluation of the framework in simulation across architectural ablations, domain randomization, and observability conditions, with qualitative validation on the physical Unitree Go2 over unstructured outdoor terrain.
 
-To achieve compliant behavior, the estimated force is mapped to velocity command modulations via a linear gain, allowing the robot to yield in the direction of applied forces without retraining the locomotion policy. We validate the approach in simulation with a 360-degree force sweep evaluation and demonstrate sim-to-real transfer on the physical Go2 robot, confirming that the proprioceptive estimator generalizes to real-world contact.
+The force estimator achieves 3 N MAE on horizontal forces, 4.1° median directional accuracy, and 0.57 Nm yaw torque MAE in simulation. The deployed system demonstrates compliant navigation of outdoor terrain including gravel, grass, and slopes up to 13°, as well as payload transport of 3 kg through a parkour environment. Together, these results establish a general-purpose recipe for learning compliant force-based control on quadrupedal robots, enabling intuitive human guidance while carrying static payloads across diverse environments.
 
 ## Contributions
 
-1. **Proprioceptive force/wrench estimator** — A temporal encoder trained end-to-end with the locomotion policy that predicts up to 6D external wrench (Fx, Fy, Fz, τ_roll, τ_pitch, τ_yaw) from joint-level measurements alone, running at 50 Hz on the robot's onboard compute.
-2. **Systematic ablation study** — Comprehensive evaluation of the estimator design space across 7 axes: history length, network capacity, estimated dimensions (2D→6D), reconstruction loss, TCN temporal preprocessing, estimation-accuracy reward, and PD gain selection.
-3. **Sensor-free compliance mapping** — A first-order admittance controller that maps the estimated force to velocity command modulations via a single tunable gain, enabling compliant behavior without retraining the base locomotion policy.
-4. **Sim-to-real validation** — Full deployment pipeline from Isaac Lab training through MuJoCo sim-to-sim validation to real-world operation on the physical Unitree Go2, with three runtime-switchable compliance modes (yield, off, resist).
+This work presents two main contributions. First, we develop an admittance-based learning framework for compliant legged locomotion. A velocity tracking locomotion policy is trained in simulation for the Unitree Go2 quadruped and transferred to the real robot for deployment on unstructured outdoor terrain. A proprioceptive force estimator, trained concurrently with the policy, estimates external forces and torques applied to the robot's base from joint-level observations alone. A first-order admittance controller maps the estimated wrench to velocity command modulations, enabling tunable compliance through a single gain constant *k* without retraining.
+
+Second, we present an extensive evaluation of the force estimator and the compliant control framework. The estimator is characterised in simulation across force magnitudes, directions, and temporal profiles. An ablation study across 15 architectural configurations identifies key design choices for proprioceptive force estimation. An observability analysis quantifies the error introduced by domain randomization and establishes the estimation floor imposed by the proprioceptive observation set. The deployed system is validated on the physical robot over gravel, grass, and slopes up to 13°, and during payload transport of 3 kg through a parkour environment.
+
+<p align="center">
+  <img src="docs/training_pipeline.png" alt="Training and deployment pipeline" width="700"/>
+  <br>
+  <em>Figure 4.1: Training pipeline. The force estimator processes a proprioceptive history buffer and outputs a 4D wrench estimate. The compliance module modulates the velocity commands via admittance control. The locomotion policy produces joint position targets tracked by the on-board PD controllers at 50 Hz.</em>
+</p>
 
 ## Results
 
