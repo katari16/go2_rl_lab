@@ -94,6 +94,8 @@ def setup_runner_for_eval(runner, env, runner_class_name, is_stage2, device, n):
     ctx = {
         "wrapper": None,
         "compliant_raw_obs_dim": None,
+        "policy_raw_dim": None,
+        "has_privileged": False,
         "force_dim": 3,
         "force_layout": "auto",
         "force_ema": None,  # initialized after force_dim is known
@@ -120,6 +122,8 @@ def setup_runner_for_eval(runner, env, runner_class_name, is_stage2, device, n):
         ctx["force_dim"] = getattr(runner, "_force_dim", 3)
         ctx["force_layout"] = getattr(runner.estimator, "force_layout", "auto")
         ctx["compliant_raw_obs_dim"] = runner._num_one_step_obs
+        ctx["policy_raw_dim"] = getattr(runner, "_policy_raw_dim", runner._num_one_step_obs)
+        ctx["has_privileged"] = getattr(runner, "_priv_dim", 0) > 0
         isaac_env = env.unwrapped if hasattr(env, "unwrapped") else env
         isaac_env._force_estimate_xy = torch.zeros(n, ctx["force_dim"], device=device)
 
@@ -138,7 +142,10 @@ def step_policy(obs, ctx, env, runner, isaac_env, n, runner_class_name,
     device = isaac_env.device
     with torch.inference_mode():
         if ctx["has_estimator"]:
-            raw_obs = obs["policy"][:, :ctx["compliant_raw_obs_dim"]]
+            raw_obs = obs["policy"][:, :ctx["policy_raw_dim"]]
+            if ctx["has_privileged"]:
+                priv_obs = runner._get_privileged_obs()
+                raw_obs = torch.cat([raw_obs, priv_obs], dim=-1)
             runner._history_buffer.insert(raw_obs)
             fhat, _ = runner.estimator.get_latent(runner._history_buffer.get_flattened())
             isaac_env._force_estimate_xy = fhat

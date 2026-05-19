@@ -497,6 +497,8 @@ def main(
     # For CompliantOnPolicyRunner, determine the raw obs dim (without force estimate)
     if runner_mode == "compliant":
         compliant_raw_obs_dim = runner._num_one_step_obs
+        policy_raw_dim = getattr(runner, "_policy_raw_dim", compliant_raw_obs_dim)
+        has_privileged = getattr(runner, "_priv_dim", 0) > 0
 
     # Detect force dimension and layout from runner
     force_dim = getattr(runner, "_force_dim", 2)
@@ -639,7 +641,9 @@ def main(
             with torch.inference_mode():
                 # ── CompliantOnPolicyRunner: update estimator BEFORE acting ──
                 if runner_mode == "compliant":
-                    raw_obs = obs["policy"][:, :compliant_raw_obs_dim]
+                    raw_obs = obs["policy"][:, :policy_raw_dim]
+                    if has_privileged:
+                        raw_obs = torch.cat([raw_obs, runner._get_privileged_obs()], dim=-1)
                     runner._history_buffer.insert(raw_obs)
                     force_hat_pre, _ = runner.estimator.get_latent(
                         runner._history_buffer.get_flattened()

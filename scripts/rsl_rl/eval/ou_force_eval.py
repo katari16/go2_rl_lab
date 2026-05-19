@@ -438,6 +438,8 @@ def main(
     is_xy_yaw = (force_layout == "xy_yaw" and force_dim == 3)
     fd3 = min(force_dim, 3)
     raw_obs_dim = runner._num_one_step_obs
+    policy_raw_dim = getattr(runner, "_policy_raw_dim", raw_obs_dim)
+    has_privileged = getattr(runner, "_priv_dim", 0) > 0
     policy = runner.get_inference_policy(device=env.unwrapped.device)
     try:
         policy_nn = runner.alg.policy
@@ -558,7 +560,9 @@ def main(
                 f_world = quat_apply(base_quat, gt_f)
 
                 # Estimator
-                raw_obs = obs["policy"][:, :raw_obs_dim]
+                raw_obs = obs["policy"][:, :policy_raw_dim]
+                if has_privileged:
+                    raw_obs = torch.cat([raw_obs, runner._get_privileged_obs()], dim=-1)
                 runner._history_buffer.insert(raw_obs)
                 force_hat, _ = runner.estimator.get_latent(runner._history_buffer.get_flattened())
                 force_hat = force_hat[:n]
