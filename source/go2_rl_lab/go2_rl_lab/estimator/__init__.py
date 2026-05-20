@@ -9,8 +9,6 @@ from .compliance_runner import ComplianceOnPolicyRunner
 from .compliant_on_policy_runner import CompliantOnPolicyRunner
 from .force_estimator import ForceEstimator
 from .obs_history_buffer import ObsHistoryBuffer
-from .teacher_student_estimator import TeacherStudentEstimator
-from .teacher_student_runner import TeacherStudentRunner
 
 __all__ = [
     "ComplianceEnvWrapper",
@@ -18,6 +16,4 @@ __all__ = [
     "CompliantOnPolicyRunner",
     "ForceEstimator",
     "ObsHistoryBuffer",
-    "TeacherStudentEstimator",
-    "TeacherStudentRunner",
 ]
