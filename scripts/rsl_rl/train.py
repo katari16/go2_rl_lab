@@ -227,20 +227,6 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         if args_cli.estimator_checkpoint is not None:
             train_cfg.setdefault("compliance", {})["estimator_checkpoint"] = args_cli.estimator_checkpoint
         runner = CompliantForceRunner(env, train_cfg, log_dir=log_dir, device=agent_cfg.device)
-    elif agent_cfg.class_name == "ComplianceOnPolicyRunner":
-        from go2_rl_lab.estimator.compliance_runner import ComplianceOnPolicyRunner
-        train_cfg = agent_cfg.to_dict()
-        if args_cli.stage1_checkpoint is not None:
-            train_cfg.setdefault("compliance", {})["stage1_checkpoint"] = args_cli.stage1_checkpoint
-        runner = ComplianceOnPolicyRunner(env, train_cfg, log_dir=log_dir, device=agent_cfg.device)
-    elif agent_cfg.class_name == "FrozenPolicyEstimatorRunner":
-        from go2_rl_lab.estimator.frozen_policy_estimator_runner import FrozenPolicyEstimatorRunner
-        runner = FrozenPolicyEstimatorRunner(env, agent_cfg.to_dict(), log_dir=log_dir, device=agent_cfg.device)
-        if args_cli.locomotion_checkpoint:
-            print(f"[INFO]: Loading frozen base locomotion policy from: {args_cli.locomotion_checkpoint}")
-            runner.load(args_cli.locomotion_checkpoint, load_optimizer=False)
-        else:
-            raise ValueError("FrozenPolicyEstimatorRunner requires --locomotion_checkpoint <path>")
     else:
         raise ValueError(f"Unsupported runner class: {agent_cfg.class_name}")
     # write git state to logs

@@ -51,30 +51,6 @@ def create_runner(env, agent_cfg, args_cli):
         runner = CompliantOnPolicyRunner(env, train_cfg, log_dir=None, device=agent_cfg.device)
         is_stage2 = False
 
-    elif runner_class_name == "ComplianceOnPolicyRunner":
-        from go2_rl_lab.estimator.compliance_runner import ComplianceOnPolicyRunner
-
-        if getattr(args_cli, "stage1_checkpoint", None):
-            train_cfg.setdefault("compliance", {})["stage1_checkpoint"] = args_cli.stage1_checkpoint
-        runner = ComplianceOnPolicyRunner(env, train_cfg, log_dir=None, device=agent_cfg.device)
-        is_stage2 = True
-
-    elif runner_class_name in ("TeacherStudentRunner", "PaintRunner"):
-        from go2_rl_lab.estimator.teacher_student_runner import TeacherStudentRunner
-
-        if getattr(args_cli, "estimator_checkpoint", None):
-            train_cfg["estimator_checkpoint"] = args_cli.estimator_checkpoint
-        runner = TeacherStudentRunner(env, train_cfg, log_dir=None, device=agent_cfg.device)
-        is_stage2 = False
-
-    elif runner_class_name == "FrozenPolicyEstimatorRunner":
-        from go2_rl_lab.estimator.frozen_policy_estimator_runner import FrozenPolicyEstimatorRunner
-
-        if getattr(args_cli, "estimator_checkpoint", None):
-            train_cfg["estimator_checkpoint"] = args_cli.estimator_checkpoint
-        runner = FrozenPolicyEstimatorRunner(env, train_cfg, log_dir=None, device=agent_cfg.device)
-        is_stage2 = False
-
     else:
         from rsl_rl.runners import OnPolicyRunner
 
