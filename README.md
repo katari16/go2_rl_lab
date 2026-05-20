@@ -137,14 +137,17 @@ All environments follow the naming pattern `Go2-Est-<Axis>-<Variant>-v0` and are
 
 ## Force Estimator and Runner
 
-```
-source/go2_rl_lab/go2_rl_lab/estimator/
-├── force_estimator.py              # TCN-based force estimator network
-├── obs_history_buffer.py           # Sliding window history buffer
-└── compliant_on_policy_runner.py   # Main training runner (policy + estimator jointly)
-```
+| File | Description |
+|---|---|
+| `force_estimator.py` | TCN-based force estimator network (encoder + force head + optional reconstruction decoder) |
+| `obs_history_buffer.py` | Sliding window history buffer (H steps × 57 proprioceptive dims) |
+| `compliant_on_policy_runner.py` | Joint training runner: PPO locomotion policy + supervised force estimator |
+| `compliance_runner.py` | HAC-LOCO stage 2 runner: frozen low-level policy + trainable high-level compliance |
+| `compliance_env_wrapper.py` | Environment wrapper for hierarchical compliance training |
+| `teacher_student_estimator.py` | Teacher-student distillation estimator variant |
+| `teacher_student_runner.py` | Runner for teacher-student distillation training |
 
-The runner (`compliant_on_policy_runner.py`) trains the locomotion policy and force estimator jointly. The estimator is activated after the policy reaches a reward threshold, and force application begins after directional accuracy meets a gate condition.
+All files in `source/go2_rl_lab/go2_rl_lab/estimator/`. The primary training pipeline uses `compliant_on_policy_runner.py`, which trains the locomotion policy and force estimator jointly. The estimator is activated after the policy reaches a reward threshold, and force application begins after directional accuracy meets a gate condition.
 
 ## Training
 
