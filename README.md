@@ -9,7 +9,7 @@ Bachelor Thesis, Spring Term 2026 — Robotic Systems Lab (RSL), ETH Zurich
 <p align="center">
   <img src="docs/main_figure_robobarrow.png" alt="RoboBarrow real-world deployment" width="600"/>
   <br>
-  <em>Figure 1.1: Real-world force-compliant locomotion on the Unitree Go2. (A) Guided walking via leash force, (B) outdoor terrain, (C) gravel, (D) payload transport (3 kg), (E) compliance mode switching, (F) slope traversal (13°). All behaviors driven by proprioceptive force estimation without dedicated force sensors.</em>
+  <em>Figure 1.1: Demonstration of force-compliant control on the Unitree Go2. (A) Linear compliance: pulling the robot along a 2.0 m trajectory. (B) Deployment on gravel terrain at a construction site. (C) Force-guided navigation through a narrow environment. (D) Payload transport: pushing the robot while carrying a 3 kg payload over 4.0 m. (E) Yaw torque compliance: steering the robot's heading through sustained applied torques. (F) Force-guided locomotion on a rugged 13° slope at a construction site.</em>
 </p>
 
 ## Abstract
