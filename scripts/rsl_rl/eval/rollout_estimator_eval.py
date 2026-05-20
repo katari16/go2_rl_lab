@@ -821,7 +821,7 @@ def main(
     figures.append(fig)
 
     # ── Save everything ─────────────────────────────────────────────────
-    task_short = args_cli.task.replace("Go2-Ablation-", "").replace("-v0", "")
+    task_short = args_cli.task.replace("Go2-Est-", "").replace("Go2-Ablation-", "").replace("-v0", "")
     if training_regime:
         suffix_tag = f"{task_short}_training_regime"
     else:

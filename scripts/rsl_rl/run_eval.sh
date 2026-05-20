@@ -7,7 +7,7 @@
 #   3. rollout_estimator_eval.py — 4096 envs, 20s training-regime rollout
 #
 # Usage:
-#   ./scripts/rsl_rl/run_eval.sh --task Go2-Ablation-R1-v0 --checkpoint <path>
+#   ./scripts/rsl_rl/run_eval.sh --task Go2-Est-DomRand-Full-v0 --checkpoint <path>
 #   ./scripts/rsl_rl/run_eval.sh --group architecture
 #   ./scripts/rsl_rl/run_eval.sh --group randomization
 #   ./scripts/rsl_rl/run_eval.sh --group curriculum
@@ -16,7 +16,7 @@
 #
 # Groups correspond to report sections:
 #   architecture   — History length, network capacity, TCN, reconstruction loss,
-#                    wrench dimensionality, PD gains (Section 5.1)
+#                    wrench dimensionality, PD gains (Section 5.1, Appendix A)
 #   randomization  — Domain randomization ablation (Section 5.1.6)
 #   curriculum     — Force curriculum strategies (Section 5.1.6)
 #   observability  — Privileged observation inputs (Section 5.1.6)
@@ -34,6 +34,9 @@ usage() {
     echo "  $0 --group <GROUP_NAME>"
     echo ""
     echo "Groups: architecture, randomization, curriculum, observability, deployed"
+    echo ""
+    echo "Task IDs follow the pattern Go2-Est-<Axis>-<Variant>-v0"
+    echo "See __init__.py for the full list of registered tasks."
     exit 1
 }
 
@@ -105,76 +108,76 @@ latest_ckpt() {
 case $GROUP in
     architecture)
         echo "=========================================="
-        echo "Architecture ablation (Report Section 5.1)"
+        echo "Architecture ablation (Report Appendix A)"
         echo "=========================================="
 
         # History length: H=10, H=20, H=30, H=40
-        run_suite "Go2-Ablation-P1-v0" "$BASE_P/ablation_P1_h10_4d/2026-04-19_11-13-01/model_11500.pt"
-        run_suite "Go2-Ablation-P2-v0" "$BASE_P/ablation_P2_h20_4d/2026-04-19_11-12-59/model_11500.pt"
-        run_suite "Go2-Ablation-P3-v0" "$BASE_P/ablation_P3_h30_4d/2026-04-19_11-11-09/model_11500.pt"
-        run_suite "Go2-Ablation-P4-v0" "$BASE_P/ablation_P4_h40_4d/2026-04-19_11-11-09/model_11500.pt"
+        run_suite "Go2-Est-History-H10-v0" "$BASE_P/ablation_P1_h10_4d/2026-04-19_11-13-01/model_11500.pt"
+        run_suite "Go2-Est-History-H20-v0" "$BASE_P/ablation_P2_h20_4d/2026-04-19_11-12-59/model_11500.pt"
+        run_suite "Go2-Est-History-H30-v0" "$BASE_P/ablation_P3_h30_4d/2026-04-19_11-11-09/model_11500.pt"
+        run_suite "Go2-Est-History-H40-v0" "$BASE_P/ablation_P4_h40_4d/2026-04-19_11-11-09/model_11500.pt"
 
-        # Network capacity: half, baseline, double
-        run_suite "Go2-Ablation-P5-v0" "$BASE_P/ablation_P5_h30_4d_half/2026-04-19_11-12-50/model_11500.pt"
-        run_suite "Go2-Ablation-P6-v0" "$BASE_P/ablation_P6_h30_4d_double/2026-04-19_11-11-32/model_11500.pt"
+        # Network capacity: half, default, double
+        run_suite "Go2-Est-NetSize-Half-v0" "$BASE_P/ablation_P5_h30_4d_half/2026-04-19_11-12-50/model_11500.pt"
+        run_suite "Go2-Est-NetSize-Double-v0" "$BASE_P/ablation_P6_h30_4d_double/2026-04-19_11-11-32/model_11500.pt"
 
-        # Wrench dimensionality: 2D, 3D (xy+yaw), 4D, 6D, 6D-big
-        run_suite "Go2-Ablation-P13-v0" "$BASE_P/ablation_P13_h30_2d/2026-04-19_11-11-07/model_12500.pt"
-        run_suite "Go2-Ablation-P14-v0" "$BASE_P/ablation_P14_h30_xy_yaw/2026-04-19_11-11-07/model_12500.pt"
-        run_suite "Go2-Ablation-P16-v0" "$BASE_P/ablation_P16_h30_6d/2026-04-19_11-11-07/model_12500.pt"
-        run_suite "Go2-Ablation-P17-v0" "$BASE_P/ablation_P17_h30_6d_big/2026-04-19_11-11-07/model_12000.pt"
+        # Wrench dimensionality: 2D, 3D(xy+yaw), 4D, 6D, 6D-big
+        run_suite "Go2-Est-Dim-2D-v0" "$BASE_P/ablation_P13_h30_2d/2026-04-19_11-11-07/model_12500.pt"
+        run_suite "Go2-Est-Dim-3DxyYaw-v0" "$BASE_P/ablation_P14_h30_xy_yaw/2026-04-19_11-11-07/model_12500.pt"
+        run_suite "Go2-Est-Dim-6D-v0" "$BASE_P/ablation_P16_h30_6d/2026-04-19_11-11-07/model_12500.pt"
+        run_suite "Go2-Est-Dim-6DBig-v0" "$BASE_P/ablation_P17_h30_6d_big/2026-04-19_11-11-07/model_12000.pt"
 
         # Reconstruction loss: with vs without
-        run_suite "Go2-Ablation-P11-v0" "$BASE_P/ablation_P11_h30_4d_norec/2026-04-19_11-11-17/model_12500.pt"
+        run_suite "Go2-Est-RecLoss-None-v0" "$BASE_P/ablation_P11_h30_4d_norec/2026-04-19_11-11-17/model_12500.pt"
 
-        # PD gains: Kp=8 vs Kp=25
-        run_suite "Go2-Ablation-P20-v0" "$BASE_P/ablation_P20_h30_4d_pd25/2026-04-19_11-10-59/model_13000.pt"
+        # PD gains: Kp=8 (low) vs Kp=25 (default Unitree)
+        run_suite "Go2-Est-PD-Default-v0" "$BASE_P/ablation_P20_h30_4d_pd25/2026-04-19_11-10-59/model_13000.pt"
 
-        # TCN preprocessor + reconstruction loss (with est-accuracy reward)
-        run_suite "Go2-Ablation-J3-v0" "$BASE_J/ablation_J3_4d_h40_estrew_w50_30N/2026-04-15_17-24-50/model_17000.pt"
-        run_suite "Go2-Ablation-J5-v0" "$BASE_J/ablation_J5_4d_h40_estrew_w50_tcnpre_30N/2026-04-15_17-24-57/model_16000.pt"
-        run_suite "Go2-Ablation-J6-v0" "$BASE_J/ablation_J6_4d_h40_estrew_w50_norec_30N/2026-04-15_17-24-57/model_17000.pt"
+        # TCN preprocessor + reconstruction loss (with est-accuracy reward, H=40)
+        run_suite "Go2-Est-TCN-None-v0" "$BASE_J/ablation_J3_4d_h40_estrew_w50_30N/2026-04-15_17-24-50/model_17000.pt"
+        run_suite "Go2-Est-TCN-Pre-v0" "$BASE_J/ablation_J5_4d_h40_estrew_w50_tcnpre_30N/2026-04-15_17-24-57/model_16000.pt"
+        run_suite "Go2-Est-RecLoss-NoneEstAcc-v0" "$BASE_J/ablation_J6_4d_h40_estrew_w50_norec_30N/2026-04-15_17-24-57/model_17000.pt"
         ;;
 
     randomization)
         echo "=========================================="
-        echo "Domain randomization ablation (Report Section 5.1.6)"
+        echo "Domain randomization ablation (Section 5.1.6)"
         echo "=========================================="
-        run_suite "Go2-Ablation-R1-v0" "$BASE_P/ablation_R1_h30_6d_big_tcn_norec/2026-04-21_19-15-56/model_9500.pt"
-        run_suite "Go2-Ablation-R3-v0" "$BASE/ablation_R3_h30_6d_big_tcn_norec_nomassrand/2026-04-23_23-09-49/model_10000.pt"
-        run_suite "Go2-Ablation-R4-v0" "$BASE_P/ablation_R4_h30_6d_big_tcn_norec_norand/2026-05-16_09-50-13/model_9000.pt"
+        run_suite "Go2-Est-DomRand-Full-v0" "$BASE_P/ablation_R1_h30_6d_big_tcn_norec/2026-04-21_19-15-56/model_9500.pt"
+        run_suite "Go2-Est-DomRand-NoMass-v0" "$BASE/ablation_R3_h30_6d_big_tcn_norec_nomassrand/2026-04-23_23-09-49/model_10000.pt"
+        run_suite "Go2-Est-DomRand-None-v0" "$BASE_P/ablation_R4_h30_6d_big_tcn_norec_norand/2026-05-16_09-50-13/model_9000.pt"
         ;;
 
     curriculum)
         echo "=========================================="
-        echo "Force curriculum ablation (Report Section 5.1.6)"
+        echo "Force curriculum ablation (Section 5.1.6)"
         echo "=========================================="
-        run_suite "Go2-Ablation-R1-v0" "$BASE_P/ablation_R1_h30_6d_big_tcn_norec/2026-04-21_19-15-56/model_9500.pt"
-        run_suite "Go2-Ablation-R6-v0" "$BASE_P/ablation_R6_h30_6d_big_tcn_norec_linramp/2026-05-17_12-53-33/model_10000.pt"
-        run_suite "Go2-Ablation-R8-v0" "$BASE_P/ablation_R8_h30_6d_big_tcn_norec_buckets/2026-05-17_12-53-33/model_10000.pt"
+        run_suite "Go2-Est-Curriculum-HardGate-v0" "$BASE_P/ablation_R1_h30_6d_big_tcn_norec/2026-04-21_19-15-56/model_9500.pt"
+        run_suite "Go2-Est-Curriculum-LinearRamp-v0" "$BASE_P/ablation_R6_h30_6d_big_tcn_norec_linramp/2026-05-17_12-53-33/model_10000.pt"
+        run_suite "Go2-Est-Curriculum-Bucketed-v0" "$BASE_P/ablation_R8_h30_6d_big_tcn_norec_buckets/2026-05-17_12-53-33/model_10000.pt"
         ;;
 
     observability)
         echo "=========================================="
-        echo "Privileged observations ablation (Report Section 5.1.6)"
+        echo "Privileged observations ablation (Section 5.1.6)"
         echo "=========================================="
         R9_DIR=$BASE_P/ablation_R9_h30_6d_big_tcn_norec_priv/2026-05-18_10-25-30
         R10_DIR=$BASE_P/ablation_R10_h30_6d_big_tcn_norec_priv_norand/2026-05-18_10-24-38
         R11_DIR=$BASE_P/ablation_R11_h30_6d_big_tcn_norec_priv_linvel/2026-05-18_10-24-38
         R12_DIR=$BASE_P/ablation_R12_h30_6d_big_tcn_norec_priv_contacts/2026-05-18_10-25-20
 
-        run_suite "Go2-Ablation-R9-v0" "$(latest_ckpt $R9_DIR)"
-        run_suite "Go2-Ablation-R10-v0" "$(latest_ckpt $R10_DIR)"
-        run_suite "Go2-Ablation-R11-v0" "$(latest_ckpt $R11_DIR)"
-        run_suite "Go2-Ablation-R12-v0" "$(latest_ckpt $R12_DIR)"
+        run_suite "Go2-Est-Priv-All-v0" "$(latest_ckpt $R9_DIR)"
+        run_suite "Go2-Est-Priv-AllNoRand-v0" "$(latest_ckpt $R10_DIR)"
+        run_suite "Go2-Est-Priv-Velocity-v0" "$(latest_ckpt $R11_DIR)"
+        run_suite "Go2-Est-Priv-Contacts-v0" "$(latest_ckpt $R12_DIR)"
         ;;
 
     deployed)
         echo "=========================================="
-        echo "Deployed configuration + payload (Report Section 5.2)"
+        echo "Deployed configuration + payload (Section 5.2)"
         echo "=========================================="
-        run_suite "Go2-Ablation-6Dctrl-Total50-v0" "$BASE/ablation_6Dctrl_curr_total50/2026-04-26_18-23-51/model_9500.pt"
-        run_suite "Go2-Ablation-P18-v0" "$BASE/ablation_P18_h30_6d_big_tcn_norec_payload/2026-04-25_23-28-49/model_15000.pt"
+        run_suite "Go2-Est-Deploy-v0" "$BASE/ablation_6Dctrl_curr_total50/2026-04-26_18-23-51/model_9500.pt"
+        run_suite "Go2-Est-Payload-v0" "$BASE/ablation_P18_h30_6d_big_tcn_norec_payload/2026-04-25_23-28-49/model_15000.pt"
         ;;
 
     *)

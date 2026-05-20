@@ -83,33 +83,57 @@ go2_rl_lab/
 └── docs/                       # Architecture docs and ablation logs
 ```
 
-## Environment and Task Definitions
+## Task Configurations
 
-All environments are registered in `source/go2_rl_lab/go2_rl_lab/tasks/manager_based/go2_rl_lab/__init__.py`.
+All environments follow the naming pattern `Go2-Est-<Axis>-<Variant>-v0` and are registered in `source/go2_rl_lab/go2_rl_lab/tasks/manager_based/go2_rl_lab/__init__.py`.
 
-### Core Configurations
+### Deployed and Base Configurations
 
-| Task ID | Description | Config file |
+| Task ID | Description |
+|---|---|
+| `Go2-Est-Deploy-v0` | Deployed configuration: 6D wrench, TCN, H=30, big net |
+| `Go2-Est-Payload-v0` | Payload transport (1–3 kg randomized mass) |
+| `Go2-LowLevel-v0` | Base locomotion + 3D force estimation |
+| `Go2-LowLevel-NoEst-v0` | Base locomotion without force estimator |
+
+### Ablation Study (Report Appendix A)
+
+| Task ID | Ablation axis | Variation |
 |---|---|---|
-| `Go2-LowLevel-v0` | Base locomotion + 3D force estimation | `go2_lowlevel_env_cfg.py` |
-| `Go2-Ablation-6Dctrl-Total50-v0` | Deployed config: 6D wrench, TCN, H=30 | `go2_6dctrl_env_cfg.py` |
-| `Go2-LowLevel-Payload-v0` | Payload transport (1–3 kg randomized) | `go2_payload_env_cfg.py` |
+| `Go2-Est-History-H10-v0` | History length | H=10 steps |
+| `Go2-Est-History-H20-v0` | History length | H=20 steps |
+| `Go2-Est-History-H30-v0` | History length | H=30 steps (baseline) |
+| `Go2-Est-History-H40-v0` | History length | H=40 steps |
+| `Go2-Est-TCN-None-v0` | TCN preprocessor | MLP encoder only |
+| `Go2-Est-TCN-Pre-v0` | TCN preprocessor | TCN temporal convolution |
+| `Go2-Est-NetSize-Half-v0` | Network capacity | Half width |
+| `Go2-Est-NetSize-Default-v0` | Network capacity | Default width (baseline) |
+| `Go2-Est-NetSize-Double-v0` | Network capacity | Double width |
+| `Go2-Est-RecLoss-With-v0` | Reconstruction loss | Auxiliary reconstruction |
+| `Go2-Est-RecLoss-None-v0` | Reconstruction loss | No reconstruction |
+| `Go2-Est-RecLoss-NoneEstAcc-v0` | Reconstruction loss | No rec + est-accuracy reward |
+| `Go2-Est-Dim-2D-v0` | Wrench dimensionality | F_x, F_y |
+| `Go2-Est-Dim-3DxyYaw-v0` | Wrench dimensionality | F_x, F_y, τ_yaw |
+| `Go2-Est-Dim-4D-v0` | Wrench dimensionality | F_x, F_y, F_z, τ_yaw |
+| `Go2-Est-Dim-6D-v0` | Wrench dimensionality | Full 6D, default net |
+| `Go2-Est-Dim-6DBig-v0` | Wrench dimensionality | Full 6D, big net |
+| `Go2-Est-PD-Low-v0` | PD gains | Kp=8, Kd=0.4 (baseline) |
+| `Go2-Est-PD-Default-v0` | PD gains | Kp=25, Kd=0.5 (Unitree default) |
 
-### Ablation Configurations
+### Domain Randomization and Observability (Report Section 5.1.6)
 
-All ablation variants are defined in `go2_ablation_env_cfgs.py` and `rsl_rl_ablation_cfg.py`. The study axes correspond to report sections:
-
-| Ablation axis (Report Section) | Task IDs | What varies |
-|---|---|---|
-| History length (§A.2) | P1–P4 | H ∈ {10, 20, 30, 40} steps |
-| Network capacity (§A.3) | P5, P3, P6 | Encoder width: half / baseline / double |
-| TCN preprocessor (§A.4) | J3, J5 | MLP encoder vs TCN temporal convolution |
-| Reconstruction loss (§A.5) | P3 vs P11, J3 vs J6 | With / without auxiliary reconstruction |
-| Wrench dimensionality (§A.6) | P13, P14, P3, P16, P17 | 2D / 3D / 4D / 6D output |
-| PD gains | P3, P20 | Kp=8 (low) vs Kp=25 (default) |
-| Domain randomization (§5.1.6) | R1, R3, R4 | Full / no mass / no randomization |
-| Force curriculum (§5.1.6) | R1, R6, R8 | Hard gate / linear ramp / bucketed |
-| Privileged observations (§5.1.6) | R9–R12 | All / velocity / contacts / none |
+| Task ID | What varies |
+|---|---|
+| `Go2-Est-DomRand-Full-v0` | Full randomization (mass, pushes, obs noise) |
+| `Go2-Est-DomRand-NoMass-v0` | No mass randomization |
+| `Go2-Est-DomRand-None-v0` | No randomization at all |
+| `Go2-Est-Curriculum-HardGate-v0` | Hard step function force gate |
+| `Go2-Est-Curriculum-LinearRamp-v0` | Linear ramp 10→30 N over 2500 iterations |
+| `Go2-Est-Curriculum-Bucketed-v0` | Bucketed 10/20/30 N × 1000 iterations |
+| `Go2-Est-Priv-All-v0` | All privileged inputs (mass, velocity, contacts) |
+| `Go2-Est-Priv-AllNoRand-v0` | All privileged + no randomization |
+| `Go2-Est-Priv-Velocity-v0` | Base linear velocity only |
+| `Go2-Est-Priv-Contacts-v0` | Foot contact forces only |
 
 ## Force Estimator and Runner
 
@@ -125,7 +149,7 @@ The runner (`compliant_on_policy_runner.py`) trains the locomotion policy and fo
 ## Training
 
 ```bash
-python scripts/rsl_rl/train.py --task Go2-Ablation-6Dctrl-Total50-v0 --num_envs 4096 --max_iterations 10000
+python scripts/rsl_rl/train.py --task Go2-Est-Deploy-v0 --num_envs 4096 --max_iterations 10000
 ```
 
 ## Evaluation
@@ -134,17 +158,15 @@ Three evaluation protocols are implemented:
 
 | Script | Protocol | Description |
 |--------|----------|-------------|
-| `scripts/rsl_rl/static_eval.py` | Training-regime rollout | Constant forces, 12 envs, time-series data |
-| `scripts/rsl_rl/eval/ou_force_eval.py` | OU disturbance | Smooth, continuously varying forces |
-| `scripts/rsl_rl/eval/rollout_estimator_eval.py` | Training-regime rollout | 4096 envs, 20s, aggregate metrics |
+| `scripts/rsl_rl/static_eval.py` | Constant force | 12 envs, persistent forces, time-series data |
+| `scripts/rsl_rl/eval/ou_force_eval.py` | OU disturbance | Continuously varying forces via Ornstein-Uhlenbeck |
+| `scripts/rsl_rl/eval/rollout_estimator_eval.py` | Training-regime | 4096 envs, 20 s, piecewise-constant forces |
 
-A unified evaluation script runs all three protocols for any configuration:
+A unified script runs all three protocols for any configuration:
 
 ```bash
-# Single task
-./scripts/rsl_rl/run_eval.sh --task Go2-Ablation-R1-v0 --checkpoint <path_to_model.pt>
+./scripts/rsl_rl/run_eval.sh --task Go2-Est-DomRand-Full-v0 --checkpoint <path_to_model.pt>
 
-# Predefined groups (matching report sections)
 ./scripts/rsl_rl/run_eval.sh --group architecture
 ./scripts/rsl_rl/run_eval.sh --group randomization
 ./scripts/rsl_rl/run_eval.sh --group curriculum
@@ -154,15 +176,15 @@ A unified evaluation script runs all three protocols for any configuration:
 
 ## Pretrained Policies
 
-Exported JIT checkpoints (policy.pt + estimator.pt) for report configurations:
+Exported JIT checkpoints (policy.pt + estimator.pt):
 
 ```
 deploy/pre_train/
-├── ablation_6dctrl_total50/    # Deployed configuration (6D, TCN, H=30)
-├── ablation_p1/ ... p6/        # History length and network capacity sweeps
+├── ablation_6dctrl_total50/    # Deployed configuration (Go2-Est-Deploy-v0)
+├── ablation_p1/ ... p6/        # History length and network capacity
 ├── ablation_j3/, ablation_j5/  # TCN preprocessor variants
-├── ablation_p18/               # Payload transport policy
-└── payload_3kg/                # Payload transport (standalone)
+├── ablation_p18/               # Payload transport
+└── payload_3kg/                # Payload (standalone export)
 ```
 
 ## Sim-to-Sim Deployment (MuJoCo)
