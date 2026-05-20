@@ -217,6 +217,8 @@ Configuration files in `deploy/deploy_real/configs/` specify the policy path, es
 
 <p align="center">
   <sub>Thanks to the <a href="https://www.ethrobotics.ch/">ETH Robotics Club</a>, <a href="https://rsl.ethz.ch/">Robotic Systems Lab</a>, and <a href="https://nunu.ai/">Nunu AI</a></sub>
+  <br>
+  <sub>With special thanks to Elia Huber, Sébastien Steininger, and Declan Shine</sub>
 </p>
 
 <p align="center">
