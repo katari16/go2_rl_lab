@@ -135,55 +135,16 @@ All in `tasks/manager_based/go2_rl_lab/mdp/`:
 
 ## Task Configurations
 
-All environments follow the naming pattern `Go2-Est-<Axis>-<Variant>-v0` and are registered in `__init__.py`. Each task pairs an env config with a runner config.
+All tasks follow the pattern `Go2-Est-<Axis>-<Variant>-v0` and are registered in `__init__.py`. Each task pairs an env config with a runner config.
 
-### Deployed and Base Configurations
-
-| Task ID | Env config | Runner config |
-|---|---|---|
-| `Go2-Est-Deploy-v0` | `Go26DctrlEnvCfg` | `Ablation6DctrlTotal50Cfg` |
-| `Go2-Est-Payload-v0` | `LowLevelPayloadEnvCfg` | `AblationP18Cfg` |
-| `Go2-LowLevel-v0` | `LowLevelEnvCfg` | `LowLevelRunnerCfg` |
-| `Go2-LowLevel-NoEst-v0` | `LowLevelNoEstEnvCfg` | `LowLevelNoEstRunnerCfg` |
-
-### Ablation Study — Estimator Architecture (Report Chapter 5)
-
-| Task ID | Ablation axis | What changes |
-|---|---|---|
-| `Go2-Est-History-H10-v0` | History length | `temporal_steps=10` in runner |
-| `Go2-Est-History-H20-v0` | History length | `temporal_steps=20` |
-| `Go2-Est-History-H30-v0` | History length | `temporal_steps=30` (baseline) |
-| `Go2-Est-History-H40-v0` | History length | `temporal_steps=40` |
-| `Go2-Est-TCN-None-v0` | TCN preprocessor | `use_tcn=False` in runner — MLP encoder only |
-| `Go2-Est-TCN-Pre-v0` | TCN preprocessor | `use_tcn=True` — temporal conv before MLP |
-| `Go2-Est-NetSize-Half-v0` | Network capacity | Encoder [64,32], head [16,8] |
-| `Go2-Est-NetSize-Default-v0` | Network capacity | Encoder [128,64], head [32,16] (baseline) |
-| `Go2-Est-NetSize-Double-v0` | Network capacity | Encoder [256,128], head [64,32] |
-| `Go2-Est-RecLoss-With-v0` | Reconstruction loss | `rec_loss_weight=1.0` — decoder active |
-| `Go2-Est-RecLoss-None-v0` | Reconstruction loss | `rec_loss_weight=0` — no decoder |
-| `Go2-Est-RecLoss-NoneEstAcc-v0` | Reconstruction loss | No decoder + est-accuracy reward in env |
-| `Go2-Est-Dim-2D-v0` | Wrench dimensionality | `force_dim=2` (Fx, Fy) |
-| `Go2-Est-Dim-3DxyYaw-v0` | Wrench dimensionality | `force_dim=3` (Fx, Fy, τ_yaw) |
-| `Go2-Est-Dim-4D-v0` | Wrench dimensionality | `force_dim=4` (Fx, Fy, Fz, τ_yaw) |
-| `Go2-Est-Dim-6D-v0` | Wrench dimensionality | `force_dim=6` (full wrench), default net |
-| `Go2-Est-Dim-6DBig-v0` | Wrench dimensionality | `force_dim=6`, bigger encoder [256,128] |
-| `Go2-Est-PD-Low-v0` | PD gains | Kp=8, Kd=0.4 (env change — lower gains improve force observability) |
-| `Go2-Est-PD-Default-v0` | PD gains | Kp=25, Kd=0.5 (Unitree factory defaults) |
-
-### Domain Randomization and Observability (Report Section 5.1.6)
-
-| Task ID | What changes (env-level) |
+| Task ID | Description |
 |---|---|
-| `Go2-Est-DomRand-Full-v0` | Full randomization: mass ±[−1,+3] kg, obs noise, random pushes |
-| `Go2-Est-DomRand-NoMass-v0` | Removes mass randomization only |
-| `Go2-Est-DomRand-None-v0` | No randomization at all (clean simulation) |
-| `Go2-Est-Curriculum-HardGate-v0` | Hard step function: forces activate at iteration threshold |
-| `Go2-Est-Curriculum-LinearRamp-v0` | Linear ramp from 10→30 N over 2500 iterations |
-| `Go2-Est-Curriculum-Bucketed-v0` | Bucketed: 10/20/30 N at iterations 0/1000/2000 |
-| `Go2-Est-Priv-All-v0` | Privileged inputs added to estimator: mass, base vel, contacts |
-| `Go2-Est-Priv-AllNoRand-v0` | All privileged + no randomization (estimation floor) |
-| `Go2-Est-Priv-Velocity-v0` | Base linear velocity added as privileged input |
-| `Go2-Est-Priv-Contacts-v0` | Foot contact forces added as privileged input |
+| `Go2-Est-Deploy-v0` | Deployed configuration: 6D wrench, TCN, H=30, big net |
+| `Go2-Est-Payload-v0` | Payload transport (1–3 kg randomized mass) |
+| `Go2-LowLevel-v0` | Base locomotion + 3D force estimation |
+| `Go2-LowLevel-NoEst-v0` | Base locomotion without force estimator |
+
+29 ablation tasks cover: history length, TCN preprocessor, network capacity, reconstruction loss, wrench dimensionality, PD gains, domain randomization, force curriculum, and privileged observations. See **[docs/ablations.md](docs/ablations.md)** for the full listing with parameter details.
 
 ## Training
 
