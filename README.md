@@ -85,25 +85,31 @@ go2_rl_lab/
 
 ## Environment and Task Definitions
 
-All environments are defined in:
+All environments are registered in `source/go2_rl_lab/go2_rl_lab/tasks/manager_based/go2_rl_lab/__init__.py`.
 
-```
-source/go2_rl_lab/go2_rl_lab/tasks/manager_based/go2_rl_lab/
-├── go2_lowlevel_env_cfg.py     # Base locomotion + force estimation (deployed config)
-├── go2_6dctrl_env_cfg.py       # 6D wrench estimation (Fx, Fy, Fz, τ_roll, τ_pitch, τ_yaw)
-├── go2_ablation_env_cfgs.py    # All ablation variants (P-series, J-series, R-series)
-├── go2_payload_env_cfg.py      # Payload transport (1-3 kg randomized)
-└── mdp/                        # Observations, rewards, events, curricula
-```
+### Core Configurations
 
-Agent configs (PPO hyperparameters, network sizes):
+| Task ID | Description | Config file |
+|---|---|---|
+| `Go2-LowLevel-v0` | Base locomotion + 3D force estimation | `go2_lowlevel_env_cfg.py` |
+| `Go2-Ablation-6Dctrl-Total50-v0` | Deployed config: 6D wrench, TCN, H=30 | `go2_6dctrl_env_cfg.py` |
+| `Go2-LowLevel-Payload-v0` | Payload transport (1–3 kg randomized) | `go2_payload_env_cfg.py` |
 
-```
-source/go2_rl_lab/go2_rl_lab/tasks/manager_based/go2_rl_lab/agents/
-├── rsl_rl_ppo_cfg.py           # Base PPO config
-├── rsl_rl_lowlevel_cfg.py      # Low-level locomotion training
-└── rsl_rl_ablation_cfg.py      # Ablation sweep configs
-```
+### Ablation Configurations
+
+All ablation variants are defined in `go2_ablation_env_cfgs.py` and `rsl_rl_ablation_cfg.py`. The study axes correspond to report sections:
+
+| Ablation axis (Report Section) | Task IDs | What varies |
+|---|---|---|
+| History length (§A.2) | P1–P4 | H ∈ {10, 20, 30, 40} steps |
+| Network capacity (§A.3) | P5, P3, P6 | Encoder width: half / baseline / double |
+| TCN preprocessor (§A.4) | J3, J5 | MLP encoder vs TCN temporal convolution |
+| Reconstruction loss (§A.5) | P3 vs P11, J3 vs J6 | With / without auxiliary reconstruction |
+| Wrench dimensionality (§A.6) | P13, P14, P3, P16, P17 | 2D / 3D / 4D / 6D output |
+| PD gains | P3, P20 | Kp=8 (low) vs Kp=25 (default) |
+| Domain randomization (§5.1.6) | R1, R3, R4 | Full / no mass / no randomization |
+| Force curriculum (§5.1.6) | R1, R6, R8 | Hard gate / linear ramp / bucketed |
+| Privileged observations (§5.1.6) | R9–R12 | All / velocity / contacts / none |
 
 ## Force Estimator and Runner
 
@@ -111,8 +117,7 @@ source/go2_rl_lab/go2_rl_lab/tasks/manager_based/go2_rl_lab/agents/
 source/go2_rl_lab/go2_rl_lab/estimator/
 ├── force_estimator.py              # TCN-based force estimator network
 ├── obs_history_buffer.py           # Sliding window history buffer
-├── compliant_on_policy_runner.py   # Main training runner (policy + estimator jointly)
-└── frozen_policy_estimator_runner.py  # Train estimator with frozen policy
+└── compliant_on_policy_runner.py   # Main training runner (policy + estimator jointly)
 ```
 
 The runner (`compliant_on_policy_runner.py`) trains the locomotion policy and force estimator jointly. The estimator is activated after the policy reaches a reward threshold, and force application begins after directional accuracy meets a gate condition.
@@ -120,10 +125,8 @@ The runner (`compliant_on_policy_runner.py`) trains the locomotion policy and fo
 ## Training
 
 ```bash
-python scripts/rsl_rl/train.py --task Go2-Lowlevel-v0 --num_envs 4096 --max_iterations 10000
+python scripts/rsl_rl/train.py --task Go2-Ablation-6Dctrl-Total50-v0 --num_envs 4096 --max_iterations 10000
 ```
-
-Ablation runs are launched via cluster scripts in `scripts/cluster/`. Each script corresponds to a specific configuration documented in the report appendix.
 
 ## Evaluation
 
@@ -131,29 +134,35 @@ Three evaluation protocols are implemented:
 
 | Script | Protocol | Description |
 |--------|----------|-------------|
-| `scripts/rsl_rl/static_eval.py` | Training-regime rollout | Constant forces, 4096 envs, 20s |
+| `scripts/rsl_rl/static_eval.py` | Training-regime rollout | Constant forces, 12 envs, time-series data |
 | `scripts/rsl_rl/eval/ou_force_eval.py` | OU disturbance | Smooth, continuously varying forces |
-| `scripts/rsl_rl/eval/static_360_eval.py` | Directional sweep | Fixed 20 N from 10 azimuth directions |
+| `scripts/rsl_rl/eval/rollout_estimator_eval.py` | Training-regime rollout | 4096 envs, 20s, aggregate metrics |
 
-Batch evaluation scripts for all report ablations:
+A unified evaluation script runs all three protocols for any configuration:
 
 ```bash
-scripts/rsl_rl/run_evals_report_ablations.sh   # P-series (architecture ablation)
-scripts/rsl_rl/run_evals_r1_r3_r4.sh           # Randomization ablation
-scripts/rsl_rl/run_evals_r6_r8.sh              # Force curriculum ablation
-scripts/rsl_rl/run_evals_r9_r12.sh             # Privileged observation ablation
+# Single task
+./scripts/rsl_rl/run_eval.sh --task Go2-Ablation-R1-v0 --checkpoint <path_to_model.pt>
+
+# Predefined groups (matching report sections)
+./scripts/rsl_rl/run_eval.sh --group architecture
+./scripts/rsl_rl/run_eval.sh --group randomization
+./scripts/rsl_rl/run_eval.sh --group curriculum
+./scripts/rsl_rl/run_eval.sh --group observability
+./scripts/rsl_rl/run_eval.sh --group deployed
 ```
 
 ## Pretrained Policies
 
-Exported JIT checkpoints (policy.pt + estimator.pt) for all report configurations:
+Exported JIT checkpoints (policy.pt + estimator.pt) for report configurations:
 
 ```
 deploy/pre_train/
-├── ablation_6dctrl_total50/    # Deployed configuration (6D, TCN H=30)
-├── ablation_p1/ ... p20/       # Architecture ablation (history, network size)
-├── ablation_j3/, ablation_j5/  # Joint-level variants
-└── payload_3kg/                # Payload transport policy
+├── ablation_6dctrl_total50/    # Deployed configuration (6D, TCN, H=30)
+├── ablation_p1/ ... p6/        # History length and network capacity sweeps
+├── ablation_j3/, ablation_j5/  # TCN preprocessor variants
+├── ablation_p18/               # Payload transport policy
+└── payload_3kg/                # Payload transport (standalone)
 ```
 
 ## Sim-to-Sim Deployment (MuJoCo)
