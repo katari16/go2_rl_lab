@@ -4,8 +4,8 @@ Forces are generated per-axis via the OU process, clipped to the training distri
 Robot stands on flat ground with zero velocity command throughout.
 
 Usage:
-    python scripts/rsl_rl/eval/ou_force_eval.py --task Go2-Ablation-J5-v0 \\
-        --checkpoint logs/rsl_rl/ablation_J5_.../model_XXXX.pt \\
+    python scripts/rsl_rl/eval/ou_force_eval.py --task Go2-Est-Deploy-v0 \\
+        --checkpoint logs/rsl_rl/.../model_XXXX.pt \\
         --duration 60 --show_gt --show_est --real-time
 """
 

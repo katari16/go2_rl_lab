@@ -426,8 +426,7 @@ def main(
     runner_class_name = agent_cfg.class_name
     if runner_class_name != "CompliantOnPolicyRunner":
         raise ValueError(
-            f"slope_eval.py only supports CompliantOnPolicyRunner, got: {runner_class_name}. "
-            f"For FrozenPolicyEstimatorRunner use slope_eval_stage2.py."
+            f"slope_eval.py only supports CompliantOnPolicyRunner, got: {runner_class_name}."
         )
 
     from go2_rl_lab.estimator.compliant_on_policy_runner import CompliantOnPolicyRunner

@@ -91,8 +91,7 @@ def setup_runner_for_eval(runner, env, runner_class_name, is_stage2, device, n):
         except AttributeError:
             ctx["policy_nn"] = runner.alg.actor_critic
 
-    _estimator_runners = ("CompliantOnPolicyRunner", "TeacherStudentRunner",
-                          "PaintRunner", "FrozenPolicyEstimatorRunner")
+    _estimator_runners = ("CompliantOnPolicyRunner",)
     if runner_class_name in _estimator_runners:
         ctx["has_estimator"] = True
         ctx["force_dim"] = getattr(runner, "_force_dim", 3)
@@ -281,8 +280,7 @@ def reset_env(env, ctx, isaac_env, runner, runner_class_name, is_stage2, device,
         )
 
         # Reset estimator history buffer if applicable
-        _estimator_runners = ("CompliantOnPolicyRunner", "TeacherStudentRunner",
-                          "PaintRunner", "FrozenPolicyEstimatorRunner")
+        _estimator_runners = ("CompliantOnPolicyRunner",)
         if runner_class_name in _estimator_runners and hasattr(runner, "_history_buffer"):
             runner._history_buffer.reset(env_ids)
             ctx["force_ema"] = torch.zeros(n, ctx["force_dim"], device=device)

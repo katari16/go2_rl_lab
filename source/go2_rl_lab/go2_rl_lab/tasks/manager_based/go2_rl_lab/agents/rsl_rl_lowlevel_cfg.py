@@ -7,7 +7,7 @@ Uses CompliantOnPolicyRunner with 3-phase training:
 
 Usage:
     python train.py --task Go2-LowLevel-v0
-    python train.py --task Go2-LowLevel-PACE-v0
+    python train.py --task Go2-Est-Deploy-v0
 """
 
 from isaaclab.utils import configclass

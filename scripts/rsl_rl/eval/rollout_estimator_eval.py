@@ -16,9 +16,9 @@ Outputs per basket:
 
 Usage:
     python scripts/rsl_rl/eval/rollout_estimator_eval.py \
-        --task Go2-Ablation-H15-50N-v0 \
+        --task Go2-Est-Deploy-v0 \
         --checkpoint logs/rsl_rl/.../model_9500.pt \
-        --force_baskets 20 40 50 --num_envs 4096 --duration 20 --headless
+        --num_envs 4096 --duration 20 --training_regime --headless
 """
 
 """Launch Isaac Sim Simulator first."""
