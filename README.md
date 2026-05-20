@@ -73,77 +73,117 @@ The architectural floor with all privileged inputs is 1.83 N force MAE and 2.6°
 
 ```
 go2_rl_lab/
-├── source/go2_rl_lab/          # Isaac Lab extension (env definitions, estimator, runner)
-├── scripts/
-│   └── rsl_rl/                 # Training, evaluation, and export scripts
+├── source/go2_rl_lab/go2_rl_lab/
+│   ├── estimator/              # Force estimator network + joint training runner
+│   ├── tasks/manager_based/go2_rl_lab/
+│   │   ├── __init__.py         # Gym task registration (Go2-Est-* IDs)
+│   │   ├── go2_lowlevel_env_cfg.py       # Base locomotion environment
+│   │   ├── go2_ablation_env_cfgs.py      # Ablation env variants (wrench, randomization, etc.)
+│   │   ├── go2_6dctrl_env_cfg.py         # Deployed 6D wrench + pose commands
+│   │   ├── go2_payload_env_cfg.py        # Payload transport variant
+│   │   ├── mdp/                # Observations, rewards, events, curriculums
+│   │   └── agents/             # Runner configs (PPO hyperparams + estimator arch)
+│   └── assets/                 # Robot URDF/USD definitions
+├── scripts/rsl_rl/             # Training, evaluation, and export scripts
 ├── deploy/
 │   ├── deploy_real/            # Real robot deployment (Unitree SDK2)
 │   ├── sim2sim/                # MuJoCo sim-to-sim validation
 │   └── pre_train/              # Exported JIT policy + estimator checkpoints
-└── docs/                       # Architecture docs and ablation logs
+└── docs/                       # Evaluation protocol
 ```
+
+## Source Code Architecture
+
+A task is defined by pairing an **environment config** (observations, rewards, events, scene) with a **runner config** (PPO hyperparameters, estimator architecture). Both are combined when registering a Gym task ID in `__init__.py`.
+
+### Environment Configs (what the robot sees and experiences)
+
+| File | Purpose |
+|---|---|
+| `go2_lowlevel_env_cfg.py` | **Base environment.** Defines the locomotion policy obs (60-dim), critic obs (70-dim), PD gains, terrain, reward terms. All other env configs inherit from this. |
+| `go2_ablation_env_cfgs.py` | **Ablation variants.** Forks the base env to vary: wrench dimensionality (3D→6D), force profiles (constant, trapezoid, OU), domain randomization (mass, noise), privileged observations (velocity, contacts), compliance rewards, PD gains. |
+| `go2_6dctrl_env_cfg.py` | **Deployed configuration.** Extends P-series wrench env with 6-DOF pose commands (roll, pitch, height) and tuned reward weights. This is the env behind `Go2-Est-Deploy-v0`. |
+| `go2_payload_env_cfg.py` | **Payload transport.** Adds a 3 kg payload body and randomized mass (1–3 kg). |
+
+### Runner Configs (how the policy and estimator are trained)
+
+| File | Purpose |
+|---|---|
+| `agents/rsl_rl_lowlevel_cfg.py` | **Base runner.** Defines `LowLevelRunnerCfg`: PPO actor/critic architecture [512,256,128], estimator architecture (TCN encoder, force head, reconstruction decoder), 3-phase training gates, compliance parameters. Also defines `LowLevelNoEstRunnerCfg` for training without an estimator. |
+| `agents/rsl_rl_ablation_cfg.py` | **Ablation runner variants.** Overrides estimator hyperparameters (history length, hidden dims, force_dim, TCN toggle, loss weights) for each ablation. Each class inherits from `LowLevelRunnerCfg` and changes only the relevant parameters. |
+
+### Force Estimator (the learned wrench predictor)
+
+| File | Purpose |
+|---|---|
+| `estimator/force_estimator.py` | TCN-based network: temporal conv preprocessor → MLP encoder [128,64] → force head [32,16] → N-dim wrench. Optional reconstruction decoder for auxiliary loss. |
+| `estimator/obs_history_buffer.py` | Sliding window buffer collecting H timesteps × 57 proprioceptive dims. Fed to the estimator each step. |
+| `estimator/compliant_on_policy_runner.py` | Joint training runner. Extends RSL-RL's `OnPolicyRunner` with: (1) force estimator training via supervised loss against GT, (2) 3-phase curriculum (walking → forces → linear mapping), (3) admittance compliance module. |
+
+### MDP Components (observations, rewards, events)
+
+All in `tasks/manager_based/go2_rl_lab/mdp/`:
+
+| File | Purpose |
+|---|---|
+| `observations.py` | Observation terms: joint states, angular velocity, gravity, applied torques, force estimate, privileged terms (GT force, base velocity, contacts) |
+| `rewards.py` | Reward terms: velocity tracking, standing pose, smoothness, action rate, foot contact penalties |
+| `events.py` | Force application: persistent XYZ/wrench forces, trapezoid profiles, randomization events (mass, friction, push) |
+| `curriculums.py` | Standard curriculum terms (terrain difficulty, command ranges) |
+| `force_magnitude_curriculum.py` | Force magnitude scheduling (hard gate, linear ramp, bucketed) |
+| `temporal_stage_curriculum.py` | 3-phase training stage management |
 
 ## Task Configurations
 
-All environments follow the naming pattern `Go2-Est-<Axis>-<Variant>-v0` and are registered in `source/go2_rl_lab/go2_rl_lab/tasks/manager_based/go2_rl_lab/__init__.py`.
+All environments follow the naming pattern `Go2-Est-<Axis>-<Variant>-v0` and are registered in `__init__.py`. Each task pairs an env config with a runner config.
 
 ### Deployed and Base Configurations
 
-| Task ID | Description |
-|---|---|
-| `Go2-Est-Deploy-v0` | Deployed configuration: 6D wrench, TCN, H=30, big net |
-| `Go2-Est-Payload-v0` | Payload transport (1–3 kg randomized mass) |
-| `Go2-LowLevel-v0` | Base locomotion + 3D force estimation |
-| `Go2-LowLevel-NoEst-v0` | Base locomotion without force estimator |
-
-### Ablation Study (Report Appendix A)
-
-| Task ID | Ablation axis | Variation |
+| Task ID | Env config | Runner config |
 |---|---|---|
-| `Go2-Est-History-H10-v0` | History length | H=10 steps |
-| `Go2-Est-History-H20-v0` | History length | H=20 steps |
-| `Go2-Est-History-H30-v0` | History length | H=30 steps (baseline) |
-| `Go2-Est-History-H40-v0` | History length | H=40 steps |
-| `Go2-Est-TCN-None-v0` | TCN preprocessor | MLP encoder only |
-| `Go2-Est-TCN-Pre-v0` | TCN preprocessor | TCN temporal convolution |
-| `Go2-Est-NetSize-Half-v0` | Network capacity | Half width |
-| `Go2-Est-NetSize-Default-v0` | Network capacity | Default width (baseline) |
-| `Go2-Est-NetSize-Double-v0` | Network capacity | Double width |
-| `Go2-Est-RecLoss-With-v0` | Reconstruction loss | Auxiliary reconstruction |
-| `Go2-Est-RecLoss-None-v0` | Reconstruction loss | No reconstruction |
-| `Go2-Est-RecLoss-NoneEstAcc-v0` | Reconstruction loss | No rec + est-accuracy reward |
-| `Go2-Est-Dim-2D-v0` | Wrench dimensionality | F_x, F_y |
-| `Go2-Est-Dim-3DxyYaw-v0` | Wrench dimensionality | F_x, F_y, τ_yaw |
-| `Go2-Est-Dim-4D-v0` | Wrench dimensionality | F_x, F_y, F_z, τ_yaw |
-| `Go2-Est-Dim-6D-v0` | Wrench dimensionality | Full 6D, default net |
-| `Go2-Est-Dim-6DBig-v0` | Wrench dimensionality | Full 6D, big net |
-| `Go2-Est-PD-Low-v0` | PD gains | Kp=8, Kd=0.4 (baseline) |
-| `Go2-Est-PD-Default-v0` | PD gains | Kp=25, Kd=0.5 (Unitree default) |
+| `Go2-Est-Deploy-v0` | `Go26DctrlEnvCfg` | `Ablation6DctrlTotal50Cfg` |
+| `Go2-Est-Payload-v0` | `LowLevelPayloadEnvCfg` | `AblationP18Cfg` |
+| `Go2-LowLevel-v0` | `LowLevelEnvCfg` | `LowLevelRunnerCfg` |
+| `Go2-LowLevel-NoEst-v0` | `LowLevelNoEstEnvCfg` | `LowLevelNoEstRunnerCfg` |
+
+### Ablation Study — Estimator Architecture (Report Chapter 5)
+
+| Task ID | Ablation axis | What changes |
+|---|---|---|
+| `Go2-Est-History-H10-v0` | History length | `temporal_steps=10` in runner |
+| `Go2-Est-History-H20-v0` | History length | `temporal_steps=20` |
+| `Go2-Est-History-H30-v0` | History length | `temporal_steps=30` (baseline) |
+| `Go2-Est-History-H40-v0` | History length | `temporal_steps=40` |
+| `Go2-Est-TCN-None-v0` | TCN preprocessor | `use_tcn=False` in runner — MLP encoder only |
+| `Go2-Est-TCN-Pre-v0` | TCN preprocessor | `use_tcn=True` — temporal conv before MLP |
+| `Go2-Est-NetSize-Half-v0` | Network capacity | Encoder [64,32], head [16,8] |
+| `Go2-Est-NetSize-Default-v0` | Network capacity | Encoder [128,64], head [32,16] (baseline) |
+| `Go2-Est-NetSize-Double-v0` | Network capacity | Encoder [256,128], head [64,32] |
+| `Go2-Est-RecLoss-With-v0` | Reconstruction loss | `rec_loss_weight=1.0` — decoder active |
+| `Go2-Est-RecLoss-None-v0` | Reconstruction loss | `rec_loss_weight=0` — no decoder |
+| `Go2-Est-RecLoss-NoneEstAcc-v0` | Reconstruction loss | No decoder + est-accuracy reward in env |
+| `Go2-Est-Dim-2D-v0` | Wrench dimensionality | `force_dim=2` (Fx, Fy) |
+| `Go2-Est-Dim-3DxyYaw-v0` | Wrench dimensionality | `force_dim=3` (Fx, Fy, τ_yaw) |
+| `Go2-Est-Dim-4D-v0` | Wrench dimensionality | `force_dim=4` (Fx, Fy, Fz, τ_yaw) |
+| `Go2-Est-Dim-6D-v0` | Wrench dimensionality | `force_dim=6` (full wrench), default net |
+| `Go2-Est-Dim-6DBig-v0` | Wrench dimensionality | `force_dim=6`, bigger encoder [256,128] |
+| `Go2-Est-PD-Low-v0` | PD gains | Kp=8, Kd=0.4 (env change — lower gains improve force observability) |
+| `Go2-Est-PD-Default-v0` | PD gains | Kp=25, Kd=0.5 (Unitree factory defaults) |
 
 ### Domain Randomization and Observability (Report Section 5.1.6)
 
-| Task ID | What varies |
+| Task ID | What changes (env-level) |
 |---|---|
-| `Go2-Est-DomRand-Full-v0` | Full randomization (mass, pushes, obs noise) |
-| `Go2-Est-DomRand-NoMass-v0` | No mass randomization |
-| `Go2-Est-DomRand-None-v0` | No randomization at all |
-| `Go2-Est-Curriculum-HardGate-v0` | Hard step function force gate |
-| `Go2-Est-Curriculum-LinearRamp-v0` | Linear ramp 10→30 N over 2500 iterations |
-| `Go2-Est-Curriculum-Bucketed-v0` | Bucketed 10/20/30 N × 1000 iterations |
-| `Go2-Est-Priv-All-v0` | All privileged inputs (mass, velocity, contacts) |
-| `Go2-Est-Priv-AllNoRand-v0` | All privileged + no randomization |
-| `Go2-Est-Priv-Velocity-v0` | Base linear velocity only |
-| `Go2-Est-Priv-Contacts-v0` | Foot contact forces only |
-
-## Force Estimator and Runner
-
-| File | Description |
-|---|---|
-| `force_estimator.py` | TCN-based force estimator network (encoder + force head + optional reconstruction decoder) |
-| `obs_history_buffer.py` | Sliding window history buffer (H steps × 57 proprioceptive dims) |
-| `compliant_on_policy_runner.py` | Joint training runner: PPO locomotion policy + supervised force estimator |
-
-All files in `source/go2_rl_lab/go2_rl_lab/estimator/`. The primary training pipeline uses `compliant_on_policy_runner.py`, which trains the locomotion policy and force estimator jointly. The estimator is activated after the policy reaches a reward threshold, and force application begins after directional accuracy meets a gate condition.
+| `Go2-Est-DomRand-Full-v0` | Full randomization: mass ±[−1,+3] kg, obs noise, random pushes |
+| `Go2-Est-DomRand-NoMass-v0` | Removes mass randomization only |
+| `Go2-Est-DomRand-None-v0` | No randomization at all (clean simulation) |
+| `Go2-Est-Curriculum-HardGate-v0` | Hard step function: forces activate at iteration threshold |
+| `Go2-Est-Curriculum-LinearRamp-v0` | Linear ramp from 10→30 N over 2500 iterations |
+| `Go2-Est-Curriculum-Bucketed-v0` | Bucketed: 10/20/30 N at iterations 0/1000/2000 |
+| `Go2-Est-Priv-All-v0` | Privileged inputs added to estimator: mass, base vel, contacts |
+| `Go2-Est-Priv-AllNoRand-v0` | All privileged + no randomization (estimation floor) |
+| `Go2-Est-Priv-Velocity-v0` | Base linear velocity added as privileged input |
+| `Go2-Est-Priv-Contacts-v0` | Foot contact forces added as privileged input |
 
 ## Training
 
