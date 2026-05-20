@@ -208,13 +208,15 @@ Configuration files in `deploy/deploy_real/configs/` specify the policy path, es
 ---
 
 <p align="center">
-  <img src="docs/ethrc_black.png" alt="ETH Robotics Center" height="40"/>
+  <a href="https://www.ethrobotics.ch/"><img src="docs/ethrc_black.png" alt="ETH Robotics Club" height="40"/></a>
   &nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="docs/rsl_logo.png" alt="Robotic Systems Lab" height="40"/>
+  <a href="https://rsl.ethz.ch/"><img src="docs/rsl_logo.png" alt="Robotic Systems Lab" height="40"/></a>
+  &nbsp;&nbsp;&nbsp;&nbsp;
+  <a href="https://nunu.ai/"><img src="docs/nunu_ai_logo.png" alt="Nunu AI" height="40"/></a>
 </p>
 
 <p align="center">
-  <sub>Thanks to the <a href="https://center-for-robotics.ethz.ch/">ETH Robotics Center</a>, <a href="https://rsl.ethz.ch/">Robotic Systems Lab</a>, and <a href="https://nunu.ai/">Nunu AI</a></sub>
+  <sub>Thanks to the <a href="https://www.ethrobotics.ch/">ETH Robotics Club</a>, <a href="https://rsl.ethz.ch/">Robotic Systems Lab</a>, and <a href="https://nunu.ai/">Nunu AI</a></sub>
 </p>
 
 <p align="center">
