@@ -34,16 +34,6 @@ Second, we present an extensive evaluation of the force estimator and the compli
 
 ## Results
 
-Deployed estimator per-axis accuracy (training-regime rollout, 4096 environments, 20 s):
-
-| Component | MAE ± std | Relative error |
-|---|---|---|
-| F_x | 3.00 ± 0.61 N | 36% |
-| F_y | 2.57 ± 0.47 N | |
-| F_z | 6.24 ± 2.81 N | |
-| τ_yaw | 0.57 ± 0.12 Nm | 9.8% |
-| **Angular error (median)** | **4.1 deg** | |
-
 Comparison under training-regime and OU (continuously varying) disturbance protocols:
 
 | Metric | Training-regime | OU disturbance |
@@ -206,14 +196,6 @@ python deploy/deploy_real/deploy_6dctrl.py <network_interface> go2_ablation_6dct
 ```
 
 Configuration files in `deploy/deploy_real/configs/` specify the policy path, estimator path, observation dimensions, and compliance gain.
-
-## Key Design Choices
-
-- **PD gains**: Kp=8, Kd=0.4 (lower than Unitree defaults to improve exploration and force observability)
-- **Estimator**: TCN preprocessor, H=30 history steps, 6D wrench output
-- **Force curriculum**: Hard gate after reward threshold, forces up to 30 N per axis
-- **Domain randomization**: Base mass (-1.0 to +3.0 kg), observation noise, random pushes
-- **Admittance control**: First-order, gain k adjustable at deployment
 
 ## Dependencies
 
