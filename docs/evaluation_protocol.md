@@ -98,10 +98,9 @@ python scripts/rsl_rl/eval/static_360_eval.py \
   --force_hold_s 4.0
 ```
 
-`<TASK>` must match the run's task registration. For the 20 N runs it is
-`Go2-Ablation-A1-v0`, etc.; for the H-series use the matching
-`Go2-Ablation-H1-50N-v0` etc.; for the S-series use
-`Go2-Ablation-S1-v0` etc.
+`<TASK>` must match the run's task registration. Use the `Go2-Est-*`
+task IDs (e.g., `Go2-Est-History-H10-v0`, `Go2-Est-Deploy-v0`).
+See `__init__.py` for the full registry.
 
 ### 2.2 Runs to execute for the master table
 

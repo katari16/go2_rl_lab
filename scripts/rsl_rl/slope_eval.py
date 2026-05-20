@@ -19,9 +19,7 @@ it? On flat ground with no applied force the estimate should be ~0.
 On a slope it will drift — this eval makes that visible.
 
 Usage:
-    python scripts/rsl_rl/slope_eval.py --task Go2-Ablation-A2-v0 \\
-        --checkpoint logs/rsl_rl/ablation_A2_h40_3d_rec/.../model_10000.pt \\
-        --slope_deg 12 --compliance_k 0.06 --show_est --show_adj --real-time
+    python scripts/rsl_rl/slope_eval.py --task Go2-Est-History-H40-v0 --checkpoint logs/rsl_rl/ablation_A2_h40_3d_rec/.../model_10000.pt --slope_deg 12 --compliance_k 0.06 --show_est --show_adj --real-time
 """
 
 """Launch Isaac Sim Simulator first."""

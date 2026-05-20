@@ -116,19 +116,3 @@ class LowLevelNoEstRunnerCfg(RslRlOnPolicyRunnerCfg):
     )
 
 
-@configclass
-class LowLevelPaceRunnerCfg(LowLevelRunnerCfg):
-    """Low-level locomotion runner — PACE actuator model."""
-    experiment_name: str = "go2_lowlevel_pace"
-
-
-@configclass
-class LowLevelPaceAprilRunnerCfg(LowLevelRunnerCfg):
-    """Low-level locomotion runner — PACE April actuator model (run 26_04_12_23-04-12)."""
-    experiment_name: str = "go2_lowlevel_pace_april"
-
-
-@configclass
-class LowLevelPaceApril14RunnerCfg(LowLevelRunnerCfg):
-    """Low-level locomotion runner — PACE April-14 actuator model (run 26_04_14_09-41-22)."""
-    experiment_name: str = "go2_lowlevel_pace_april14"

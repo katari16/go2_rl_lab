@@ -7,7 +7,7 @@ Usage:
     python scripts/rsl_rl/eval/analyze_static_360.py \
         data/eval/go2_lowlevel/static_360_2026-04-07_13-34-42
     python scripts/rsl_rl/eval/analyze_static_360.py \
-        data/eval/ablation_S6/static_360_... --task Go2-Ablation-S6-v0
+        data/eval/ablation_S6/static_360_... --task Go2-Est-Deploy-v0
 """
 
 import argparse

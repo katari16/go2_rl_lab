@@ -8,13 +8,10 @@ compared on the exact same perturbation pattern.
 
 Usage:
     # Generate a new sequence and evaluate:
-    python scripts/rsl_rl/transient_eval.py --task Go2-Ablation-H15-50N-v0 \
-        --checkpoint <path> --num_changes 20 --hold_s 3.0 \
-        --force_magnitudes 10 20 30 40 --save_sequence data/eval/force_seq.json
+    python scripts/rsl_rl/transient_eval.py --task Go2-Est-Deploy-v0 --checkpoint <path> --num_changes 20 --hold_s 3.0 --force_magnitudes 10 20 30 40 --save_sequence data/eval/force_seq.json
 
     # Reuse the same sequence on a different checkpoint:
-    python scripts/rsl_rl/transient_eval.py --task Go2-Ablation-H13b-50N-v0 \
-        --checkpoint <path2> --load_sequence data/eval/force_seq.json
+    python scripts/rsl_rl/transient_eval.py --task Go2-Est-Deploy-v0 --checkpoint <path2> --load_sequence data/eval/force_seq.json
 """
 
 """Launch Isaac Sim Simulator first."""
