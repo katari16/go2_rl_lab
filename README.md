@@ -6,22 +6,16 @@ Bachelor Thesis, Spring Term 2026 — Robotic Systems Lab (RSL), ETH Zurich
 
 *Author:* Hans Baumann-Ortiz | *Supervisors:* Filip Bjelonic, William Talbot | *Lecturer:* Prof. Dr. Marco Hutter
 
-<table align="center">
+<table align="center" width="100%">
   <tr>
-    <td align="center"><img src="docs/gifs_robobarrow/stage1_demo.gif" width="320"/><br><sub>Force-compliant walking</sub></td>
-    <td align="center"><img src="docs/gifs_robobarrow/constructionsite.gif" width="320"/><br><sub>Construction site deployment</sub></td>
+    <td align="center" width="50%"><img src="docs/gifs_robobarrow/stage1_demo.gif" width="100%"/><br><sub>Compliant control</sub></td>
+    <td align="center" width="50%"><img src="docs/gifs_robobarrow/constructionsite.gif" width="100%"/><br><sub>Construction site deployment</sub></td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/gifs_robobarrow/sim_linear_mapping.gif" width="320"/><br><sub>Sim: admittance compliance</sub></td>
-    <td align="center"><img src="docs/gifs_robobarrow/stage3_payload_waterbag.gif" width="320"/><br><sub>3 kg payload transport</sub></td>
+    <td align="center" width="50%"><img src="docs/gifs_robobarrow/sim_linear_mapping.gif" width="100%"/><br><sub>Sim: admittance compliance</sub></td>
+    <td align="center" width="50%"><img src="docs/gifs_robobarrow/stage3_payload_waterbag.gif" width="100%"/><br><sub>3 kg payload transport</sub></td>
   </tr>
 </table>
-
-<p align="center">
-  <img src="docs/main_figure_robobarrow.png" alt="RoboBarrow real-world deployment" width="600"/>
-  <br>
-  <em>Figure 1.1: Demonstration of force-compliant control on the Unitree Go2. (A) Linear compliance: pulling the robot along a 2.0 m trajectory. (B) Deployment on gravel terrain at a construction site. (C) Force-guided navigation through a narrow environment. (D) Payload transport: pushing the robot while carrying a 3 kg payload over 4.0 m. (E) Yaw torque compliance: steering the robot's heading through sustained applied torques. (F) Force-guided locomotion on a rugged 13° slope at a construction site.</em>
-</p>
 
 ## Motivation
 
@@ -44,6 +38,12 @@ Legged robots can traverse terrain that wheeled platforms cannot — but they la
 </p>
 
 ## Results
+
+<p align="center">
+  <img src="docs/main_figure_robobarrow.png" alt="RoboBarrow real-world deployment" width="700"/>
+  <br>
+  <em>Figure 1.1: Demonstration of force-compliant control on the Unitree Go2. (A) Linear compliance: pulling the robot along a 2.0 m trajectory. (B) Deployment on gravel terrain at a construction site. (C) Force-guided navigation through a narrow environment. (D) Payload transport: pushing the robot while carrying a 3 kg payload over 4.0 m. (E) Yaw torque compliance: steering the robot's heading through sustained applied torques. (F) Force-guided locomotion on a rugged 13° slope at a construction site.</em>
+</p>
 
 | Metric | Training-regime | OU disturbance |
 |---|---|---|
@@ -172,7 +172,7 @@ python deploy/deploy_real/deploy_6dctrl.py <network_interface> go2_ablation_6dct
 ---
 
 <p align="center">
-  <img src="docs/gifs_robobarrow/double_go2.gif" width="400"/>
+  <img src="docs/gifs_robobarrow/double_go2.gif" width="100%"/>
 </p>
 
 ---
