@@ -2,7 +2,7 @@
 
 **Proprioceptive Force and Wrench Estimation for Compliant Quadrupedal Locomotion**
 
-Bachelor Thesis, Spring Term 2026 — Robotic Systems Lab (RSL), ETH Zurich
+Robotic Systems Lab (RSL), ETH Zurich
 
 *Author:* Hans Baumann-Ortiz | *Supervisors:* Filip Bjelonic, William Talbot | *Lecturer:* Prof. Dr. Marco Hutter
 
